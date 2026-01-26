@@ -9,6 +9,10 @@
         "prettier": "^3.1.1",
         "turbo": "^2.11.7"
       }
+    },
+    "packages/typescript-config": {
+      "name": "@repo/typescript-config",
+      "version": "0.0.0"
     }
   },
   "packages": {
@@ -4207,6 +4211,9 @@
         ]
       },
       "sha512-N7mRjHLW/+KWxMp9IHRWyE3VIkeG1m3PnZJAGEFLCN8VFb7e4VfI567o7tE/HYcdcXCylw+Eqhlciz8gDeQ71g=="
+    ],
+    "@repo/typescript-config": [
+      "@repo/typescript-config@workspace:packages/typescript-config"
     ],
     "@rollup/rollup-android-arm-eabi": [
       "@rollup/rollup-android-arm-eabi@4.64.0",
