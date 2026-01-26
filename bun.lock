@@ -10,6 +10,19 @@
         "turbo": "^2.11.7"
       }
     },
+    "packages/eslint-config": {
+      "name": "@repo/eslint-config",
+      "version": "0.0.0",
+      "dependencies": {
+        "@eslint/js": "^9.39.0",
+        "eslint": "^9.39.0",
+        "eslint-config-next": "16.3.3",
+        "eslint-config-prettier": "^10.1.0",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "globals": "^16.0.0",
+        "typescript-eslint": "^8.46.0"
+      }
+    },
     "packages/typescript-config": {
       "name": "@repo/typescript-config",
       "version": "0.0.0"
@@ -4211,6 +4224,9 @@
         ]
       },
       "sha512-N7mRjHLW/+KWxMp9IHRWyE3VIkeG1m3PnZJAGEFLCN8VFb7e4VfI567o7tE/HYcdcXCylw+Eqhlciz8gDeQ71g=="
+    ],
+    "@repo/eslint-config": [
+      "@repo/eslint-config@workspace:packages/eslint-config"
     ],
     "@repo/typescript-config": [
       "@repo/typescript-config@workspace:packages/typescript-config"
