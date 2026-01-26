@@ -10,6 +10,30 @@
         "turbo": "^2.11.7"
       }
     },
+    "packages/contracts": {
+      "name": "@repo/contracts",
+      "version": "0.0.0",
+      "dependencies": {
+        "@repo/core": "*",
+        "zod": "^4.1.0"
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "eslint": "^9.39.0",
+        "typescript": "5.9.2"
+      }
+    },
+    "packages/core": {
+      "name": "@repo/core",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "eslint": "^9.39.0",
+        "typescript": "5.9.2"
+      }
+    },
     "packages/eslint-config": {
       "name": "@repo/eslint-config",
       "version": "0.0.0",
@@ -4239,6 +4263,12 @@
         ]
       },
       "sha512-N7mRjHLW/+KWxMp9IHRWyE3VIkeG1m3PnZJAGEFLCN8VFb7e4VfI567o7tE/HYcdcXCylw+Eqhlciz8gDeQ71g=="
+    ],
+    "@repo/contracts": [
+      "@repo/contracts@workspace:packages/contracts"
+    ],
+    "@repo/core": [
+      "@repo/core@workspace:packages/core"
     ],
     "@repo/eslint-config": [
       "@repo/eslint-config@workspace:packages/eslint-config"
