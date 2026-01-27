@@ -2,6 +2,7 @@
 export * from "./types";
 export * from "./money";
 export * from "./dates";
+export * from "./accounting";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";
@@ -13,6 +14,7 @@ export { firmService, type FirmWithYear } from "./services/firmService";
 export { partyService, type PartyListRow, type PartyDetail } from "./services/partyService";
 export { itemService, type ItemListRow, type ItemDetail } from "./services/itemService";
 export { ledgerService, type LedgerWithBalance } from "./services/ledgerService";
+export { accountService } from "./services/accountService";
 export { settingsService, type InvoiceSettingsView } from "./services/settingsService";
 export { unitService, type UnitRow } from "./services/unitService";
 export { type FirmRow } from "./services/firmService";
