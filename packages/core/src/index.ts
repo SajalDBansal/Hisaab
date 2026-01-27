@@ -22,3 +22,4 @@ export { cleanItem, cleanParty } from "./mock/db";
 // The write rules (numbering, GST, settling bills), run by the API on a snapshot of the firm's books
 export { updateInvoiceSettings } from "./mock/db";
 export * from "./precision";
+export { checkInvoiceNumbers } from "./accounting/invoiceValidation";
