@@ -2,6 +2,7 @@
 export * from "./types";
 export * from "./money";
 export * from "./dates";
+export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";
 export * from "./states";
