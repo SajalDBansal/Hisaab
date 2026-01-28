@@ -20,6 +20,7 @@ export { accountService } from "./services/accountService";
 export { settingsService, type InvoiceSettingsView } from "./services/settingsService";
 export { unitService, type UnitRow } from "./services/unitService";
 export { type FirmRow } from "./services/firmService";
+export { bankService, type ReconciliationView } from "./services/bankService";
 export * from "./text";
 // For the API: the demo books, used to fill a local database (db/seed.ts)
 export { buildSeed, secondDemoFirm, blankBooks } from "./mock/seed";
