@@ -26,7 +26,7 @@ import { voucherChanges } from "../accounting/audit";
 import { checkUnit } from "../units";
 import { checkContra, checkItem, checkNewFirm, checkParty } from "../validation";
 import { addDays, financialYear } from "../dates";
-import type { AuditAction, AuditChange, AuditEntry, GstMode, Firm, FirmUpdate, ID, InvoiceLine, InvoiceSettings, ItemInput, PartyInput, ReminderSettings, StoredDocument, TeamMember, UnitDef, ISODate, Item, Ledger, NewExpenseInput, NewInvoiceInput, NewJournalInput, NewContraInput, OrderType, NewNoteInput, NewMoneyInput, Party, Voucher, VoucherType } from "../types";
+import type { AuditAction, AuditChange, AuditEntry, GstMode, Firm, FirmUpdate, ID, InvoiceLine, InvoiceSettings, ItemInput, PartyInput, ReminderSettings, StoredDocument, TeamMember, UnitDef, ISODate, Item, Ledger, NewExpenseInput, NewInvoiceInput, NewJournalInput, NewContraInput, NewOrderInput, OrderType, NewNoteInput, NewMoneyInput, Party, Voucher, VoucherType } from "../types";
 export interface Db {
     accounts?: CustomAccount[];
     firm: Firm;
@@ -1086,4 +1086,51 @@ function markConverted(db: Db, sourceId: ID, into: Voucher, partyId: ID) {
     source.convertedToId = into.id;
     into.sourceId = source.id;
     logAudit(db, "converted", source, [], `Turned into ${into.number}`);
+}
+export function createOrder(db: Db, type: OrderType, input: NewOrderInput, options: CreateOptions = {}): Voucher {
+    const party = findParty(db, input.partyId);
+    const wantSupplier = type === "purchase-order";
+    if ((party.type === "supplier") !== wantSupplier)
+        throw new Error(wantSupplier ? "Pick a supplier." : "Pick a customer.");
+    const interState = party.stateCode !== db.firm.stateCode;
+    const mode = gstModeOf(db.firm);
+    const { lines, charges } = billParts(db, type, mode, input);
+    if (!lines.length)
+        throw new Error("Add at least one item.");
+    if (type === "delivery-note" && !options.legacyStock) {
+        const selected = selectStockLines(db.items, db.vouchers, lines, input.date);
+        if (selected.some((l) => l.bookScope !== selected[0].bookScope))
+            throw new Error("Use separate delivery notes for GST and non-GST stock.");
+        lines.splice(0, lines.length, ...selected);
+    }
+    const totals = calcInvoice({ lines, charges, interState });
+    const voucher: Voucher = {
+        id: newId("v"),
+        type,
+        number: takeNumber(db, type, input.date),
+        date: input.date,
+        status: options.status ?? "posted",
+        partyId: party.id,
+        taxMode: mode,
+        snapshot: captureVoucherSnapshot(db, party.id, lines),
+        lines,
+        charges,
+        interState,
+        validUntil: type === "estimate"
+            ? (input.validUntil ?? addDays(input.date, 15))
+            : undefined,
+        amount: totals.grandTotal,
+        narration: input.narration,
+        pendingSync: options.pendingSync,
+        createdAt: new Date().toISOString(),
+    };
+    if (type === "delivery-note") {
+        voucher.bookScope = lines[0].bookScope;
+        assertLotsAvailable(db.items, [...db.vouchers, voucher], lines.flatMap((l) => (l.stockLotId ? [l.stockLotId] : [])));
+    }
+    if (input.sourceId)
+        markConverted(db, input.sourceId, voucher, party.id);
+    db.vouchers.push(voucher);
+    logAudit(db, "created", voucher);
+    return voucher;
 }
