@@ -1,6 +1,7 @@
 export * from "./invoice";
 export * from "./bills";
 export * from "./postings";
+export * from "./stock";
 export * from "./tds";
 export * from "./accounts";
 export * from "./financing";
