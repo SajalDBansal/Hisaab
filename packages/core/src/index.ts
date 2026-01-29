@@ -2,6 +2,7 @@
 export * from "./types";
 export * from "./money";
 export * from "./dates";
+export * from "./reporting";
 export * from "./accounting";
 export * from "./accounting/stockLots";
 export * from "./accounting/bookScope";
@@ -16,7 +17,9 @@ export { partyService, type PartyListRow, type PartyDetail } from "./services/pa
 export { itemService, type ItemListRow, type ItemDetail } from "./services/itemService";
 export { ledgerService, type LedgerWithBalance } from "./services/ledgerService";
 export { voucherService, type InvoiceRow, allowedDates, type OrderRow, type ReturnableBill, type VoucherDetail, type VoucherFilters } from "./services/voucherService";
+export { reportService } from "./services/reportService";
 export { accountService } from "./services/accountService";
+export { gstService } from "./services/gstService";
 export { settingsService, type InvoiceSettingsView } from "./services/settingsService";
 export { unitService, type UnitRow } from "./services/unitService";
 export { type FirmRow } from "./services/firmService";
