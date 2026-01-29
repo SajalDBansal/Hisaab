@@ -26,7 +26,10 @@ export * from "./print/voucherHtml";
 export * from "./print/messages";
 export { printService, type PrintableVoucher } from "./services/printService";
 export { type FirmRow } from "./services/firmService";
+export { searchService, type SearchHit, type SearchResults } from "./services/searchService";
+export { notificationService, reminderService, type NoticeRow, type NoticeList } from "./services/notificationService";
 export { bankService, type ReconciliationView } from "./services/bankService";
+export { auditService } from "./services/auditService";
 export * from "./text";
 // For the API: the demo books, used to fill a local database (db/seed.ts)
 export { buildSeed, secondDemoFirm, blankBooks } from "./mock/seed";

@@ -1134,3 +1134,21 @@ export function createOrder(db: Db, type: OrderType, input: NewOrderInput, optio
     logAudit(db, "created", voucher);
     return voucher;
 }
+export function updateReminders(db: Db, patch: Partial<ReminderSettings>): ReminderSettings {
+    const next = { ...db.reminders, ...patch };
+    for (const k of ["daysBefore", "repeatEvery"] as const) {
+        if (!Number.isInteger(next[k]) || next[k] < 0 || next[k] > 60)
+            throw new Error("Days must be a whole number from 0 to 60.");
+    }
+    if (next.minAmount < 0)
+        throw new Error("Minimum amount can't be negative.");
+    db.reminders = next;
+    return next;
+}
+export function markReminded(db: Db, partyId: ID, date: ISODate): void {
+    findParty(db, partyId);
+    db.remindedOn[partyId] = date;
+}
+export function markNoticesRead(db: Db, ids: string[]): void {
+    db.readNotices = [...new Set([...db.readNotices, ...ids])].slice(-500);
+}
