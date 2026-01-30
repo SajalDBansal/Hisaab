@@ -10,8 +10,10 @@ import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
+import { firmRoutes } from "./modules/firms/firms.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
+import { registerFirmContext } from "./plugins/firm";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
 import { registerObservability } from "./plugins/observability";
@@ -77,7 +79,9 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
         await registerSwagger(app);
     const auth = createAuth({ env, db, email, log: app.log });
     await registerAuth(app, auth, db);
+    registerFirmContext(app, db);
     await app.register(systemRoutes, { readyChecks });
     await app.register(meRoutes, { db, prefix: "/v1" });
+    await app.register(firmRoutes, { db, auth, prefix: "/v1" });
     return app;
 }
