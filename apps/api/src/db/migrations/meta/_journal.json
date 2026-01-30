@@ -8,6 +8,20 @@
       "when": 1791445288524,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791445289110,
+      "tag": "0001_audit_log_append_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791447285094,
+      "tag": "0002_replaced_sessions",
+      "breakpoints": true
     }
   ]
 }

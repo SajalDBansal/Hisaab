@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import compress from "@fastify/compress";
 import Fastify from "fastify";
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
+import { createAuth } from "./auth/auth";
 import type { Env } from "./config/env";
 import type { Db } from "@repo/backend/db/client";
 import type { JobQueueClient } from "@repo/backend/jobs/queues";
@@ -9,6 +10,8 @@ import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
+import { meRoutes } from "./modules/me/me.routes";
+import { registerAuth } from "./plugins/auth";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
 import { registerObservability } from "./plugins/observability";
@@ -72,6 +75,9 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     app.addHook("onClose", async () => pdfStorage?.close());
     if (env.NODE_ENV !== "production")
         await registerSwagger(app);
+    const auth = createAuth({ env, db, email, log: app.log });
+    await registerAuth(app, auth, db);
     await app.register(systemRoutes, { readyChecks });
+    await app.register(meRoutes, { db, prefix: "/v1" });
     return app;
 }
