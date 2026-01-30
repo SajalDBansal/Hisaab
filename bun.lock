@@ -10,6 +10,32 @@
         "turbo": "^2.11.7"
       }
     },
+    "packages/backend": {
+      "name": "@repo/backend",
+      "version": "0.0.0",
+      "dependencies": {
+        "@aws-sdk/client-s3": "^3.1151.0",
+        "@aws-sdk/s3-request-presigner": "^3.1151.0",
+        "@repo/contracts": "*",
+        "@repo/core": "*",
+        "@sentry/node": "^11.7.0",
+        "bullmq": "^6.3.15",
+        "drizzle-orm": "^0.45.3",
+        "fastify": "^5.6.0",
+        "ioredis": "^6.0.0",
+        "pg": "^8.23.1",
+        "uuid": "^14.0.2",
+        "zod": "^4.1.0"
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "@types/node": "^24.0.0",
+        "@types/pg": "^8.23.1",
+        "eslint": "^9.39.0",
+        "typescript": "5.9.2"
+      }
+    },
     "packages/contracts": {
       "name": "@repo/contracts",
       "version": "0.0.0",
@@ -4263,6 +4289,9 @@
         ]
       },
       "sha512-N7mRjHLW/+KWxMp9IHRWyE3VIkeG1m3PnZJAGEFLCN8VFb7e4VfI567o7tE/HYcdcXCylw+Eqhlciz8gDeQ71g=="
+    ],
+    "@repo/backend": [
+      "@repo/backend@workspace:packages/backend"
     ],
     "@repo/contracts": [
       "@repo/contracts@workspace:packages/contracts"
