@@ -11,6 +11,9 @@ import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
 import { firmRoutes } from "./modules/firms/firms.routes";
+import { itemRoutes } from "./modules/masters/items.routes";
+import { ledgerRoutes } from "./modules/masters/ledgers.routes";
+import { partyRoutes } from "./modules/masters/parties.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
 import { registerCacheHelpers } from "./plugins/cache";
@@ -87,5 +90,8 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(systemRoutes, { readyChecks });
     await app.register(meRoutes, { db, prefix: "/v1" });
     await app.register(firmRoutes, { db, auth, prefix: "/v1" });
+    await app.register(partyRoutes, { db, prefix: "/v1" });
+    await app.register(itemRoutes, { db, prefix: "/v1" });
+    await app.register(ledgerRoutes, { db, prefix: "/v1" });
     return app;
 }
