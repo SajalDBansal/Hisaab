@@ -13,10 +13,12 @@ import { fakeStorage, type FileStorage } from "./lib/storage";
 import { firmRoutes } from "./modules/firms/firms.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
+import { registerCacheHelpers } from "./plugins/cache";
 import { registerFirmContext } from "./plugins/firm";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
 import { registerObservability } from "./plugins/observability";
+import { registerRateLimits } from "./plugins/rate-limit";
 import { registerSecurity } from "./plugins/security";
 import { registerSwagger } from "./plugins/swagger";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
@@ -66,6 +68,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     registerErrorHandling(app);
     await registerSecurity(app, env);
     await app.register(compress, { global: true, threshold: 1024 });
+    await registerRateLimits(app, redis);
     const reporter = createErrorReporter(app.log, {
         dsn: env.SENTRY_DSN,
         environment: env.SENTRY_ENVIRONMENT ?? env.NODE_ENV,
@@ -75,6 +78,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     });
     registerObservability(app, reporter);
     app.addHook("onClose", async () => pdfStorage?.close());
+    registerCacheHelpers(app, redis);
     if (env.NODE_ENV !== "production")
         await registerSwagger(app);
     const auth = createAuth({ env, db, email, log: app.log });
