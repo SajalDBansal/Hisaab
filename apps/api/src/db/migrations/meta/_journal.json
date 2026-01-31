@@ -29,6 +29,20 @@
       "when": 1791987253499,
       "tag": "0003_equal_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791996260000,
+      "tag": "0004_calm_cookie",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "0005_frozen_documents_sync",
+      "breakpoints": true
     }
   ]
 }

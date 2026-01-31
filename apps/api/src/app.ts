@@ -16,6 +16,7 @@ import { itemRoutes } from "./modules/masters/items.routes";
 import { ledgerRoutes } from "./modules/masters/ledgers.routes";
 import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
+import { syncRoutes } from "./modules/sync/sync.routes";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
 import { meRoutes } from "./modules/me/me.routes";
@@ -101,5 +102,6 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(reportRoutes, { db, prefix: "/v1" });
     await app.register(gstRoutes, { db, prefix: "/v1" });
     await app.register(searchRoutes, { db, prefix: "/v1" });
+    await app.register(syncRoutes, { db, prefix: "/v1" });
     return app;
 }
