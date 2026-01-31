@@ -11,8 +11,10 @@ import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
 import { firmRoutes } from "./modules/firms/firms.routes";
+import { gstRoutes } from "./modules/gst/gst.routes";
 import { itemRoutes } from "./modules/masters/items.routes";
 import { ledgerRoutes } from "./modules/masters/ledgers.routes";
+import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
@@ -96,6 +98,8 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(itemRoutes, { db, prefix: "/v1" });
     await app.register(ledgerRoutes, { db, prefix: "/v1" });
     await app.register(voucherRoutes, { db, pdfStorage, prefix: "/v1" });
+    await app.register(reportRoutes, { db, prefix: "/v1" });
+    await app.register(gstRoutes, { db, prefix: "/v1" });
     await app.register(searchRoutes, { db, prefix: "/v1" });
     return app;
 }
