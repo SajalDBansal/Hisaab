@@ -10,6 +10,7 @@ import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
+import { accountRoutes } from "./modules/accounts/accounts.routes";
 import { firmRoutes } from "./modules/firms/firms.routes";
 import { gstRoutes } from "./modules/gst/gst.routes";
 import { itemRoutes } from "./modules/masters/items.routes";
@@ -99,6 +100,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(itemRoutes, { db, prefix: "/v1" });
     await app.register(ledgerRoutes, { db, prefix: "/v1" });
     await app.register(voucherRoutes, { db, pdfStorage, prefix: "/v1" });
+    await app.register(accountRoutes, { db, prefix: "/v1" });
     await app.register(reportRoutes, { db, prefix: "/v1" });
     await app.register(gstRoutes, { db, prefix: "/v1" });
     await app.register(searchRoutes, { db, prefix: "/v1" });
