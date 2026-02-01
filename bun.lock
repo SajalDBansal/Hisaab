@@ -53,6 +53,52 @@
         "typescript": "5.9.2"
       }
     },
+    "apps/native": {
+      "name": "native",
+      "version": "1.0.0",
+      "dependencies": {
+        "@expo-google-fonts/nunito": "^0.4.2",
+        "@expo/vector-icons": "^15.0.2",
+        "@repo/contracts": "*",
+        "@repo/core": "*",
+        "@repo/ui": "*",
+        "@tanstack/react-query": "^5.90.0",
+        "expo": "~57.0.30",
+        "expo-constants": "~57.0.22",
+        "expo-crypto": "~57.0.4",
+        "expo-device": "~57.0.2",
+        "expo-document-picker": "~57.0.3",
+        "expo-file-system": "~57.0.7",
+        "expo-font": "~57.0.4",
+        "expo-image-manipulator": "~57.0.20",
+        "expo-image-picker": "~57.0.20",
+        "expo-linking": "~57.0.13",
+        "expo-local-authentication": "~57.0.3",
+        "expo-print": "~57.0.2",
+        "expo-router": "~57.0.28",
+        "expo-secure-store": "~57.0.4",
+        "expo-sharing": "~57.0.23",
+        "expo-status-bar": "~57.0.1",
+        "expo-system-ui": "~57.0.4",
+        "html2canvas": "^1.4.1",
+        "jspdf": "^4.2.1",
+        "react": "19.2.3",
+        "react-dom": "19.2.3",
+        "react-native": "0.86.3",
+        "react-native-safe-area-context": "~5.7.0",
+        "react-native-screens": "~4.26.0",
+        "react-native-svg": "15.15.4",
+        "react-native-web": "^0.21.0",
+        "react-native-webview": "13.16.1",
+        "zod": "^4.1.0"
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@types/react": "~19.2.10",
+        "eslint": "^9.39.0",
+        "typescript": "~6.0.3"
+      }
+    },
     "packages/backend": {
       "name": "@repo/backend",
       "version": "0.0.0",
@@ -10204,6 +10250,9 @@
         }
       },
       "sha512-PHI5f1O0EP5xJ9gQmFGMS6IZcrVvTjpXjz7Na41gTE7eE2hK11lg04CECCYEEjdc17EV4DO+fkGEtt7TpTaTiQ=="
+    ],
+    "native": [
+      "native@workspace:apps/native"
     ],
     "natural-compare": [
       "natural-compare@1.4.0",
