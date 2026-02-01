@@ -15,6 +15,7 @@ import { firmRoutes } from "./modules/firms/firms.routes";
 import { gstRoutes } from "./modules/gst/gst.routes";
 import { itemRoutes } from "./modules/masters/items.routes";
 import { ledgerRoutes } from "./modules/masters/ledgers.routes";
+import { notificationRoutes } from "./modules/notifications/notifications.routes";
 import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { syncRoutes } from "./modules/sync/sync.routes";
@@ -30,6 +31,9 @@ import { registerObservability } from "./plugins/observability";
 import { registerRateLimits } from "./plugins/rate-limit";
 import { registerSecurity } from "./plugins/security";
 import { registerSwagger } from "./plugins/swagger";
+import { settingsRoutes } from "./modules/settings/settings.routes";
+import { auditRoutes } from "./modules/settings/audit.routes";
+import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
 export type BuildAppOptions = {
     env: Pick<Env, "NODE_ENV" | "LOG_LEVEL" | "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "TRUSTED_ORIGINS" | "SENTRY_DSN" | "SENTRY_ENVIRONMENT" | "SENTRY_RELEASE" | "SENTRY_TRACES_SAMPLE_RATE"> & Partial<Pick<Env, "TRUSTED_PROXY_CIDRS" | "DOCUMENT_STORAGE_MAX_BYTES" | "DOCUMENT_STORAGE_MAX_FILES" | "APP_MODE">>;
@@ -103,7 +107,11 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(accountRoutes, { db, prefix: "/v1" });
     await app.register(reportRoutes, { db, prefix: "/v1" });
     await app.register(gstRoutes, { db, prefix: "/v1" });
+    await app.register(settingsRoutes, { db, prefix: "/v1" });
+    await app.register(auditRoutes, { db, prefix: "/v1" });
+    await app.register(reminderRoutes, { db, prefix: "/v1" });
     await app.register(searchRoutes, { db, prefix: "/v1" });
+    await app.register(notificationRoutes, { db, prefix: "/v1" });
     await app.register(syncRoutes, { db, prefix: "/v1" });
     return app;
 }
