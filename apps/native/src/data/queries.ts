@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { type Ledger, type NewFirmInput, type ReminderSettings, type DocumentKind, type FirmUpdate, type ItemInput, type PartyInput, type PeriodKey, type TaxScope, type TeamMember, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { financialYear, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -97,6 +97,27 @@ export const useLedgers = () => useQuery({
     queryKey: keys.ledgers,
     queryFn: (services) => services.ledgerService.listCashAndBank(),
 });
+export const useVouchers = (filters: VoucherFilters = {}) => useQuery({
+    queryKey: keys.vouchers(filters),
+    queryFn: (services) => services.voucherService.list(filters),
+});
+export const useVoucher = (id: string) => useQuery({
+    queryKey: keys.voucher(id),
+    queryFn: (services) => services.voucherService.get(id),
+    enabled: !!id,
+});
+/** Next voucher number; series "bos" = sales bill of supply. `date` picks the financial year. */
+export const useNextNumber = (type: VoucherType, series?: "bos" | "nongst", date?: string) => {
+    const fy = date ? financialYear(date).short : undefined;
+    return useQuery({
+        queryKey: keys.nextNumber(type, series, fy),
+        queryFn: (services) => services.voucherService.nextNumber(type, series, date),
+    });
+};
+export const useInvoices = (type: "sale" | "purchase") => useQuery({
+    queryKey: keys.invoices(type),
+    queryFn: (services) => services.voucherService.listInvoices(type),
+});
 export const useLedgerStatement = (ledgerId: string) => {
     const [tax] = useReportScope();
     return useQuery({
@@ -123,6 +144,17 @@ export const useReminder = (partyId: string) => useQuery({
     queryFn: (services) => services.printService.reminder(partyId),
     enabled: !!partyId,
 });
+/** Estimates / sales orders / challans / purchase orders, newest first. */
+export const useOrders = (type: OrderType) => useQuery({
+    queryKey: ["orders", type],
+    queryFn: (services) => services.voucherService.listOrders(type),
+});
+/** A bill's lines with what is left to return. */
+export const useReturnable = (billId: string) => useQuery({
+    queryKey: ["returnable", billId],
+    queryFn: (services) => services.voucherService.returnable(billId),
+    enabled: !!billId,
+});
 // ---- Writes -----------------------------------------------------------------
 /**
  * A new voucher changes balances, stock, reports and lists, so after saving
@@ -133,10 +165,70 @@ export function useRefreshAll() {
     const { userId } = useData();
     return () => client.invalidateQueries({ queryKey: ["books", userId] });
 }
+export function useCreateSale() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewInvoiceInput) => services.voucherService.createSale(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateSales() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewInvoiceInput) => services.voucherService.createSales(input),
+        onSuccess: refreshAll,
+    });
+}
+export const useStockLots = (date?: string) => useQuery({
+    queryKey: ["stockLots", date],
+    queryFn: (services) => services.itemService.lots(date),
+});
+export function useCreatePurchase() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewInvoiceInput) => services.voucherService.createPurchase(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateReceipt() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewMoneyInput) => services.voucherService.createReceipt(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreatePayment() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewMoneyInput) => services.voucherService.createPayment(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateExpense() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewExpenseInput) => services.voucherService.createExpense(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateJournal() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewJournalInput) => services.voucherService.createJournal(input),
+        onSuccess: refreshAll,
+    });
+}
 export function useUpdateFirm() {
     const refreshAll = useRefreshAll();
     return useMutation({
         mutationFn: (services, patch: FirmUpdate) => services.settingsService.updateFirm(patch),
+        onSuccess: refreshAll,
+    });
+}
+export function useUpdateInvoiceSettings() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, patch: Partial<InvoiceSettings>) => services.settingsService.updateInvoice(patch),
         onSuccess: refreshAll,
     });
 }
@@ -202,6 +294,47 @@ export function useRemoveUnit() {
     const refreshAll = useRefreshAll();
     return useMutation({
         mutationFn: (services, name: string) => services.unitService.remove(name),
+        onSuccess: refreshAll,
+    });
+}
+export function useCancelVoucher() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, args: {
+            id: string;
+            reason: string;
+            version?: number;
+        }) => services.voucherService.cancel(args.id, args.reason, args.version),
+        onSuccess: refreshAll,
+    });
+}
+export function useUpdateInvoice(id: string, version?: number) {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewInvoiceInput) => services.voucherService.updateInvoice(id, input, version),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateNote(kind: "credit" | "debit") {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewNoteInput) => kind === "credit"
+            ? services.voucherService.createCreditNote(input)
+            : services.voucherService.createDebitNote(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateContra() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewContraInput) => services.voucherService.createContra(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useCreateOrder(type: OrderType) {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewOrderInput) => services.voucherService.createOrder(type, input),
         onSuccess: refreshAll,
     });
 }
