@@ -172,6 +172,25 @@ export const usePickableAccounts = () => useQuery({
     queryKey: keys.pickableAccounts,
     queryFn: (services) => services.accountService.pickable(),
 });
+/** Composition firms: CMP-08 figures, this quarter first. */
+export const useCompositionQuarters = () => useQuery({
+    queryKey: ["compositionQuarters"],
+    queryFn: (services) => services.gstService.compositionQuarters(),
+});
+export const useGstMonths = () => useQuery({
+    queryKey: keys.gstMonths,
+    queryFn: (services) => services.gstService.months(),
+});
+export const useGstr1 = (month: string) => useQuery({
+    queryKey: keys.gstr1(month),
+    queryFn: (services) => services.gstService.gstr1(month),
+    enabled: !!month,
+});
+export const useGstr3b = (month: string) => useQuery({
+    queryKey: keys.gstr3b(month),
+    queryFn: (services) => services.gstService.gstr3b(month),
+    enabled: !!month,
+});
 export const useOutstanding = (type: PartyType) => {
     const [tax] = useReportScope();
     return useQuery({
