@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { type Ledger, type NewFirmInput, type ReminderSettings, type DocumentKind, type FirmUpdate, type PeriodKey, type TaxScope, type TeamMember, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { type Ledger, type NewFirmInput, type ReminderSettings, type DocumentKind, type FirmUpdate, type PartyInput, type PeriodKey, type TaxScope, type TeamMember, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -75,10 +75,27 @@ export const useDashboard = () => {
         queryFn: (s) => s.reportService.dashboard(tax),
     });
 };
+export const useParties = (type?: PartyType) => useQuery({
+    queryKey: keys.parties(type),
+    queryFn: (services) => services.partyService.list(type),
+});
+export const useParty = (id: string) => useQuery({
+    queryKey: keys.party(id),
+    queryFn: (services) => services.partyService.get(id),
+    enabled: !!id,
+});
 export const useLedgers = () => useQuery({
     queryKey: keys.ledgers,
     queryFn: (services) => services.ledgerService.listCashAndBank(),
 });
+export const useLedgerStatement = (ledgerId: string) => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.statement(ledgerId), tax],
+        queryFn: (services) => services.ledgerService.statement(ledgerId, tax),
+        enabled: !!ledgerId,
+    });
+};
 export const useInvoiceSettings = () => useQuery({
     queryKey: keys.invoiceSettings,
     queryFn: (services) => services.settingsService.invoice(),
@@ -131,6 +148,15 @@ export function useInviteMember() {
             email: string;
             role: Exclude<TeamMember["role"], "owner">;
         }) => services.settingsService.invite(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useSaveParty(id?: string, version?: number) {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: PartyInput) => id
+            ? services.partyService.update(id, input, version)
+            : services.partyService.create(input),
         onSuccess: refreshAll,
     });
 }
