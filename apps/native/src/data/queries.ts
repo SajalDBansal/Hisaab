@@ -172,6 +172,28 @@ export const usePickableAccounts = () => useQuery({
     queryKey: keys.pickableAccounts,
     queryFn: (services) => services.accountService.pickable(),
 });
+export const useOutstanding = (type: PartyType) => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.outstanding(type), tax],
+        queryFn: (services) => services.reportService.outstanding(type, tax),
+    });
+};
+export const useTradeSummary = (kind: "sale" | "purchase", period: PeriodKey, scope: TaxScope = "all") => useQuery({
+    queryKey: keys.tradeSummary(kind, period, scope),
+    queryFn: (services) => services.reportService.tradeSummary(kind, period, scope),
+});
+export const useExpenseSummary = (period: PeriodKey) => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.expenses(period), tax],
+        queryFn: (services) => services.reportService.expenses(period, tax),
+    });
+};
+export const useStockSummary = (scope: TaxScope = "all") => useQuery({
+    queryKey: keys.stock(scope),
+    queryFn: (services) => services.reportService.stock(scope),
+});
 export const useInvoiceSettings = () => useQuery({
     queryKey: keys.invoiceSettings,
     queryFn: (services) => services.settingsService.invoice(),
