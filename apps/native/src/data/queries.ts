@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { type Ledger, type NewFirmInput, type ReminderSettings, type DocumentKind, type FirmUpdate, type PartyInput, type PeriodKey, type TaxScope, type TeamMember, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { type Ledger, type NewFirmInput, type ReminderSettings, type DocumentKind, type FirmUpdate, type ItemInput, type PartyInput, type PeriodKey, type TaxScope, type TeamMember, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -84,6 +84,15 @@ export const useParty = (id: string) => useQuery({
     queryFn: (services) => services.partyService.get(id),
     enabled: !!id,
 });
+export const useItems = () => useQuery({
+    queryKey: keys.items,
+    queryFn: (services) => services.itemService.list(),
+});
+export const useItem = (id: string) => useQuery({
+    queryKey: keys.item(id),
+    queryFn: (services) => services.itemService.get(id),
+    enabled: !!id,
+});
 export const useLedgers = () => useQuery({
     queryKey: keys.ledgers,
     queryFn: (services) => services.ledgerService.listCashAndBank(),
@@ -157,6 +166,15 @@ export function useSaveParty(id?: string, version?: number) {
         mutationFn: (services, input: PartyInput) => id
             ? services.partyService.update(id, input, version)
             : services.partyService.create(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useSaveItem(id?: string, version?: number) {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: ItemInput) => id
+            ? services.itemService.update(id, input, version)
+            : services.itemService.create(input),
         onSuccess: refreshAll,
     });
 }
