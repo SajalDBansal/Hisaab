@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { financialYear, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -47,6 +47,18 @@ export const keys = {
     reconciliation: (ledgerId: string) => ["reconciliation", ledgerId] as const,
     backup: ["backup"] as const,
 };
+// ---- Reads ------------------------------------------------------------------
+export const useAccountMasters = () => useQuery({
+    queryKey: ["accountMasters"],
+    queryFn: (s) => s.accountService.list(),
+});
+export function useCreateAccount() {
+    const refresh = useRefreshAll();
+    return useMutation({
+        mutationFn: (s, input: AccountInput) => s.accountService.create(input),
+        onSuccess: refresh,
+    });
+}
 export function useCreateLedger() {
     const refresh = useRefreshAll();
     return useMutation({
@@ -126,6 +138,40 @@ export const useLedgerStatement = (ledgerId: string) => {
         enabled: !!ledgerId,
     });
 };
+// ---- Accounting and GST ----------------------------------------------------
+export const useChart = () => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.chart, tax],
+        queryFn: (s) => s.accountService.chart(tax),
+    });
+};
+export const useTrialBalance = () => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.trialBalance, tax],
+        queryFn: (s) => s.accountService.trialBalance(tax),
+    });
+};
+export const useFinalAccounts = (from?: string, to?: string) => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.finalAccounts, tax, from, to],
+        queryFn: (s) => s.accountService.finalAccounts(tax, from, to),
+    });
+};
+export const useAccountStatement = (key: string) => {
+    const [tax] = useReportScope();
+    return useQuery({
+        queryKey: [...keys.accountStatement(key), tax],
+        queryFn: (services) => services.accountService.statement(key, tax),
+        enabled: !!key,
+    });
+};
+export const usePickableAccounts = () => useQuery({
+    queryKey: keys.pickableAccounts,
+    queryFn: (services) => services.accountService.pickable(),
+});
 export const useInvoiceSettings = () => useQuery({
     queryKey: keys.invoiceSettings,
     queryFn: (services) => services.settingsService.invoice(),
@@ -395,6 +441,21 @@ export function useMarkReminderSent() {
     const refreshAll = useRefreshAll();
     return useMutation({
         mutationFn: (services, partyId: string) => services.reminderService.markSent(partyId),
+        onSuccess: refreshAll,
+    });
+}
+export const useReconciliation = (ledgerId: string) => useQuery({
+    queryKey: keys.reconciliation(ledgerId),
+    queryFn: (services) => services.bankService.reconciliation(ledgerId),
+    enabled: !!ledgerId,
+});
+export function useSetCleared(ledgerId: string) {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, { id, date }: {
+            id: string;
+            date: string | null;
+        }) => services.bankService.setCleared(id, date, ledgerId),
         onSuccess: refreshAll,
     });
 }
