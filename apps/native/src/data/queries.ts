@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type InvoiceTemplate, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type ReportRequest, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -191,6 +191,10 @@ export const useGstr3b = (month: string) => useQuery({
     queryFn: (services) => services.gstService.gstr3b(month),
     enabled: !!month,
 });
+// ---- Reports, settings and documents -----------------------------------------
+export const useExportReport = () => useMutation({
+    mutationFn: (s, input: ReportRequest) => s.reportService.exportReport(input),
+});
 export const useOutstanding = (type: PartyType) => {
     const [tax] = useReportScope();
     return useQuery({
@@ -224,6 +228,12 @@ export const useTeam = () => useQuery({
 export const useUnits = () => useQuery({
     queryKey: keys.units,
     queryFn: (services) => services.unitService.list(),
+});
+/** Printable HTML for a voucher; `template` previews another format. */
+export const usePrintable = (id: string, template?: InvoiceTemplate) => useQuery({
+    queryKey: ["printable", id, template ?? "saved"],
+    queryFn: (services) => services.printService.voucher(id, template),
+    enabled: !!id,
 });
 /** WhatsApp reminder text for a party. */
 export const useReminder = (partyId: string) => useQuery({
