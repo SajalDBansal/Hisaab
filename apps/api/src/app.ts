@@ -13,6 +13,7 @@ import { fakeStorage, type FileStorage } from "./lib/storage";
 import { accountRoutes } from "./modules/accounts/accounts.routes";
 import { firmRoutes } from "./modules/firms/firms.routes";
 import { gstRoutes } from "./modules/gst/gst.routes";
+import { documentRoutes } from "./modules/documents/documents.routes";
 import { itemRoutes } from "./modules/masters/items.routes";
 import { ledgerRoutes } from "./modules/masters/ledgers.routes";
 import { notificationRoutes } from "./modules/notifications/notifications.routes";
@@ -112,6 +113,15 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(auditRoutes, { db, prefix: "/v1" });
     await app.register(cashForecastRoutes, { db, prefix: "/v1" });
     await app.register(reminderRoutes, { db, prefix: "/v1" });
+    await app.register(documentRoutes, {
+        db,
+        storage,
+        prefix: "/v1",
+        limits: {
+            maxBytes: env.DOCUMENT_STORAGE_MAX_BYTES,
+            maxFiles: env.DOCUMENT_STORAGE_MAX_FILES,
+        },
+    });
     await app.register(searchRoutes, { db, prefix: "/v1" });
     await app.register(notificationRoutes, { db, prefix: "/v1" });
     await app.register(syncRoutes, { db, prefix: "/v1" });
