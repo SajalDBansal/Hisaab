@@ -26,7 +26,7 @@ import { voucherChanges } from "../accounting/audit";
 import { checkUnit } from "../units";
 import { checkContra, checkItem, checkNewFirm, checkParty } from "../validation";
 import { addDays, financialYear } from "../dates";
-import type { AuditAction, AuditChange, AuditEntry, GstMode, Firm, FirmUpdate, ID, InvoiceLine, InvoiceSettings, ItemInput, PartyInput, ReminderSettings, StoredDocument, TeamMember, UnitDef, ISODate, Item, Ledger, NewExpenseInput, NewInvoiceInput, NewJournalInput, NewContraInput, NewOrderInput, OrderType, NewNoteInput, NewMoneyInput, Party, Voucher, VoucherType } from "../types";
+import type { AuditAction, AuditChange, AuditEntry, GstMode, Firm, FirmUpdate, ID, InvoiceLine, InvoiceSettings, ItemInput, PartyInput, ReminderSettings, NewDocumentInput, StoredDocument, TeamMember, UnitDef, ISODate, Item, Ledger, NewExpenseInput, NewInvoiceInput, NewJournalInput, NewContraInput, NewOrderInput, OrderType, NewNoteInput, NewMoneyInput, Party, Voucher, VoucherType } from "../types";
 export interface Db {
     accounts?: CustomAccount[];
     firm: Firm;
@@ -553,6 +553,23 @@ export function inviteMember(db: Db, input: {
     };
     db.team.push(member);
     return member;
+}
+export function addDocument(db: Db, input: NewDocumentInput, date: ISODate): StoredDocument {
+    if (!input.name.trim())
+        throw new Error("Enter a file name.");
+    // Mock size; the real API stores the uploaded file and returns its size.
+    const doc: StoredDocument = {
+        id: newId("doc"),
+        ...input,
+        name: input.name.trim(),
+        sizeKb: 120 + Math.floor(Math.random() * 600),
+        uploadedOn: date,
+    };
+    db.documents.unshift(doc);
+    return doc;
+}
+export function removeDocument(db: Db, id: ID): void {
+    db.documents = db.documents.filter((d) => d.id !== id);
 }
 // ---------------------------------------------------------------------------
 // Parties and items (masters)

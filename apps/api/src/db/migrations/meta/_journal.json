@@ -50,6 +50,13 @@
       "when": 1792022400001,
       "tag": "0006_account_masters",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792055623113,
+      "tag": "0007_document_attachments",
+      "breakpoints": true
     }
   ]
 }

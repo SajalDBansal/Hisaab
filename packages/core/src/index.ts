@@ -21,6 +21,7 @@ export { reportService } from "./services/reportService";
 export { accountService } from "./services/accountService";
 export { gstService } from "./services/gstService";
 export { settingsService, type InvoiceSettingsView } from "./services/settingsService";
+export { documentService, type DocumentRow } from "./services/documentService";
 export { unitService, type UnitRow } from "./services/unitService";
 export * from "./print/voucherHtml";
 export * from "./print/messages";
