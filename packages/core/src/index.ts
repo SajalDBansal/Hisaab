@@ -37,7 +37,7 @@ export { buildSeed, secondDemoFirm, blankBooks } from "./mock/seed";
 export type { Db as MockDb } from "./mock/db";
 export { cleanItem, cleanParty } from "./mock/db";
 // The write rules (numbering, GST, settling bills), run by the API on a snapshot of the firm's books
-export { cancelBlocker, cancelVoucher, createContra, createExpense, createJournal, allocatePartyPayments, createNote, createOrder, createPayment, createPurchase, createReceipt, createSale, createSales, editBlocker, updateInvoice, updateInvoiceSettings } from "./mock/db";
+export { cancelBlocker, cancelVoucher, createContra, createExpense, createJournal, allocatePartyPayments, createNote, createOrder, createPayment, createPurchase, createReceipt, createSale, createSales, editBlocker, setCleared, updateInvoice, updateInvoiceSettings } from "./mock/db";
 export * from "./precision";
 export * from "./accounting/voucherSnapshot";
 export { checkInvoiceNumbers } from "./accounting/invoiceValidation";

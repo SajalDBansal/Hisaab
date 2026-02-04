@@ -64,6 +64,13 @@
       "when": 1792064081481,
       "tag": "0008_stock_lots_books",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792065129841,
+      "tag": "0009_bank_clearing_legs",
+      "breakpoints": true
     }
   ]
 }

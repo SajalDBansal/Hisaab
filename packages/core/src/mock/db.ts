@@ -13,6 +13,8 @@ import { billAllocations } from "../accounting/settlements";
 import { calcInvoice } from "../accounting/invoice";
 import { assertLotsAvailable, purchaseLineCost, purchaseLotId, selectStockLines, stockLots } from "../accounting/stockLots";
 import { baseQty } from "../accounting/stock";
+import { bankClearedOn } from "../accounting/reconcile";
+import { ledgerEffect } from "../accounting/reports";
 import { bookScopeOf } from "../accounting/bookScope";
 import { checkInvoiceNumbers } from "../accounting/invoiceValidation";
 import { checkSupplierInvoice } from "../accounting/supplierInvoices";
@@ -25,7 +27,7 @@ import { applyGstMode, gstModeOf, modeBlocker, saleDocFor, sideOf, voucherMode }
 import { voucherChanges } from "../accounting/audit";
 import { checkUnit } from "../units";
 import { checkContra, checkItem, checkNewFirm, checkParty } from "../validation";
-import { addDays, financialYear } from "../dates";
+import { addDays, financialYear, formatDate } from "../dates";
 import type { AuditAction, AuditChange, AuditEntry, GstMode, Firm, FirmUpdate, ID, InvoiceLine, InvoiceSettings, ItemInput, PartyInput, ReminderSettings, NewDocumentInput, StoredDocument, TeamMember, UnitDef, ISODate, Item, Ledger, NewExpenseInput, NewInvoiceInput, NewJournalInput, NewContraInput, NewOrderInput, OrderType, NewNoteInput, NewMoneyInput, Party, Voucher, VoucherType } from "../types";
 export interface Db {
     accounts?: CustomAccount[];
@@ -1150,6 +1152,52 @@ export function createOrder(db: Db, type: OrderType, input: NewOrderInput, optio
     db.vouchers.push(voucher);
     logAudit(db, "created", voucher);
     return voucher;
+}
+// ---------------------------------------------------------------------------
+// Bank reconciliation, reminders, notifications
+// ---------------------------------------------------------------------------
+/** Mark a bank entry as seen in the bank statement on `date`, or clear the mark (null). */
+export function setCleared(db: Db, id: ID, date: ISODate | null, todayIso: ISODate, ledgerId?: string): Voucher {
+    const v = db.vouchers.find((x) => x.id === id);
+    if (!v)
+        throw new Error("Entry not found");
+    const bank = db.ledgers.find((l) => l.kind === "bank" &&
+        (ledgerId
+            ? l.id === ledgerId
+            : l.id === v.ledgerId || l.id === v.toLedgerId));
+    if (!bank || !ledgerEffect(v, bank.id) || v.status !== "posted")
+        throw new Error("Pick a bank used by this posted entry.");
+    const legacyBank = db.ledgers.find((l) => l.kind === "bank" && l.id === v.ledgerId) ??
+        db.ledgers.find((l) => l.kind === "bank" && l.id === v.toLedgerId);
+    const clearings = v.bankClearings ??
+        (v.clearedOn && legacyBank ? { [legacyBank.id]: v.clearedOn } : {});
+    const was = bankClearedOn(v, bank.id);
+    const change = (now?: ISODate) => logAudit(db, "bank-date", v, [
+        {
+            field: `Bank date: ${bank.name}`,
+            before: was ? formatDate(was) : "—",
+            after: now ? formatDate(now) : "—",
+        },
+    ]);
+    if (date === null) {
+        v.bankClearings = { ...clearings };
+        delete v.bankClearings[bank.id];
+        if (!ledgerId || bank.id === v.ledgerId)
+            delete v.clearedOn;
+        if (was)
+            change(undefined);
+        return v;
+    }
+    if (date < v.date)
+        throw new Error("The bank date can't be before the entry date.");
+    if (date > todayIso)
+        throw new Error("The bank date can't be in the future.");
+    v.bankClearings = { ...clearings, [bank.id]: date };
+    if (!ledgerId || bank.id === v.ledgerId)
+        v.clearedOn = date;
+    if (was !== date)
+        change(date);
+    return v;
 }
 export function updateReminders(db: Db, patch: Partial<ReminderSettings>): ReminderSettings {
     const next = { ...db.reminders, ...patch };
