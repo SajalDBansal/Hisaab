@@ -6,7 +6,7 @@
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
-import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type FirmUpdate, type InvoiceSettings, type InvoiceTemplate, type ItemInput, type PartyInput, type NewInvoiceInput, type PeriodKey, type ReportRequest, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
+import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type DocumentFilters, type DocumentFile, type FirmUpdate, type InvoiceSettings, type InvoiceTemplate, type ItemInput, type PartyInput, type NewDocumentInput, type NewInvoiceInput, type PeriodKey, type ReportRequest, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
 /** Cache keys in one place so invalidation is easy to follow. */
@@ -225,6 +225,34 @@ export const useTeam = () => useQuery({
     queryKey: keys.team,
     queryFn: (services) => services.settingsService.team(),
 });
+export const useDocuments = (filters: DocumentFilters = {}) => useQuery({
+    queryKey: ["documents", filters],
+    queryFn: (services) => services.documentService.list(filters),
+});
+export const useDocumentFolders = () => useQuery({
+    queryKey: ["document-folders"],
+    queryFn: (services) => services.documentService.folders(),
+});
+export const useDocumentDownload = () => useMutation({
+    mutationFn: (services, id: string) => services.documentService.download(id),
+});
+export function useUpdateDocument() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: {
+            id: string;
+            folder: string;
+            note?: string;
+        }) => services.documentService.update(input.id, input),
+        onSuccess: refreshAll,
+    });
+}
+export const useDocumentThumbnail = (id: string, enabled: boolean) => useQuery({
+    queryKey: ["document-thumbnail", id],
+    queryFn: (services) => services.documentService.thumbnail(id),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+});
 export const useUnits = () => useQuery({
     queryKey: keys.units,
     queryFn: (services) => services.unitService.list(),
@@ -346,6 +374,22 @@ export function useInviteMember() {
             email: string;
             role: Exclude<TeamMember["role"], "owner">;
         }) => services.settingsService.invite(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useAddDocument() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: NewDocumentInput & {
+            file: DocumentFile;
+        }) => services.documentService.add(input),
+        onSuccess: refreshAll,
+    });
+}
+export function useRemoveDocument() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, id: string) => services.documentService.remove(id),
         onSuccess: refreshAll,
     });
 }
