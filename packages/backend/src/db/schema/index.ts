@@ -5,3 +5,4 @@ export * from "./vouchers";
 export * from "./audit";
 export * from "./system";
 export * from "./bookControls";
+export * from "./loans";

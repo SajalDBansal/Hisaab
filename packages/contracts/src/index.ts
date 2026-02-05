@@ -23,3 +23,4 @@ export * from "./gst";
 export * from "./masterViews";
 export * from "./openingAllocations";
 export * from "./yearEnd";
+export * from "./loans";

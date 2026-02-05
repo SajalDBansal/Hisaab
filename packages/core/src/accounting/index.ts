@@ -6,6 +6,7 @@ export * from "./reports";
 export * from "./tds";
 export * from "./accounts";
 export * from "./financing";
+export * from "./loanSchedule";
 export * from "./generalLedger";
 export * from "./gst";
 export * from "./analysis";
