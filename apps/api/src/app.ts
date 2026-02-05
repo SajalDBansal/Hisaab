@@ -35,6 +35,8 @@ import { registerSwagger } from "./plugins/swagger";
 import { settingsRoutes } from "./modules/settings/settings.routes";
 import { auditRoutes } from "./modules/settings/audit.routes";
 import { bookControlRoutes } from "./modules/settings/bookControls";
+import { openingAllocationRoutes } from "./modules/settings/openingAllocations";
+import { yearEndRoutes } from "./modules/settings/yearEnd";
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
@@ -113,6 +115,8 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(settingsRoutes, { db, prefix: "/v1" });
     await app.register(auditRoutes, { db, prefix: "/v1" });
     await app.register(bookControlRoutes, { db, prefix: "/v1" });
+    await app.register(openingAllocationRoutes, { db, prefix: "/v1" });
+    await app.register(yearEndRoutes, { db, prefix: "/v1" });
     await app.register(cashForecastRoutes, { db, prefix: "/v1" });
     await app.register(reminderRoutes, { db, prefix: "/v1" });
     await app.register(documentRoutes, {

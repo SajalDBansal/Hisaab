@@ -92,6 +92,13 @@
       "when": 1792237069200,
       "tag": "0012_protect_book_classification",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792237069300,
+      "tag": "0013_opening_allocations",
+      "breakpoints": true
     }
   ]
 }
