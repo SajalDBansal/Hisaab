@@ -5,6 +5,7 @@
  * for signed-in users; only explicit demo mode uses the in-memory books.
  */
 import { useQueryClient } from "@tanstack/react-query";
+import type { BookControlChange } from "@repo/contracts";
 import { useServiceQuery as useQuery, useServiceMutation as useMutation } from "./scopedHooks";
 import { financialYear, type AccountInput, type Ledger, type NewFirmInput, type ReminderSettings, type NewExpenseInput, type DocumentKind, type DocumentFilters, type DocumentFile, type FirmUpdate, type InvoiceSettings, type InvoiceTemplate, type ItemInput, type PartyInput, type NewDocumentInput, type NewInvoiceInput, type PeriodKey, type ReportRequest, type TaxScope, type TeamMember, type NewJournalInput, type NewNoteInput, type NewContraInput, type NewOrderInput, type OrderType, type NewMoneyInput, type PartyType, type VoucherFilters, type VoucherType } from "@repo/core";
 import { useData } from "./DataProvider";
@@ -79,6 +80,10 @@ export const usePrepareReminder = () => useMutation({
 export const useFirm = () => useQuery({
     queryKey: keys.firm,
     queryFn: (services) => services.firmService.getCurrent(),
+});
+export const useBookControlHistory = (cursor?: string) => useQuery({
+    queryKey: ["bookControlHistory", cursor ?? "first"],
+    queryFn: (s) => s.bookControlService.history(cursor),
 });
 export const useDashboard = () => {
     const [tax] = useReportScope();
@@ -225,6 +230,17 @@ export const useTeam = () => useQuery({
     queryKey: keys.team,
     queryFn: (services) => services.settingsService.team(),
 });
+export const useBookControls = () => useQuery({
+    queryKey: ["book-controls"],
+    queryFn: (services) => services.bookControlService.get(),
+});
+export function useUpdateBookControls() {
+    const refreshAll = useRefreshAll();
+    return useMutation({
+        mutationFn: (services, input: BookControlChange) => services.bookControlService.update(input),
+        onSuccess: refreshAll,
+    });
+}
 export const useDocuments = (filters: DocumentFilters = {}) => useQuery({
     queryKey: ["documents", filters],
     queryFn: (services) => services.documentService.list(filters),

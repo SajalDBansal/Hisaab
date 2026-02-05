@@ -78,6 +78,20 @@
       "when": 1792236377012,
       "tag": "0010_document_previews_english",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792236735488,
+      "tag": "0011_book_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792237069200,
+      "tag": "0012_protect_book_classification",
+      "breakpoints": true
     }
   ]
 }
