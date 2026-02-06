@@ -42,6 +42,8 @@ import { importRoutes } from "./modules/imports/imports.routes";
 import { loanRoutes } from "./modules/loans/loans.routes";
 import { inventoryRoutes } from "./modules/inventory/inventory.routes";
 import { settlementRoutes } from "./modules/settlements/settlements.routes";
+import { orderFulfillmentRoutes } from "./modules/order-fulfillment/orderFulfillment.routes";
+import { orderFulfillmentHooks } from "./modules/order-fulfillment/orderFulfillment.hooks";
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
@@ -131,6 +133,11 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(loanRoutes, { db, prefix: "/v1" });
     await app.register(inventoryRoutes, { db, prefix: "/v1" });
     await app.register(settlementRoutes, { db, prefix: "/v1" });
+    await app.register(orderFulfillmentRoutes, {
+        db,
+        hooks: orderFulfillmentHooks,
+        prefix: "/v1",
+    });
     await app.register(cashForecastRoutes, { db, prefix: "/v1" });
     await app.register(reminderRoutes, { db, prefix: "/v1" });
     await app.register(documentRoutes, {
