@@ -6,4 +6,5 @@ export * from "./audit";
 export * from "./system";
 export * from "./bookControls";
 export * from "./loans";
+export * from "./settlements";
 export * from "../../modules/imports/imports.schema";
