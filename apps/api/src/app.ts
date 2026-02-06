@@ -40,6 +40,7 @@ import { openingAllocationRoutes } from "./modules/settings/openingAllocations";
 import { yearEndRoutes } from "./modules/settings/yearEnd";
 import { importRoutes } from "./modules/imports/imports.routes";
 import { loanRoutes } from "./modules/loans/loans.routes";
+import { inventoryRoutes } from "./modules/inventory/inventory.routes";
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
@@ -127,6 +128,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
         prefix: "/v1",
     });
     await app.register(loanRoutes, { db, prefix: "/v1" });
+    await app.register(inventoryRoutes, { db, prefix: "/v1" });
     await app.register(cashForecastRoutes, { db, prefix: "/v1" });
     await app.register(reminderRoutes, { db, prefix: "/v1" });
     await app.register(documentRoutes, {
