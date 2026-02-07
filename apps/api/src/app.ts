@@ -42,6 +42,7 @@ import { importRoutes } from "./modules/imports/imports.routes";
 import { loanRoutes } from "./modules/loans/loans.routes";
 import { inventoryRoutes } from "./modules/inventory/inventory.routes";
 import { settlementRoutes } from "./modules/settlements/settlements.routes";
+import { associateRoutes } from "./modules/associates/associates.routes";
 import { orderFulfillmentRoutes } from "./modules/order-fulfillment/orderFulfillment.routes";
 import { orderFulfillmentHooks } from "./modules/order-fulfillment/orderFulfillment.hooks";
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
@@ -133,6 +134,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     await app.register(loanRoutes, { db, prefix: "/v1" });
     await app.register(inventoryRoutes, { db, prefix: "/v1" });
     await app.register(settlementRoutes, { db, prefix: "/v1" });
+    await app.register(associateRoutes, { db, prefix: "/v1" });
     await app.register(orderFulfillmentRoutes, {
         db,
         hooks: orderFulfillmentHooks,
