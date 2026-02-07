@@ -9,4 +9,5 @@ export * from "./loans";
 export * from "./settlements";
 export * from "./orderFulfillment";
 export * from "./associates";
+export * from "./importOpening";
 export * from "../../modules/imports/imports.schema";
