@@ -162,6 +162,20 @@
       "when": 1792243884685,
       "tag": "0022_operation_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792243884785,
+      "tag": "0023_recovery_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792247766410,
+      "tag": "0024_production_completion_snapshot",
+      "breakpoints": true
     }
   ]
 }

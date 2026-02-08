@@ -11,4 +11,5 @@ export * from "./orderFulfillment";
 export * from "./associates";
 export * from "./operations";
 export * from "./importOpening";
+export * from "./recoveryOperations";
 export * from "../../modules/imports/imports.schema";

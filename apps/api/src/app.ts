@@ -46,6 +46,7 @@ import { associateRoutes } from "./modules/associates/associates.routes";
 import { orderFulfillmentRoutes } from "./modules/order-fulfillment/orderFulfillment.routes";
 import { orderFulfillmentHooks } from "./modules/order-fulfillment/orderFulfillment.hooks";
 import { operationRoutes } from "./modules/operations/operations.routes";
+import { recoveryOperationsRoutes } from "./modules/recovery-operations/recovery-operations.routes";
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
@@ -104,6 +105,12 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
         tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
     });
     registerObservability(app, reporter);
+    // Recovery is a separate surface: no sessions, business routes, queues or storage writes.
+    if (env.APP_MODE === "recovery") {
+        await app.register(systemRoutes, { readyChecks });
+        await app.register(recoveryOperationsRoutes, { db, prefix: "/v1" });
+        return app;
+    }
     app.addHook("onClose", async () => pdfStorage?.close());
     registerCacheHelpers(app, redis);
     if (env.NODE_ENV !== "production")
