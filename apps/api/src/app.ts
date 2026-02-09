@@ -12,6 +12,7 @@ import { createErrorReporter } from "@repo/backend/lib/observability";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
 import { accountRoutes } from "./modules/accounts/accounts.routes";
+import { backupRoutes } from "./modules/backup/backup.routes";
 import { firmRoutes } from "./modules/firms/firms.routes";
 import { gstRoutes } from "./modules/gst/gst.routes";
 import { documentRoutes } from "./modules/documents/documents.routes";
@@ -150,6 +151,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
     });
     await app.register(operationRoutes, { db, prefix: "/v1" });
     await app.register(cashForecastRoutes, { db, prefix: "/v1" });
+    await app.register(backupRoutes, { db, prefix: "/v1" });
     await app.register(reminderRoutes, { db, prefix: "/v1" });
     await app.register(documentRoutes, {
         db,

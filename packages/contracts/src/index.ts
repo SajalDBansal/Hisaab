@@ -9,6 +9,7 @@ export * from "./ledgers";
 export * from "./vouchers";
 export * from "./settings";
 export * from "./bookControls";
+export * from "./backup";
 export * from "./documents";
 export * from "./search";
 export * from "./notifications";
