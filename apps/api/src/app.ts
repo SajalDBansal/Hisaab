@@ -30,6 +30,7 @@ import { registerCacheHelpers } from "./plugins/cache";
 import { registerFirmContext } from "./plugins/firm";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
+import { registerJobs } from "./plugins/jobs";
 import { registerObservability } from "./plugins/observability";
 import { registerRateLimits } from "./plugins/rate-limit";
 import { registerSecurity } from "./plugins/security";
@@ -112,6 +113,7 @@ export async function buildApp({ env, db, email, redis, jobs, storage = fakeStor
         await app.register(recoveryOperationsRoutes, { db, prefix: "/v1" });
         return app;
     }
+    registerJobs(app, jobs);
     app.addHook("onClose", async () => pdfStorage?.close());
     registerCacheHelpers(app, redis);
     if (env.NODE_ENV !== "production")
