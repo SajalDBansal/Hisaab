@@ -99,6 +99,25 @@
         "typescript": "~6.0.3"
       }
     },
+    "apps/web": {
+      "name": "web",
+      "version": "0.0.0",
+      "dependencies": {
+        "lucide-react": "1.38.0",
+        "next": "16.3.3",
+        "react": "19.2.3",
+        "react-dom": "19.2.3"
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "@types/node": "^24.0.0",
+        "@types/react": "~19.2.10",
+        "@types/react-dom": "^19.2.0",
+        "eslint": "^9.39.0",
+        "typescript": "5.9.2"
+      }
+    },
     "apps/worker": {
       "name": "worker",
       "version": "0.0.0",
@@ -13173,6 +13192,9 @@
         }
       },
       "sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg=="
+    ],
+    "web": [
+      "web@workspace:apps/web"
     ],
     "webidl-conversions": [
       "webidl-conversions@3.0.1",
