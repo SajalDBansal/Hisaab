@@ -99,6 +99,35 @@
         "typescript": "~6.0.3"
       }
     },
+    "apps/worker": {
+      "name": "worker",
+      "version": "0.0.0",
+      "dependencies": {
+        "@aws-sdk/client-s3": "^3.1151.0",
+        "@aws-sdk/s3-request-presigner": "^3.1151.0",
+        "@repo/backend": "*",
+        "@repo/core": "*",
+        "@sentry/node": "^11.7.0",
+        "bullmq": "^6.3.15",
+        "drizzle-orm": "^0.45.3",
+        "fastify": "^5.6.0",
+        "ioredis": "^6.0.0",
+        "pg": "^8.23.1",
+        "playwright-core": "^1.64.1",
+        "uuid": "^14.0.2",
+        "zod": "^4.1.0"
+      },
+      "devDependencies": {
+        "@repo/eslint-config": "*",
+        "@repo/typescript-config": "*",
+        "@types/node": "^24.0.0",
+        "@types/pg": "^8.23.1",
+        "eslint": "^9.39.0",
+        "tsup": "^8.5.0",
+        "tsx": "^4.20.0",
+        "typescript": "5.9.2"
+      }
+    },
     "packages/backend": {
       "name": "@repo/backend",
       "version": "0.0.0",
@@ -13257,6 +13286,9 @@
       "",
       {},
       "sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA=="
+    ],
+    "worker": [
+      "worker@workspace:apps/worker"
     ],
     "wrap-ansi": [
       "wrap-ansi@7.0.0",

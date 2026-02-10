@@ -1,0 +1,43 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hisaab background jobs: private PDFs, reminder preparation and cleanup.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/worker.ts",
+    "build": "tsup",
+    "start": "node --env-file-if-exists=.env dist/worker.js",
+    "healthcheck": "node --env-file-if-exists=.env dist/healthcheck.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@repo/backend": "*",
+    "@repo/core": "*",
+    "@aws-sdk/client-s3": "^3.1151.0",
+    "@aws-sdk/s3-request-presigner": "^3.1151.0",
+    "@sentry/node": "^11.7.0",
+    "bullmq": "^6.3.15",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.6.0",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "playwright-core": "^1.64.1",
+    "uuid": "^14.0.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "eslint": "^9.39.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "5.9.2"
+  }
+}
