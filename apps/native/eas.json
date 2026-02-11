@@ -1,0 +1,27 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "production": {
+      "bun": "1.4.0",
+      "distribution": "store",
+      "environment": "production",
+      "credentialsSource": "remote",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_NO_DOTENV": "1",
+        "EXPO_PUBLIC_API_URL": "https://api.hisaab.sajaldbansal.com",
+        "EXPO_PUBLIC_REQUIRE_LOGIN": "true"
+      },
+      "android": { "buildType": "app-bundle" },
+      "ios": { "simulator": false }
+    },
+    "direct": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": { "buildType": "apk" }
+    }
+  }
+}
