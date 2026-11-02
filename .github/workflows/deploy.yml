@@ -1,0 +1,296 @@
+name: Check, publish and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hisaab-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  NEXT_PUBLIC_SITE_URL: https://hisaab.sajaldbansal.com
+  NEXT_PUBLIC_APP_URL: https://app.hisaab.sajaldbansal.com
+  NEXT_PUBLIC_SUPPORT_EMAIL: sajaldutt.bansal@gmail.com
+  NEXT_PUBLIC_DOWNLOAD_MANIFEST_URL: ${{ vars.NEXT_PUBLIC_DOWNLOAD_MANIFEST_URL }}
+  EXPO_PUBLIC_API_URL: https://api.hisaab.sajaldbansal.com
+  EXPO_PUBLIC_WEB_API_URL: https://api.hisaab.sajaldbansal.com
+  EXPO_PUBLIC_REQUIRE_LOGIN: "true"
+  EXPO_NO_DOTENV: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run build
+      - run: bun run --cwd apps/native export:web
+      - name: Configuration to review before production approval
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          printf 'Release: %s\n' "$RELEASE_SHA"
+          for file in deployment/compose.prod.yml deployment/Caddyfile deployment/chromium-seccomp.json; do
+            printf '\n%s\n' "$file"
+            cat "$file"
+          done
+          printf 'Review this commit, configuration, backup and maintenance window before approving deployment.\n' >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, worker, website, app]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Preserve an image already published for this commit
+        id: existing
+        env:
+          IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/hisaab-${{ matrix.service }}:${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE" > /dev/null 2> "$RUNNER_TEMP/image-inspect-error"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eqi 'manifest unknown|not found' "$RUNNER_TEMP/image-inspect-error"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RUNNER_TEMP/image-inspect-error" >&2
+            exit 1
+          fi
+      - name: Build and publish
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deployment/Dockerfile.${{ matrix.service }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ vars.DOCKERHUB_USERNAME }}/hisaab-${{ matrix.service }}:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=${{ env.NEXT_PUBLIC_SITE_URL }}
+            NEXT_PUBLIC_APP_URL=${{ env.NEXT_PUBLIC_APP_URL }}
+            NEXT_PUBLIC_SUPPORT_EMAIL=${{ env.NEXT_PUBLIC_SUPPORT_EMAIL }}
+            NEXT_PUBLIC_DOWNLOAD_MANIFEST_URL=${{ env.NEXT_PUBLIC_DOWNLOAD_MANIFEST_URL }}
+            EXPO_PUBLIC_API_URL=${{ env.EXPO_PUBLIC_API_URL }}
+            EXPO_PUBLIC_WEB_API_URL=${{ env.EXPO_PUBLIC_WEB_API_URL }}
+            EXPO_PUBLIC_REQUIRE_LOGIN=true
+            EXPO_NO_DOTENV=1
+
+  deploy:
+    needs: [check, publish]
+    if: >-
+      ${{ !cancelled() && needs.check.result == 'success' &&
+          github.ref == 'refs/heads/main' &&
+          vars.DEPLOY_ENABLED == 'true' &&
+          ((github.event_name == 'push' && needs.publish.result == 'success') ||
+           (github.event_name == 'workflow_dispatch' && needs.publish.result == 'skipped')) }}
+    # Assign this label only to an Ubuntu runner with approved SSH network access.
+    runs-on: hisaab-deploy
+    environment: production
+    timeout-minutes: 35
+    concurrency:
+      group: hisaab-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Stage reviewed configuration and deploy over SSH
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EC2_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$EC2_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$DOCKERHUB_USERNAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]]
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          run_id="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$run_id" =~ ^[0-9]+-[0-9]+$ ]]
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          umask 077
+          ssh_dir=$(mktemp -d "$RUNNER_TEMP/hisaab-ssh.XXXXXX")
+          trap 'rm -f "$ssh_dir/key" "$ssh_dir/known_hosts" "$ssh_dir/config"; rmdir "$ssh_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$ssh_dir/known_hosts"
+          cat > "$ssh_dir/config" <<EOF
+          Host hisaab-deploy
+            HostName $EC2_HOST
+            User $EC2_USER
+            IdentityFile "$ssh_dir/key"
+            UserKnownHostsFile "$ssh_dir/known_hosts"
+            StrictHostKeyChecking yes
+            BatchMode yes
+            IdentitiesOnly yes
+            ConnectTimeout 15
+            ConnectionAttempts 2
+            ServerAliveInterval 15
+            ServerAliveCountMax 3
+          EOF
+          unset SSH_PRIVATE_KEY SSH_KNOWN_HOSTS
+          stage="/opt/hisaab/.candidate-$run_id"
+          timeout 60s ssh -F "$ssh_dir/config" hisaab-deploy "test -d /opt/hisaab && mkdir -m 700 '$stage'"
+          timeout 60s scp -F "$ssh_dir/config" deployment/compose.prod.yml deployment/Caddyfile deployment/chromium-seccomp.json "hisaab-deploy:$stage/"
+          timeout --kill-after=15s 1800s ssh -F "$ssh_dir/config" hisaab-deploy \
+            "bash -se -- '$RELEASE_SHA' '$DOCKERHUB_USERNAME' '$run_id'" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          export IMAGE_TAG="$1" DOCKERHUB_USERNAME="$2"
+          run_id="$3"
+          cd /opt/hisaab
+          exec 9>.deploy.lock
+          flock -n 9
+          if [[ -e .deploy-in-progress ]]; then
+            echo "An earlier deployment needs inspection; leave writers stopped and follow guide 26." >&2
+            exit 1
+          fi
+          test -s api.env
+          test -s worker.env
+          test -s .env
+          stage="/opt/hisaab/.candidate-$run_id"
+          # Preserve database passwords; replace only the two release settings.
+          sed '/^DOCKERHUB_USERNAME=/d; /^IMAGE_TAG=/d' .env > "$stage/.env"
+          printf '\nDOCKERHUB_USERNAME=%s\nIMAGE_TAG=%s\n' "$DOCKERHUB_USERNAME" "$IMAGE_TAG" >> "$stage/.env"
+          compose=(docker compose --project-name hisaab --project-directory /opt/hisaab --env-file "$stage/.env" -f "$stage/compose.prod.yml")
+          timeout 30s "${compose[@]}" config --quiet
+          mkdir -p -m 700 backups
+          docker_root=$(timeout 15s docker info --format '{{.DockerRootDir}}')
+          [[ "$docker_root" == /* ]]
+          postgres_path=$(timeout 15s docker volume inspect hisaab_postgres_data --format '{{.Mountpoint}}' 2>/dev/null || true)
+          redis_path=$(timeout 15s docker volume inspect hisaab_redis_data --format '{{.Mountpoint}}' 2>/dev/null || true)
+          # No automatic pruning: keep the running and accepted rollback releases.
+          check_retention() {
+            local dumps releases
+            dumps=$(find backups -maxdepth 1 -type f -name 'predeploy-*.dump' | wc -l)
+            if (( dumps >= 3 )) || find backups -maxdepth 1 -type f -name 'predeploy-*.partial' | grep -q .; then
+              echo "Review local backup retention in guide 26 before deploying (at most two previous dumps; no unreviewed partials)." >&2
+              return 1
+            fi
+            releases=$({
+              printf '%s\n' "$IMAGE_TAG"
+              for service in api worker website app; do
+                timeout 15s docker image ls --format '{{.Tag}}' "$DOCKERHUB_USERNAME/hisaab-$service" || return 1
+              done
+            } | awk '/^[0-9a-f]{40}$/' | sort -u | wc -l)
+            if (( releases > 3 )); then
+              echo "Review image retention in guide 26: keep current, accepted rollback and candidate releases only." >&2
+              return 1
+            fi
+          }
+          check_space() {
+            local phase="$1" image_kib="$2" data_kib=0 needed available path
+            if [[ -n "$postgres_path" ]]; then
+              data_kib=$(timeout 30s sudo -n du -sk -- "$postgres_path" | awk '{print $1}')
+              [[ "$data_kib" =~ ^[0-9]+$ ]]
+            fi
+            # Five GiB stays free; reserve twice the database size for a dump.
+            needed=$((5 * 1024 * 1024 + image_kib + 2 * data_kib))
+            for path in "$docker_root" "${postgres_path:-$docker_root}" "${redis_path:-$docker_root}" /opt/hisaab/backups; do
+              available=$(timeout 15s sudo -n df -Pk -- "$path" | awk 'NR == 2 {print $4}')
+              [[ "$available" =~ ^[0-9]+$ ]]
+              if (( available < needed )); then
+                printf 'Insufficient disk space %s: need %s KiB free, found %s. Follow guide 26; never prune volumes.\n' "$phase" "$needed" "$available" >&2
+                return 1
+              fi
+            done
+          }
+          check_retention
+          check_space before-pull $((12 * 1024 * 1024))
+          timeout --kill-after=15s 600s "${compose[@]}" pull
+          check_space after-pull 0
+          # Validate without the live proxy's fixed IP or certificate volumes.
+          caddy_image=$(timeout 30s "${compose[@]}" config --images caddy)
+          timeout --kill-after=10s 60s docker run --rm --network none \
+            -v "$stage/Caddyfile:/etc/caddy/Caddyfile:ro" "$caddy_image" \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          previous="/opt/hisaab/.previous-$run_id"
+          mkdir -m 700 "$previous"
+          for file in .env compose.prod.yml Caddyfile chromium-seccomp.json; do
+            if [[ -f "$file" ]]; then cp -p "$file" "$previous/"; fi
+          done
+          migration="hisaab-migrate-$run_id"
+          writers_stopped=false
+          complete=false
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [[ "$writers_stopped" == true && "$complete" != true ]]; then
+              timeout 30s docker rm -f "$migration" > /dev/null 2>&1 || true
+              timeout --kill-after=10s 120s "${compose[@]}" stop -t 90 api worker || true
+              echo "Deployment incomplete. Inspect .deploy-in-progress and the database before restarting writers." >&2
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          printf '%s\n' "$IMAGE_TAG" "$stage" "$previous" > .deploy-in-progress
+          writers_stopped=true
+          timeout --kill-after=10s 120s "${compose[@]}" stop -t 90 api worker
+          # First boot creates the databases; later releases keep them running.
+          timeout --kill-after=10s 180s "${compose[@]}" up -d --no-recreate --wait --wait-timeout 120 postgres redis
+          postgres_path=$(timeout 15s docker volume inspect hisaab_postgres_data --format '{{.Mountpoint}}')
+          redis_path=$(timeout 15s docker volume inspect hisaab_redis_data --format '{{.Mountpoint}}')
+          check_space before-dump 0
+          backup="backups/predeploy-$run_id.dump"
+          # Save and validate a dump before any migration, including first boot.
+          timeout --kill-after=10s 180s "${compose[@]}" exec -T postgres pg_dump -U hisaab -d hisaab -Fc > "$backup.partial"
+          timeout 30s "${compose[@]}" exec -T postgres pg_restore --list < "$backup.partial" > /dev/null
+          mv "$backup.partial" "$backup"
+          # The timeout runs INSIDE the container, including if SSH disconnects.
+          # --rm also overrides the service restart policy for this one-off.
+          if ! timeout --kill-after=10s 330s "${compose[@]}" run --rm --no-deps --name "$migration" \
+            --entrypoint timeout api --signal=TERM --kill-after=10s 300s node dist/migrate.js; then
+            echo "Migration failed or timed out; API and worker will stay stopped." >&2
+            exit 1
+          fi
+          # Replace only reviewed configuration, after a successful migration.
+          install -m 644 "$stage/compose.prod.yml" compose.prod.yml
+          install -m 644 "$stage/Caddyfile" Caddyfile
+          install -m 644 "$stage/chromium-seccomp.json" chromium-seccomp.json
+          # Recreate application services only. Database upgrades are deliberate.
+          timeout --kill-after=15s 240s "${compose[@]}" up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 api worker website app caddy
+          timeout 30s "${compose[@]}" exec -T worker node dist/healthcheck.js
+          for url in https://api.hisaab.sajaldbansal.com/ready https://hisaab.sajaldbansal.com https://app.hisaab.sajaldbansal.com; do
+            timeout 60s curl --fail --silent --show-error --output /dev/null \
+              --connect-timeout 5 --max-time 10 --retry 5 --retry-delay 3 \
+              --retry-all-errors --retry-max-time 45 "$url"
+          done
+          install -m 600 "$stage/.env" .env
+          rm .deploy-in-progress
+          complete=true
+          printf 'Deployed %s; previous configuration: %s\n' "$IMAGE_TAG" "$previous"
+          REMOTE

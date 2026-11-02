@@ -1,0 +1,22 @@
+hisaab.sajaldbansal.com {
+	encode zstd gzip
+	reverse_proxy website:3002
+}
+
+app.hisaab.sajaldbansal.com {
+	encode zstd gzip
+	reverse_proxy app:80
+}
+
+api.hisaab.sajaldbansal.com {
+	# Operators scrape metrics through the private container network.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+	reverse_proxy api:3000
+}
+
+# Container-only health listener; no host binding is published for this port.
+http://127.0.0.1:2020 {
+	bind 127.0.0.1
+	respond /healthz "ok" 200
+}

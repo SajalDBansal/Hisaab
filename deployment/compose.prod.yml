@@ -1,0 +1,225 @@
+# Requires Docker Compose >= 2.30 for literal (raw) runtime env-file values.
+# Build/pull all four images with the same release tag. No builds run on the host.
+name: hisaab
+
+x-service: &service
+  platform: linux/amd64
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *service
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: hisaab
+      POSTGRES_DB: hisaab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the private .env file}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    command:
+      ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=50"]
+    mem_limit: 1g
+    stop_grace_period: 60s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      # TCP checks the final server and credentials, not the temporary init server.
+      test:
+        - CMD-SHELL
+        - >-
+          PGPASSWORD="$$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U hisaab -d hisaab
+          -c 'SELECT 1' > /dev/null
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+
+  redis:
+    <<: *service
+    image: redis:7.4-alpine
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in the private .env file}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in the private .env file}
+    # Leave memory above maxmemory for persistence and connection buffers.
+    mem_limit: 384m
+    stop_grace_period: 30s
+    volumes:
+      - redis_data:/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 6
+
+  api:
+    <<: *service
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/hisaab-api:${IMAGE_TAG:?Set IMAGE_TAG}
+    init: true
+    env_file:
+      - path: ./api.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      SENTRY_RELEASE: ${IMAGE_TAG:?Set IMAGE_TAG}
+      PORT: "3000"
+      DATABASE_URL: postgres://hisaab:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the private .env file}@postgres:5432/hisaab
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in the private .env file}@redis:6379/0
+      # Match the single Caddy address below, not the whole Docker subnet.
+      TRUSTED_PROXY_CIDRS: 172.30.0.2/32
+    networks: [default, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 75s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/ready',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+  worker:
+    <<: *service
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/hisaab-worker:${IMAGE_TAG:?Set IMAGE_TAG}
+    init: true
+    env_file:
+      - path: ./worker.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      PDF_BROWSER_PATH: /usr/bin/chromium
+      SENTRY_RELEASE: ${IMAGE_TAG:?Set IMAGE_TAG}
+      WORKER_HEALTH_PORT: "3011"
+      DATABASE_URL: postgres://hisaab:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the private .env file}@postgres:5432/hisaab
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in the private .env file}@redis:6379/0
+    networks: [default, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    shm_size: 256m
+    # Playwright's default-deny profile allows Chromium's sandbox namespaces.
+    security_opt:
+      - seccomp=./chromium-seccomp.json
+    stop_grace_period: 90s
+    # Keep the Chromium sandbox enabled. Verify namespace support on the host.
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+  website:
+    <<: *service
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/hisaab-website:${IMAGE_TAG:?Set IMAGE_TAG}
+    init: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+  app:
+    <<: *service
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/hisaab-app:${IMAGE_TAG:?Set IMAGE_TAG}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "-T",
+          "3",
+          "http://127.0.0.1/index.html",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  caddy:
+    <<: *service
+    # Official image digest reviewed on 2026-10-26.
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        ipv4_address: 172.30.0.2
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "-T",
+          "3",
+          "http://127.0.0.1:2020/healthz",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+# The app bridge needs outbound access to R2 and email; databases stay internal.
+# Check for host/VPC/VPN overlaps before use; update API proxy trust if changed.
+networks:
+  backend:
+    internal: true
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          # Keep automatic addresses away from Caddy's fixed proxy address.
+          ip_range: 172.30.0.128/25
+
+volumes:
+  # Keep project name "hisaab" stable. Never remove these volumes during a release.
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
