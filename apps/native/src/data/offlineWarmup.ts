@@ -1,4 +1,4 @@
-import { can, today } from "@repo/core";
+import { can, financialYear, today } from "@repo/core";
 import type { Services } from "./services";
 import type { OfflineBooks } from "./offlineBooks";
 import { finalAccountsPeriod, REPORT_PERIODS } from "./reportPeriods";
@@ -24,6 +24,8 @@ export async function downloadOfflineBooks(
       services.partyService.list("customer"),
       can(role, "reports") ? services.partyService.list("supplier") : null,
       services.itemService.lots(today()),
+      // The Items screen asks for current lots without a date.
+      services.itemService.lots(),
       services.ledgerService.listCashAndBank(),
       ...(can(role, "accounts") || can(role, "reports")
         ? [
@@ -83,6 +85,47 @@ export async function downloadOfflineBooks(
           );
         }
       }
-    await Promise.all(reads);
+    // 3. Other book screens. A read this role may not see is skipped, not fatal.
+    const lastYear = Number(financialYear(today()).start.slice(0, 4)) - 1;
+    const optional: (Promise<unknown> | undefined)[] = [
+      services.voucherService.list({
+        types: ["receipt", "payment", "expense", "contra"],
+      }),
+      services.gstService
+        .months()
+        .then((months) =>
+          Promise.all(
+            months.flatMap((m) => [
+              services.gstService.gstr1(m.month),
+              services.gstService.gstr3b(m.month),
+            ]),
+          ),
+        ),
+      services.gstService.compositionQuarters(),
+      services.notificationService.list(),
+      services.auditService.list(),
+      services.settingsService.team(),
+      services.reminderService.settings(),
+      services.reminderService.due(),
+      services.bookControlService.get(),
+      services.bookControlService.history(),
+      services.bookControlService.allocations(),
+      services.bookControlService.yearEnd(lastYear),
+      services.loanService?.list(),
+      services.settlementService?.list(),
+      services.associateService?.list(),
+      services.associateService?.fields(),
+    ];
+    const [required, ...extras] = await Promise.allSettled([
+      Promise.all(reads),
+      ...optional,
+    ]);
+    if (required.status === "rejected") throw required.reason;
+    for (const extra of extras)
+      if (
+        extra.status === "rejected" &&
+        ![403, 404].includes((extra.reason as { status?: number })?.status ?? 0)
+      )
+        throw extra.reason;
   });
 }

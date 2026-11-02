@@ -1,8 +1,12 @@
 import { z } from "zod";
 
-/** Book reads the app keeps for offline viewing; the only paths a batch may hold. */
-export const BATCH_READABLE_PATH =
-  /^\/v1\/(parties|items|ledgers|vouchers|reports|accounts|units|gst|inventory)(\/|\?|$)|^\/v1\/(firms\/current|settings\/invoice)(\?|$)/;
+/**
+ * Book reads the app keeps for offline viewing. The phone caches answers only
+ * for these paths and a batch may hold only these paths, so the two can't drift.
+ */
+export const OFFLINE_READABLE_PATH =
+  /^\/v1\/(parties|items|ledgers|vouchers|reports|accounts|units|gst|inventory|loans|settlements|associates|audit-log|notifications|reminders)(\/|\?|$)|^\/v1\/settings\/(invoice|books|reminders|team)(\/|\?|$)|^\/v1\/firms\/current(\?|$)/;
+export const BATCH_READABLE_PATH = OFFLINE_READABLE_PATH;
 /** Reads that render files or start work are never batched. */
 export const BATCH_EXCLUDED_PATH =
   /\/(pdf|print|export|exports|download)(\/|\?|$)/;

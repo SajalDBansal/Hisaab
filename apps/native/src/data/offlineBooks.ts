@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   BatchReadResult,
   MAX_BATCH_READS,
+  OFFLINE_READABLE_PATH,
   RECOVERY_EPOCH_HEADER,
   RECOVERY_REQUIRED,
   RecoveryEpoch,
@@ -93,10 +94,8 @@ const readKey = (path: string) => {
   url.searchParams.sort();
   return url.pathname + url.search;
 };
-const cacheable = (path: string) =>
-  /^\/v1\/(parties|items|ledgers|vouchers|reports|accounts|units|gst|inventory)(\/|\?|$)/.test(
-    path,
-  ) || /^\/v1\/(firms\/current|settings\/invoice)(\?|$)/.test(path);
+/** Reads kept for offline viewing: the same list the server batches. */
+const cacheable = (path: string) => OFFLINE_READABLE_PATH.test(path);
 
 /** Outbox hints are local metadata, never HTTP headers on online-only requests. */
 function withoutOfflineHints(options: RequestOptions): RequestOptions {
@@ -700,6 +699,9 @@ export function createOfflineBooks(deps: {
           const error = (
             result.body as { error?: { code?: string; message?: string } }
           )?.error;
+          // An older server batches fewer paths: read that one on its own.
+          if (error?.code === "NOT_BATCHABLE")
+            return void one(item.path).then(item.resolve, item.reject);
           item.reject(
             new ApiFailure(
               result.status,

@@ -105,3 +105,47 @@ test("outside a download, reads are not batched", async () => {
   await f.read("/v1/parties/a");
   assert.deepEqual(f.calls, ["/v1/parties/a"]);
 });
+
+test("reads an older server won't batch are fetched on their own", async () => {
+  const calls = [];
+  const data = new Map();
+  const books = createOfflineBooks({
+    scope,
+    store: {
+      get: async (key) => data.get(key) ?? null,
+      set: async (key, value) => void data.set(key, value),
+      remove: async (key) => void data.delete(key),
+      lock: async (_key, work) => work(),
+    },
+    newId: randomUUID,
+    recoveryEpoch: () => epoch,
+    assertActive: () => {},
+    verifyAccess: async () => {},
+    transport: async (path, input = {}) => {
+      calls.push(path);
+      if (path === "/v1/reads/batch")
+        return {
+          results: input.body.paths.map((p) =>
+            p.startsWith("/v1/loans")
+              ? {
+                  path: p,
+                  status: 400,
+                  format: "json",
+                  body: { error: { code: "NOT_BATCHABLE", message: "No." } },
+                }
+              : { path: p, status: 200, format: "json", body: { path: p } },
+          ),
+        };
+      return { path };
+    },
+  });
+  const read = (path) =>
+    books.transport(path, { headers: { "x-firm-id": scope.firmId } });
+  await books.capture(async () => {
+    const answers = await Promise.all(
+      ["/v1/parties", "/v1/loans?limit=200"].map(read),
+    );
+    assert.deepEqual(answers[1], { path: "/v1/loans?limit=200" });
+  });
+  assert(calls.includes("/v1/loans?limit=200"));
+});

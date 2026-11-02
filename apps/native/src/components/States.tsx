@@ -69,7 +69,25 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ onRetry }: { onRetry?: () => void }) {
+export function ErrorState({
+  onRetry,
+  error,
+}: {
+  onRetry?: () => void;
+  error?: unknown;
+}) {
+  // No connection (status 0): explain instead of reporting a failure.
+  const offline = error as { status?: number; offline?: boolean } | null;
+  if (offline?.status === 0 || offline?.offline)
+    return (
+      <EmptyState
+        icon="wifi-off"
+        title="You're offline"
+        message="This screen needs a connection, or it wasn't part of the last download. Downloaded books stay readable; connect to see this."
+        actionLabel="Try again"
+        onAction={onRetry}
+      />
+    );
   return (
     <EmptyState
       icon="alert-circle"
@@ -96,7 +114,7 @@ export function QueryView<T>({
 }) {
   if (query.isPending) return <>{loading ?? <LoadingList />}</>;
   if (query.isError || query.data === undefined)
-    return <ErrorState onRetry={() => query.refetch()} />;
+    return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
   return <>{children(query.data)}</>;
 }
 
