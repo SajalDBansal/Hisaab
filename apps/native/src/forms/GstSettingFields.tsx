@@ -116,7 +116,7 @@ export function GstSettingFields({
               set({ gstin });
               onGstinChange?.(gstin);
             }}
-            placeholder="09AAAAA0000A1Z5"
+            placeholder="09AAAAA0000A1Z0"
             mono
             error={gstinError}
           />

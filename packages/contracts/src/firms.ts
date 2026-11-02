@@ -64,7 +64,7 @@ const gstRules = (
     ctx.addIssue({
       code: "custom",
       path: ["gstin"],
-      message: "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.",
+      message: "GSTIN should be 15 characters, like 09AAAAA0000A1Z0.",
     });
   else if (f.stateCode && gstin.slice(0, 2) !== f.stateCode)
     ctx.addIssue({

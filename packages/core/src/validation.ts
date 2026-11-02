@@ -99,6 +99,29 @@ export function checkJournal(
 /** GSTIN: 2-digit state + 10-char PAN + entity digit + "Z" + check character. */
 export const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 export const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
+/** A real GSTIN to show in messages; its check character is correct. */
+export const GSTIN_EXAMPLE = "27AAPFU0939F1ZV";
+
+const GSTIN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/** The 15th GSTIN character is a mod-36 check over the first 14; it catches most typos. */
+export function gstinCheckOk(gstin: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const product = GSTIN_CHARS.indexOf(gstin[i]) * (i % 2 ? 2 : 1);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return gstin[14] === GSTIN_CHARS[(36 - (sum % 36)) % 36];
+}
+
+/** Why a typed GSTIN is wrong, or null when its shape and check character are right. */
+export function gstinProblem(gstin: string): string | null {
+  if (!GSTIN_PATTERN.test(gstin))
+    return `GSTIN should be 15 characters, like ${GSTIN_EXAMPLE}.`;
+  if (!gstinCheckOk(gstin))
+    return "This GSTIN has a typing mistake: its last character doesn't match. Check it against the registration certificate.";
+  return null;
+}
 
 /** Firm profile form. Returns an error per field; an empty object means OK. */
 export function checkFirm(
@@ -109,8 +132,7 @@ export function checkFirm(
     Record<"name" | "gstin" | "pan" | "phone" | "email", string>
   > = {};
   if (!f.name.trim()) errors.name = "Enter the firm name.";
-  if (f.gstin && !GSTIN_PATTERN.test(f.gstin))
-    errors.gstin = "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.";
+  if (f.gstin && gstinProblem(f.gstin)) errors.gstin = gstinProblem(f.gstin)!;
   else if (f.gstin && f.gstin.slice(0, 2) !== stateCode)
     errors.gstin = `GSTIN should start with your state code ${stateCode}.`;
   if (f.pan && !PAN_PATTERN.test(f.pan))
@@ -156,8 +178,7 @@ export function checkParty(
   if (p.phone && digits.length !== 10)
     e.phone = "Enter a 10-digit mobile number.";
   if (p.gstin) {
-    if (!GSTIN_PATTERN.test(p.gstin))
-      e.gstin = "GSTIN should be 15 characters, like 09AAGFA7788Q1Z1.";
+    if (gstinProblem(p.gstin)) e.gstin = gstinProblem(p.gstin)!;
     else if (!stateFromGstin(p.gstin))
       e.gstin = "The first two digits aren't a valid state code.";
     else if (p.gstin.slice(0, 2) !== p.stateCode)
@@ -321,8 +342,7 @@ export function checkNewFirm(
       errors.gstin = "Leave GSTIN empty for a firm not registered under GST.";
   } else if (!gstin)
     errors.gstin = "Enter the GSTIN, or choose Not registered.";
-  else if (!GSTIN_PATTERN.test(gstin))
-    errors.gstin = "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.";
+  else if (gstinProblem(gstin)) errors.gstin = gstinProblem(gstin)!;
   else if (gstin.slice(0, 2) !== f.stateCode)
     errors.gstin = `GSTIN should start with the state code ${f.stateCode}.`;
   return errors;

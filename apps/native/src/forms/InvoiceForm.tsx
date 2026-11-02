@@ -39,6 +39,7 @@ import {
   saleDocFor,
   voucherMode,
   count,
+  UNREGISTERED_SUPPLIER_GST_MESSAGE,
 } from "@repo/core";
 import {
   AmountField,
@@ -334,8 +335,18 @@ export function InvoiceForm({
         : lines.some((l) => !l.stockLotId)
           ? "Choose stock for each item."
           : undefined);
+  // New purchases only, matching the server; existing bills keep what they saved.
+  const supplierProblem =
+    kind === "purchase" &&
+    !editing &&
+    party &&
+    !party.party.gstin?.trim() &&
+    totals.tax > 0
+      ? UNREGISTERED_SUPPLIER_GST_MESSAGE
+      : undefined;
   const problem =
     stockProblem ||
+    supplierProblem ||
     checkInvoice({
       kind: side,
       partyId,

@@ -8,7 +8,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import {
   checkParty,
-  GSTIN_PATTERN,
+  gstinProblem,
   parseRupees,
   stateFromGstin,
   stateName,
@@ -87,7 +87,7 @@ export function PartyForm({
   const [pickState, setPickState] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
 
-  const gstinValid = GSTIN_PATTERN.test(gstin) && !!stateFromGstin(gstin);
+  const gstinValid = !gstinProblem(gstin) && !!stateFromGstin(gstin);
   // A valid GSTIN decides the state; otherwise the user picks it (default: firm's state)
   const effectiveState = gstinValid
     ? gstin.slice(0, 2)

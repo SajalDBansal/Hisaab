@@ -28,6 +28,8 @@ const party = (type: Party["type"]): Party => ({
   creditLimit: 0,
   openingBalance: 0,
   openingDate: "2026-04-01",
+  // Suppliers that charge GST are registered.
+  ...(type === "supplier" ? { gstin: "09BBBBB1111B1ZL" } : {}),
 });
 
 function books(scope: BookScope) {
@@ -38,7 +40,7 @@ function books(scope: BookScope) {
       city: "Mathura",
       stateCode: "09",
       gstRegistration: "regular",
-      gstin: "09AAAAA0000A1Z5",
+      gstin: "09AAAAA0000A1Z0",
     },
     end,
   );
