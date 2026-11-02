@@ -32,15 +32,48 @@ function cookieFromHeader(
   return [...jar].map(([name, value]) => `${name}=${value}`).join("; ") || null;
 }
 
-/** Calls the API. Adds who we are (app or web), keeps the login cookie, and turns errors into ApiFailure. */
+type ApiOptions = {
+  method?: string;
+  body?: object;
+  headers?: Record<string, string>;
+};
+
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_MAX_WAIT_SECONDS = 30;
+
+/**
+ * Calls the API. A read the server rate-limited (429) waits as long as the
+ * server asks (Retry-After, at most 30 s) and tries again, up to three times.
+ * Writes are never repeated here; their retry identity is handled by callers.
+ */
 export async function api<T>(
   path: string,
-  options: {
-    method?: string;
-    body?: object;
-    headers?: Record<string, string>;
-  } = {},
+  options: ApiOptions = {},
 ): Promise<T> {
+  const method = options.method ?? (options.body ? "POST" : "GET");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await apiOnce<T>(path, options);
+    } catch (error) {
+      if (
+        !(error instanceof ApiFailure) ||
+        error.status !== 429 ||
+        !["GET", "HEAD"].includes(method) ||
+        attempt >= RATE_LIMIT_RETRIES
+      )
+        throw error;
+      const asked = (error as { retryAfterSeconds?: number }).retryAfterSeconds;
+      const seconds = Math.min(
+        asked && asked > 0 ? asked : 2 ** (attempt + 1),
+        RATE_LIMIT_MAX_WAIT_SECONDS,
+      );
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    }
+  }
+}
+
+/** One API call. Adds who we are (app or web), keeps the login cookie, and turns errors into ApiFailure. */
+async function apiOnce<T>(path: string, options: ApiOptions): Promise<T> {
   const revision = sessionStore.revision;
   const generation = serverRecovery.snapshot();
   const method = options.method ?? (options.body ? "POST" : "GET");
@@ -103,7 +136,7 @@ export async function api<T>(
     const inner = (
       body.error && typeof body.error === "object" ? body.error : body
     ) as Record<string, unknown>;
-    throw new ApiFailure(
+    const failure = new ApiFailure(
       response.status,
       String(inner.code ?? "ERROR"),
       friendlyMessage(
@@ -112,6 +145,12 @@ export async function api<T>(
       ),
       body,
     );
+    if (response.status === 429)
+      Object.assign(failure, {
+        retryAfterSeconds:
+          Number(response.headers.get("retry-after")) || undefined,
+      });
+    throw failure;
   }
   return data as T;
 }
