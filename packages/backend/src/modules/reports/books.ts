@@ -97,7 +97,7 @@ export async function loadReportBooks(
     .select()
     .from(units)
     .where(eq(units.firmId, firmId));
-  const loadedVouchers = await hydrateVouchers(db, voucherRows);
+  const loadedVouchers = await hydrateVouchers(db, voucherRows, firmId);
   const partyOpeningBills = await loadOpeningBills(
     db,
     firmId,

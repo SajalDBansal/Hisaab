@@ -231,7 +231,16 @@ export function createSales(
   input: NewInvoiceInput,
   options: CreateOptions = {},
 ): Voucher[] {
-  const draft = structuredClone(db);
+  // All or nothing: work on copies of what these saves change (new vouchers,
+  // counters, audit lines and the converted source), not a clone of the whole book.
+  const draft: Db = {
+    ...db,
+    vouchers: db.vouchers.map((v) =>
+      v.id === input.sourceId ? structuredClone(v) : v,
+    ),
+    counters: { ...db.counters },
+    auditLog: [...db.auditLog],
+  };
   const selected = selectStockLines(
     draft.items,
     stockForInvoice(draft, input),
@@ -623,7 +632,8 @@ export function createExpense(
       throw new Error("Only a regular GST firm can claim GST on expenses.");
     const party = findParty(db, gst.partyId);
     if (party.type !== "supplier") throw new Error("Pick a supplier.");
-    if (!party.gstin?.trim()) throw new Error(UNREGISTERED_SUPPLIER_GST_MESSAGE);
+    if (!party.gstin?.trim())
+      throw new Error(UNREGISTERED_SUPPLIER_GST_MESSAGE);
     const interState = party.stateCode !== db.firm.stateCode;
     const charges = [
       { name: input.expenseHead, amount: gst.taxable, gstRate: gst.rate },

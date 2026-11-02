@@ -71,29 +71,49 @@ function counterKey(
 }
 
 /** Voucher rows with their lines, charges, journal lines and allocations, as core vouchers. */
+/** PostgreSQL accepts at most 65,535 bind parameters; stay well below it. */
+const ID_BATCH = 5000;
+
 export async function hydrateVouchers(
   db: Pick<Db, "select">,
   voucherRows: (typeof vouchers.$inferSelect)[],
+  /** Set when `voucherRows` are every voucher of this firm: children are read by firm. */
+  wholeFirm?: string,
 ): Promise<Voucher[]> {
   const ids = voucherRows.map((v) => v.id);
   if (!ids.length) return [];
-  // This reader may be a single transaction connection, not a connection pool.
-  const lineRows = await db
-    .select()
-    .from(voucherLines)
-    .where(inArray(voucherLines.voucherId, ids));
-  const chargeRows = await db
-    .select()
-    .from(voucherCharges)
-    .where(inArray(voucherCharges.voucherId, ids));
-  const journalRows = await db
-    .select()
-    .from(journalLines)
-    .where(inArray(journalLines.voucherId, ids));
-  const allocRows = await db
-    .select()
-    .from(allocations)
-    .where(inArray(allocations.voucherId, ids));
+  // This reader may be a single transaction connection, not a connection pool,
+  // so the queries run one after another.
+  const children = async <
+    T extends
+      | typeof voucherLines
+      | typeof voucherCharges
+      | typeof journalLines
+      | typeof allocations,
+  >(
+    table: T,
+  ) => {
+    if (wholeFirm)
+      return (await db
+        .select()
+        .from(table as typeof voucherLines)
+        .where(eq(table.firmId, wholeFirm))) as T["$inferSelect"][];
+    const rows: T["$inferSelect"][] = [];
+    for (let at = 0; at < ids.length; at += ID_BATCH)
+      rows.push(
+        ...((await db
+          .select()
+          .from(table as typeof voucherLines)
+          .where(
+            inArray(table.voucherId, ids.slice(at, at + ID_BATCH)),
+          )) as T["$inferSelect"][]),
+      );
+    return rows;
+  };
+  const lineRows = await children(voucherLines);
+  const chargeRows = await children(voucherCharges);
+  const journalRows = await children(journalLines);
+  const allocRows = await children(allocations);
 
   const by = <T extends { voucherId: string; position?: number }>(
     rows: T[],
@@ -258,7 +278,7 @@ export async function loadBooks(
           )
       : [];
 
-  const loaded = await hydrateVouchers(db, voucherRows);
+  const loaded = await hydrateVouchers(db, voucherRows, firmId);
 
   // --- parties and items: asked for, plus the ones on the loaded vouchers
   const partyIds = new Set(wantedParties);
