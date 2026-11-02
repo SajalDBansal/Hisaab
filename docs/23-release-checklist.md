@@ -4,24 +4,42 @@
 
 Use this guide to prepare a selected release. It records responsibilities and
 manual checks; no item here certifies a deployed environment or device.
+The [latest system audit](29-system-audit-and-work-plan.md) contains the current
+open findings and repair order. The [earlier audit](27-private-readiness-audit.md)
+retains F01-F18 repairs and G-phase evidence. The
+[backup and migration plan](30-postgres-r2-backup-and-ec2-migration.md) describes
+the requested opt-in daily R2 backup. [Doc 31](31-implementation-and-verification.md)
+records the new repairs and their checks; live backup credentials and external
+monitoring must still be configured and verified before relying on automation.
+For the implementation order and hosting walkthrough, start with the
+[completion plan](24-completion-plan.md), then guides 25 and 26.
 
-## Known Implementation Follow-Ups
+## Application Repairs and Remaining Release Work
 
-The [import guide](14-imports.md#known-gaps) records two source-confirmed gaps:
+The 26 October implementation pass resolves the application findings in
+[Doc 27](27-private-readiness-audit.md), including imported-bill reminders,
+`P0021` conflict translation, bounded readiness and health-check quota immunity.
+The audit records each fix's checks and limits. Native storage simulations do
+not replace a physical-device check, and local builds do not verify deployment.
 
-- Hydrate imported opening bills in notification/reminder scans so their original
-  due dates are used.
-- Translate the financial-import database guard `P0021` into a clear conflict
-  response instead of a generic server error.
-
-These remain code changes to make. They are not fixed by updating documentation
-or by the manual deployment checks below; this is not an exhaustive bug audit.
+G03's updated R2 CORS passed production-origin browser verification on 26 October.
+G01 registration/firm isolation and G02 dependency repairs/triage are locally
+complete. G04 supplies tested container/workflow configuration; G05's isolated
+database/object rehearsal passed. Resolve the additional findings in Doc 29.
+Still configure the EC2 PostgreSQL/Redis services, verified
+email, EC2/Docker Hub/HTTPS and retained independent backups, then perform actual
+provider recovery and phone/deployed acceptance. Apply migrations 0025 and 0026 after a
+verified backup, with API/worker writes paused and coordinated client updates.
 
 ## Manual Runtime Setup
 
 Use the [root README](../README.md) and app READMEs for commands and manual builds.
 Arrange hosting, PostgreSQL/Redis, private storage, HTTPS, runtime secrets and
 process supervision separately. Start the API and worker independently.
+The supplied container setup and owner steps are in
+[Docker and CI/CD](25-docker-and-cicd.md) and
+[EC2 and Expo deployment](26-ec2-and-expo-deployment.md). Follow their configuration
+and acceptance sequence before enabling production deployment.
 
 Back up and verify the database before applying pending migrations. Pause
 API/worker writes, use `bun run --cwd apps/api db:migrate`, and stop the rollout on

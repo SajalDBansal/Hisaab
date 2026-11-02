@@ -37,10 +37,12 @@ metadata-only documents are not verified uploads; reupload their files.
 - Upload URLs last five minutes, download URLs ten minutes. Signed URLs are bearer credentials; do not log or publish them.
 - The API checks firm membership and entry-specific write permissions before issuing uploads, confirming, moving or deleting. Lists and downloads also enforce role permissions; sales users cannot read journal, account-linked, supplier or general-library documents.
 - Uploads go to `pending/firms/<firm>/documents/<id>.<type>`. Confirmation checks byte count, MIME type and file signature. PDFs are conditionally copied to `firms/<firm>/documents/<id>.<type>`; images are decoded and re-encoded as JPEG with a separate private thumbnail.
-- Documents are hidden until confirmation. Retrying confirmation is idempotent. Still-valid upload URLs cannot overwrite a confirmed file. Deletion removes the object and hides its metadata without deleting the accounting entry.
+- Documents are hidden until confirmation. Retrying confirmation is idempotent. Still-valid upload URLs cannot overwrite a confirmed file. Deletion atomically hides its metadata and records cleanup without deleting the accounting entry. Physical removal waits until a verified database backup contains the deletion, then retries in the worker; provider failures do not expose broken live documents.
 - File-signature validation is not antivirus scanning. Add malware scanning and an organizational retention policy before accepting documents from untrusted external submitters.
 - Arrange backups of both PostgreSQL metadata and the bucket. A database backup
-  alone does not contain the images, and no full backup automation is supplied.
+  alone does not contain the images. Optional database automation is described in
+  [guide 30](30-postgres-r2-backup-and-ec2-migration.md); it retains references to
+  private objects but does not independently copy the document bucket.
   [Financial JSON exports](19-backup-recovery.md) include attachment metadata only;
   see [manual recovery responsibilities](20-manual-recovery.md).
 

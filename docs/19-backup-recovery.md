@@ -6,13 +6,15 @@ Bounded export, inspection and owner-confirmed recovery create a **new firm**.
 Version 4 retains stock corrections, settlements, opening bills/import provenance, partial
 order fulfillment and associate accounting in addition to version 3's monetary
 opening allocations, loans and import receipts. Full database and R2 backups
-and independent restoration are
-[manual responsibilities](./20-manual-recovery.md), with no supplied automation.
+and independent restoration follow the
+[manual runbook](./20-manual-recovery.md), with no supplied automation.
 
 Recovery requires a working original server/database, the original firm and the
 current owner's authenticated access to it. Possessing the private JSON file is
 not sufficient. It cannot recover after loss of the original server, firm or
 identity system; that needs administrator-operated PostgreSQL/PITR and R2 recovery.
+A full database restore preserves original account IDs and firm memberships;
+recovery authority is per account and firm, not a global installation-owner email.
 
 ## What works
 
@@ -214,9 +216,9 @@ not used by this screen. Demo mode cannot use the real recovery actions.
   settlement capacity, stock movements/valuation and return/conversion links.
   Unsupported legacy/deficit books fail explicitly; they are not repaired by import.
 - Confirmation is bound to the source firm, current owner, file digest and new
-  name. It expires after 30 minutes. Successful retries return the same result
-  while idempotency records are retained (currently seven days); an absent or
-  expired preview never creates another firm. A later fresh preview is an explicit
+  name. It expires after 30 minutes. With migration 0025, successful retries use
+  a permanent receipt and return the same result after the response cache expires;
+  an absent or expired uncommitted preview never creates another firm. A later fresh preview is an explicit
   separate recovery request and may create another distinctly named firm.
 - One PostgreSQL transaction inserts the new organization, owner membership and
   all business records. It holds the owner's source membership until commit.
@@ -273,3 +275,19 @@ request must not replace an export with an empty response. Check file picking,
 confirmation and firm switching on intended devices. A successful JSON recovery
 does not verify database backups or attachment binaries; arrange separate
 verification and an independent restore drill.
+
+## Full-System Recovery Evidence
+
+On 26 October 2026, an isolated PostgreSQL 17 `pg_dump`/`pg_restore` rehearsal
+preserved synthetic account credentials, firm memberships, balances and a durable
+retry receipt. A synthetic R2 original and thumbnail were recovered from local
+byte backups after deletion and downloaded through the restored API with matching
+SHA-256 hashes. See the [dated evidence and limits](20-manual-recovery.md#rehearsal-evidence).
+
+That exercise used full database and binary copies, not this financial JSON
+format. The JSON feature still excludes credentials, retry receipts and attachment
+bytes, and still creates a new firm with keyless document placeholders. The manual
+runbook covers environment/signing-key restoration, account ownership proof and
+[pending saves before reconnection](20-manual-recovery.md#pending-saves-before-reconnection).
+Provider backups/PITR, retained independent encrypted copies, real mailbox recovery
+and a phone cutover remain the installation operator's responsibility.

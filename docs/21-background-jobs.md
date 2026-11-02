@@ -9,23 +9,30 @@ Only worker startup registers recurring schedules.
 
 Start and supervise the worker separately. Its app environment file must point
 to the same PostgreSQL, Redis and private document storage as the API. Provide
-these services and a PDF browser explicitly; no hosting setup is supplied.
+these services and a PDF browser explicitly. The supplied worker Dockerfile and
+Compose service are described in [guide 25](25-docker-and-cicd.md).
 
 ## Supported behavior
 
 | Queue       | Behavior                                                                                                                                                                                 | Schedule (Asia/Kolkata) |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | `reminders` | Prepares each firm's due-reminder list using the same `dueReminders` rules as the API. Stores a private, two-day Redis snapshot. Does not send WhatsApp messages or mark reminders sent. | Daily at 10:00          |
-| `cleanup`   | Purges old request-idempotency records using the existing retention rule.                                                                                                                | Daily at 02:30          |
+| `cleanup`   | Removes request-cache rows older than seven days only when a matching committed permanent receipt exists; never deletes permanent operation receipts.                                    | Daily at 02:30          |
 | `pdf`       | Renders the existing voucher HTML with Chromium, writes a private PDF to R2/S3, and returns a fresh signed download after completion.                                                    | On request              |
+| `cleanup` | Retries tombstoned document object removal only after a verified database snapshot contains the deletion. | Every five minutes |
+| `backup` | Opt-in whole PostgreSQL database capture, verified private R2 publication, safe latest-only replacement and external success ping. | Daily at 02:00; startup and 30-minute due checks |
 
-Backup, generic messaging and report-warming jobs are **unsupported**. Their
+Generic messaging and report-warming jobs are **unsupported**. Their
 enqueue calls fail explicitly; workers do not consume these queues. Reports
 continue to compute on demand. Existing request ETags still work independently.
 The old nightly backup scheduler is removed on startup, along with the legacy
 reminder/cleanup scheduler IDs. Already queued unsupported jobs are not deleted
 silently: inspect/archive these during deployment. No backup is implied by a
-running worker, a successful cleanup job, or a configured R2 bucket.
+running worker, a successful cleanup job, or a configured document R2 bucket.
+Backups require separate credentials, explicit host enrollment and
+`BACKUP_ENABLED=true`; see [guide 30](30-postgres-r2-backup-and-ec2-migration.md).
+The obsolete per-firm backup payload is still rejected. Only the host operator
+can trigger a whole-database backup; normal firm users cannot access it.
 
 ## Queue safety
 

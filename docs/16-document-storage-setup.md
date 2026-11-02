@@ -49,13 +49,18 @@ access to one object; keep them out of
 logs, analytics and public pages. Both the full image and the preview use the
 same firm membership checks. [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/).
 
-For the browser version, configure the real frontend origins in the bucket CORS
-policy, for example:
+For the browser version, include the signed-in application's production origin
+in the bucket CORS policy. Keep any existing development origins you still use:
 
 ```json
 [
   {
-    "AllowedOrigins": ["http://localhost:8081", "https://your-app.example.com"],
+    "AllowedOrigins": [
+      "http://localhost:8081",
+      "http://localhost:19006",
+      "http://192.168.0.205:8081",
+      "https://app.hisaab.sajaldbansal.com"
+    ],
     "AllowedMethods": ["GET", "PUT", "HEAD"],
     "AllowedHeaders": ["Content-Type", "Content-Length"],
     "ExposeHeaders": ["ETag", "Content-Length", "Content-Type"],
@@ -64,9 +69,21 @@ policy, for example:
 ]
 ```
 
-Replace the example domain and include your actual Expo web port. Do not make
-the bucket public to fix CORS. Native Expo does not use browser CORS, but web
+Include your actual Expo web port and LAN origin when testing from another device.
+In Cloudflare, open R2 → the configured private bucket → Settings → CORS Policy,
+add the production origin to the saved rules and save. An Object Read & Write
+credential cannot manage this bucket setting; use the owner's dashboard access.
+Do not make the bucket public to fix CORS. Native Expo does not use browser CORS, but web
 uploads/downloads do. [R2 CORS configuration](https://developers.cloudflare.com/r2/buckets/cors/).
+
+**Verified 26 October 2026 after the owner's update:** all four origins above
+passed PUT/GET/HEAD preflight checks. An isolated browser page with the production
+origin uploaded a synthetic image and read its processed JPEG, thumbnail and
+signed metadata successfully. File bytes matched, and all test objects were
+removed. An unapproved origin was rejected. See
+[G03 verification](27-private-readiness-audit.md#g03--add-the-production-app-origin-to-private-r2-cors)
+for the test boundaries; the full deployed app and phone sharing still need
+their normal acceptance checks.
 
 Add an expiration rule only for the `pending/` prefix, such as seven days. Do
 not expire `firms/`, where saved images and thumbnails live. Retention on staging
@@ -122,7 +139,9 @@ installing the native image-manipulator module.
    A separate thumbnail can be rebuilt, but the readable document cannot be
    recreated from its thumbnail.
 
-Full backup and restore are manual responsibilities; no automation is supplied.
+Restore and independent document-bucket protection remain operator responsibilities.
+Optional database backup automation is configured separately in
+[guide 30](30-postgres-r2-backup-and-ec2-migration.md).
 Working image storage does not verify database or attachment backups.
 
 ## Storage limits and safe upload retries
@@ -168,9 +187,13 @@ Send one stable `Idempotency-Key` for each logical attachment to
 key, firm, route, and body returns the same document ID, including concurrent
 retries. Reusing a key with different input returns `KEY_REUSED` (422). Preserve
 the same endpoint and body on retries. A deleted reservation is not recreated.
-The existing shared idempotency retention is seven days; after that window, retain
-the received document ID and use its renew/confirm routes instead of creating a
-new ticket with an old key.
+Migration `0025_durable_retry_answers` retains reservation identities permanently,
+even after the worker removes the seven-day response cache. New reservations use
+UUIDv7 keys. Preserve each pending draft's original key and document ID; replay
+returns that ID and renews its signed URL through the usual access checks. Old
+UUIDv4 keys with a retained answer still replay. If the old answer was already
+lost, `RETRY_RESULT_UNKNOWN` requires reconciliation rather than a fresh upload
+under a different key. Update API, worker and clients together for this protocol.
 
 The reservation and replay record commit before a URL is signed. A temporary
 signing failure can therefore be retried safely. Only the document ID is stored

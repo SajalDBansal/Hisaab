@@ -4,6 +4,21 @@ Start with the [project README](../README.md) for installation and local command
 then follow the guides below. Numbers describe reading order, not implementation
 steps or database migration order. App and package READMEs stay beside their code.
 
+For the current **small deployment**, start with the
+[latest system audit and ordered work plan](29-system-audit-and-work-plan.md),
+the [daily backup and EC2 migration plan](30-postgres-r2-backup-and-ec2-migration.md),
+and the [implementation and verification record](31-implementation-and-verification.md).
+All A01-A16 defects and B01-B06 backup/migration tasks are fully implemented and verified
+locally. The [earlier audit](27-private-readiness-audit.md) retains F01-F18 repairs and G01-G05
+evidence. Guides 24-26 remain the deployment reference; a public website or
+public APK release is optional.
+Normal registration and multiple accounts/firms remain supported; the current
+single operator does not imply an owner email allowlist.
+
+For the three Docker run modes and env templates, use the
+[deployment README](../deployment/README.md). Development starts only PostgreSQL
+and Redis; local/prod files run the applications with their respective settings.
+
 ## Product and First Run
 
 | Order | Guide                                            | What it covers                                          |
@@ -47,6 +62,24 @@ steps or database migration order. App and package READMEs stay beside their cod
 | 22    | [Correctness rules](22-correctness-rules.md) | Authentication, financial history, snapshots and sync invariants |
 | 23    | [Release checklist](23-release-checklist.md) | Known follow-ups, manual environment setup and product checks    |
 
+## Completion and Deployment
+
+Read guides 24-26 in order for the first EC2 release. Docker and GitHub Actions
+files are now supplied; guides 27-28 retain earlier verification, and guides 29-30
+define the latest repairs and backup/migration work.
+
+| Order | Guide                                                        | What it covers                                                                      |
+| ----- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| 24    | [Completion plan](24-completion-plan.md)                     | Remaining code fixes, implementation phases and acceptance gates                    |
+| 25    | [Docker and CI/CD](25-docker-and-cicd.md)                    | Minimal file set, image contracts, Compose and GitHub deployment                    |
+| 26    | [EC2 and Expo deployment](26-ec2-and-expo-deployment.md)     | Owner setup, env files, first deployment, Android release and operations            |
+| 27    | [Private-use readiness audit](27-private-readiness-audit.md) | Verified checks, accounting/authentication defects and ordered private-release work |
+| 28    | [Dependency review](28-dependency-review.md)                 | Security updates, remaining advisories and their actual exposure                    |
+| 29    | [System audit and work plan](29-system-audit-and-work-plan.md) | Current reproduced defects, coverage, evidence and ordered implementation tasks |
+| 30    | [PostgreSQL backup and EC2 migration](30-postgres-r2-backup-and-ec2-migration.md) | Daily latest-only R2 backup setup, controlled restores and moving to another EC2/account |
+| 31    | [Implementation and verification](31-implementation-and-verification.md) | Current A01-A16/B01-B06 repair status, integrated acceptance evidence and owner actions |
+| 32    | [Production polish audit and work plan](32-production-polish-audit-and-work-plan.md) | Independent re-verification, H01-H18 findings (release, GST/TDS, costing, scale) and the ordered plan to production |
+
 ## How to Use These Guides
 
 - To try the application, use the project README and guide 04; configure storage
@@ -57,8 +90,9 @@ steps or database migration order. App and package READMEs stay beside their cod
   before relying on a restore.
 - Manual check sections describe checks to perform; they are not evidence that
   a device or deployment passed. Known gaps are separate from future features.
-- The repository currently includes no root operator scripts, CI/CD workflows or
-  Docker deployment setup. Hosting, full backups and APK publication are manual.
+- The Dockerfiles, Compose and Caddy in `deployment/`, plus the GitHub workflow, use the existing app
+  commands, with no root operator scripts or regression-test pipeline. See guides
+  25-26 for configuration; full backups and APK publication remain operator duties.
 
 Keep guides current when behavior changes. Preserve these filenames when possible,
 and update incoming links whenever a guide is renamed.

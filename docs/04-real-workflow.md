@@ -34,8 +34,9 @@ someone else's changes.
 Supported financial and master saves use the durable outbox and original-operation
 receipts described in [offline books](17-offline-books.md). Offline saves remain
 pending until the server confirms them; retrying preserves the original request
-and key. Other actions still require connectivity and may use the shared seven-day
-idempotency window. Reconcile an uncertain result before submitting a new entry.
+and key. Online-only actions still require connectivity. Migration 0025 retains
+their committed retry answers beyond the seven-day response cache; clients must
+keep the original key. Reconcile an unknown result before submitting a new entry.
 
 ## Run And Check
 

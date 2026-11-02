@@ -17,6 +17,9 @@ work for business use.
   authorized party lists/details, items/details where permitted, today's stock
   lots, cash/bank selectors, accounts, inventory adjustments, vouchers/details,
   invoice/order selectors and permitted standard reports in all/GST/non-GST scopes.
+  Profit & loss includes the exact dated requests for This month, Last month,
+  Last 3 months and This FY in all three scopes. Screens and downloads share the
+  same period builder; a download from yesterday does not invent today's answer.
 - Successful normal GETs in the supported book namespaces are cached too. Reads
   are keyed by their exact path and sorted query parameters. Unvisited date ranges
   and filters without an exact cached answer fail visibly, not with empty or
@@ -86,6 +89,60 @@ can use existing downloaded masters, then use new masters after synchronization.
   Download completion is recorded only after all requested reads/cache writes
   succeed online. These are timestamped authoritative answers, not a globally
   atomic database snapshot. Clearing downloaded books leaves the outbox and copies.
+
+## Recovery After a Database Restore
+
+The server publishes `X-Recovery-Epoch`, a UUID configured outside PostgreSQL.
+The operator must change it during a restore or account/host cutover as described
+in [guide 30](30-postgres-r2-backup-and-ec2-migration.md). Ordinary deployments
+keep it unchanged. Deploy the matching server and client together: older servers
+without this header cannot safely serve this client.
+
+Outboxes, read caches, membership grants, pending retry keys and financial
+attachment drafts retain their generation. Learning a new server generation
+invalidates previous cached books and refreshes firm selection. Old in-flight
+responses cannot move the observed generation backwards. A 30-second request
+deadline covers both headers and body consumption; a lost or timed-out write
+remains uncertain under its original key.
+
+A changed generation, or a legacy journal whose generation cannot be established,
+quarantines retained work before lookup/execution. Fresh login as the same user,
+firm and role does not remove that quarantine. Clearing downloaded books does
+not clear it either. Known-success operations are never automatically reposted.
+When the server generation changes during a request, its old-generation result
+cannot be reported as a current confirmed save.
+
+Use **Settings → Offline books** to reconcile:
+
+1. Keep the original device storage and attachment files. Review every retained
+   request, including completed history, against the restored books with the
+   owner/accountant.
+2. Select **Check restored answer**. This performs only original-key lookup.
+   A committed receipt must still have its matching business record; a missing
+   record blocks automatic resolution. An absent receipt does not authorize replay.
+3. Record what was compared and how missing or different entries will be resolved,
+   then choose **Record review and keep original**. This changes only local review
+   metadata. It posts/deletes no financial record and preserves request IDs,
+   original responses and attachment references.
+4. After every retained request has a review for this generation, choose
+   **Resume new work after review**. Old pending requests become retained history
+   and are never resent automatically. New work may resume and read caches are
+   rebuilt. Any needed manual re-entry remains a deliberate accounting decision;
+   do not reuse an old request key as a fresh transaction.
+5. Reconcile retained uploads separately in **Pending uploads**. Resuming new
+   books does not silently approve old upload tickets or erase image copies.
+
+This is an explicit device-side review workflow, not proof that the accountant's
+manual reconciliation is correct. Unknown historical direct retry keys that
+predate outbox metadata remain blocked and preserved; do not erase storage or
+invent a replacement key to bypass that uncertainty. Corrupt storage, missing
+receipts and missing business rows still need operator investigation.
+
+The native privacy cover also keeps open forms mounted while the application is
+inactive or PIN-locked. A short camera/gallery handoff preserves the draft; an
+expired timeout still requires the PIN. Uploading requires unlock, while a picker
+callback may retain local files behind the cover. Verify camera, app-switcher
+concealment and expired locks on the intended physical phone.
 
 ## Web Cold Starts
 
@@ -163,14 +220,24 @@ original receipt or attempted version. Responses are private/no-store.
 
 `operation_receipts` is keyed by user/key; current receipts also bind firm, role,
 method/path, normalized body and expected version. It is not subject to seven-day
-shared-idempotency cleanup. `0022_operation_receipts.sql` also archives identifiable legacy
-financial/master and document-upload answers, including still-retained answers
-at migration time. Fingerprints establish the original firm for legacy rows.
+shared-idempotency cleanup. `0025_durable_retry_answers.sql` extends the archive
+introduced in 0022 to every remaining saved answer, including settlements and
+legacy sync envelopes. Shared writers consult permanent receipts and create them
+in the same transaction as the business change. Cleanup only removes cache rows
+with matching committed permanent receipts. Fingerprints establish the original
+firm for legacy rows.
 
 Pending key provenance survives upgrade. A legacy answer already purged before
 migration is **unknown**, never assumed absent. It cannot be safely reposted,
 cancelled as never executed or replaced automatically. No system can reconstruct
 an erased answer by inventing another operation key.
+
+New direct requests use UUIDv7; existing pending UUIDv4 keys remain unchanged.
+An unknown old direct/sync key returns `RETRY_RESULT_UNKNOWN`. Session/access
+failures and unknown/key-reuse errors retain the pending key. Modern `/operations`
+requests still use their existing durable protocol, including UUIDv4 keys. Update
+the server and apply migration 0025 before sending requests from the new client;
+see the F01 rollout steps in [the audit](27-private-readiness-audit.md).
 
 Confirmed background synchronization releases the matching ordinary pending-write
 key only after attachment receipt/binding work succeeds. It never removes a newer
@@ -188,7 +255,7 @@ and tombstones. Unknown/deleted results never create a replacement document.
    after the auth and firm plugins.
 2. `operationReceipts` is exported through the shared schema barrel from
    `packages/backend/src/db/schema/operations.ts`. Apply pending migrations from
-   `apps/api/src/db/migrations`, including `0022_operation_receipts.sql`, after
+   `apps/api/src/db/migrations`, including `0025_durable_retry_answers.sql`, after
    a verified backup and a pause in writes.
 3. Keep DataProvider's transport order: raw authenticated API -> offline books ->
    `withPendingWrites(..., durableOperations=true)` -> existing remote services.
@@ -196,8 +263,12 @@ and tombstones. Unknown/deleted results never create a replacement document.
    attachment callback. Shared Services/remoteServices interfaces need no new
    outbox service. Inventory remains the existing optional inventory service.
 4. `/settings/offline-books` is available to all authenticated active-firm members.
-   `OfflineBooksStatus` from `apps/native/src/offline` appears in the book layout.
-   `/settings/pending-uploads` is the attachment management route.
+   That screen shows connection, cached-answer, pending-save and recovery-review
+   status. Shared screens show a persistent link when saves or recovery need
+   attention; the short save notification also works on web. A form that queued a
+   save stays tied to that request, even after background sync finishes. Review
+   the original result in Offline books and close the form before starting a new
+   entry. `/settings/pending-uploads` is the attachment management route.
 5. Body objects bound by `useFinancialAttachments.save` must reach the client
    unchanged. Validate without replacing the object so attachment bindings remain intact.
 6. Keep local protocol hints inside the offline adapter. `x-hisaab-pending-key`,
@@ -205,6 +276,9 @@ and tombstones. Unknown/deleted results never create a replacement document.
    online-only passthrough routes, including backup inspection and report exports.
    Do not add them to API CORS allowances. Genuine version/firm/idempotency headers
    and the original body identity remain unchanged.
+7. Forward and expose `X-Recovery-Epoch` through API CORS/proxies. Preserve each
+   operation's original epoch; never substitute the current server value to make
+   an old retry pass. Generation reset and operator cutover belong to guide 30.
 
 ## Manual Checks
 
@@ -219,7 +293,9 @@ Check user/firm switching, sign-out, access revocation and expired grants. Confi
 unavailable cached views report that state and corrupt storage is retained for
 reconciliation. Check process restart and low-storage behavior on Android/iOS.
 
-Keep devices with unresolved saves disconnected during independent database
-recovery; follow [manual reconnection responsibilities](20-manual-recovery.md#pending-saves-before-reconnection)
-before allowing replay. No automated quarantine is supplied. Attachment recovery has separate
+During a controlled restore, keep devices paused until the new server epoch and
+restore checks are accepted. Test automatic quarantine, fresh login, an uncertain
+save, known-success history, interrupted responses and the explicit review flow.
+Follow [manual reconnection responsibilities](20-manual-recovery.md#pending-saves-before-reconnection)
+before resuming new work. Attachment recovery has separate
 [binding and retention limits](18-attachment-recovery.md).
