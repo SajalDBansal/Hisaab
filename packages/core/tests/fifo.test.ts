@@ -210,3 +210,45 @@ describe("printed invoice", () => {
     expect(rows).toHaveLength(2);
   });
 });
+
+describe("split sale is all or nothing", () => {
+  test("a failure after the first bill leaves the books untouched", () => {
+    const { db, buy } = books();
+    buy("2026-10-01", 10, 10000);
+    buy("2026-10-02", 10, 9000, "nongst");
+    const before = structuredClone({
+      vouchers: db.vouchers,
+      counters: db.counters,
+      auditLog: db.auditLog,
+    });
+    // Two books -> two invoices; paying more than both totals fails after the first is built.
+    expect(() =>
+      createSales(db, {
+        date: "2026-10-10",
+        partyId: "customer",
+        lines: [
+          {
+            itemId: "item",
+            qty: 1,
+            rate: 20000,
+            gstRate: 18,
+            bookScope: "gst",
+          },
+          {
+            itemId: "item",
+            qty: 1,
+            rate: 20000,
+            gstRate: 18,
+            bookScope: "nongst",
+          },
+        ],
+        paidNow: { amount: 99_999_999, mode: "cash", ledgerId: "cash" },
+      }),
+    ).toThrow("The payment exceeds the invoice totals.");
+    expect({
+      vouchers: db.vouchers,
+      counters: db.counters,
+      auditLog: db.auditLog,
+    }).toEqual(before);
+  });
+});

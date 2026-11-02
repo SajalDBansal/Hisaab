@@ -249,6 +249,8 @@ export async function enforceCreditForPostedSales(
       ),
     );
   if (!party || party.deletedAt) invalid("Customer not found.");
+  // Without a limit there is nothing to enforce; skip reloading the whole book.
+  if (!party.creditLimit) return;
   const books = await settlementBooks(tx, ctx.firmId);
   const balance = partyBalance(
     required(
