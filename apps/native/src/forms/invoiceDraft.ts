@@ -1,7 +1,10 @@
 import {
+  baseQty,
   itemTaxType,
   parseRupees,
+  thousandths,
   type BookScope,
+  type StockLot,
   type ExtraCharge,
   type InvoiceLine,
   type Item,
@@ -111,4 +114,36 @@ export function invoiceDraftCharges(
   if (index < 0 && freight > 0)
     charges.push({ name: "Freight", amount: freight, gstRate: 18 });
   return charges;
+}
+
+/** Lots as they stood before this bill took its stock, so an edit can reuse it. */
+export function lotsWithoutBill(lots: StockLot[], bill?: Voucher): StockLot[] {
+  if (!bill) return lots;
+  return lots.map((lot) => {
+    const own = (bill.lines ?? []).filter((l) => l.stockLotId === lot.id);
+    if (!own.length) return lot;
+    const qty =
+      own.reduce((n, l) => n + thousandths(baseQty(l)), thousandths(lot.qty)) /
+      1000;
+    const value = own.reduce((n, l) => n + (l.stockCost ?? 0), lot.value);
+    return { ...lot, qty, value, unitCost: qty ? value / qty : lot.unitCost };
+  });
+}
+
+/** Which stock rows each entered line became (allocation returns them in order). */
+export function stockPartsByLine(
+  entered: InvoiceLine[],
+  parts: InvoiceLine[],
+): InvoiceLine[][] {
+  let next = 0;
+  return entered.map((line) => {
+    const wanted = thousandths(baseQty(line));
+    const mine: InvoiceLine[] = [];
+    let got = 0;
+    while (next < parts.length && (!mine.length || got < wanted)) {
+      got += thousandths(baseQty(parts[next]));
+      mine.push(parts[next++]);
+    }
+    return mine;
+  });
 }

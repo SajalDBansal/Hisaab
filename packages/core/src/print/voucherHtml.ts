@@ -5,7 +5,12 @@
  * Pure function: the app turns the HTML into a PDF (expo-print), and the real API
  * can use the same function to render PDFs on the server.
  */
-import { calcCharge, calcInvoice, calcLine } from "../accounting/invoice";
+import {
+  calcCharge,
+  calcInvoice,
+  calcLine,
+  type LineTotals,
+} from "../accounting/invoice";
 import { voucherPostings } from "../accounting/postings";
 import { lineQtyText } from "../accounting/stock";
 import { docTypeLabel, lineTaxType, taxTypeLabel } from "../accounting/taxType";
@@ -18,9 +23,10 @@ import {
   voucherMode,
 } from "../accounting/gstMode";
 import { formatDate } from "../dates";
-import { amountInWords, formatINR } from "../money";
+import { amountInWords, formatINR, thousandths } from "../money";
 import { stateName } from "../states";
 import type {
+  InvoiceLine,
   Firm,
   InvoiceSettings,
   InvoiceTemplate,
@@ -210,6 +216,37 @@ function metaRows(rows: [string, string | undefined][]) {
 // Bills and returns
 // ---------------------------------------------------------------------------
 
+/**
+ * Lines as the customer should see them. A sale line that drew on several stock
+ * lots is saved as one line per lot; adjacent lines with the same item, unit,
+ * price, discount rate and tax print as one row with their amounts added up.
+ */
+export function printRows(lines: InvoiceLine[], interState: boolean) {
+  const rows: { line: InvoiceLine; lt: LineTotals }[] = [];
+  const same = (a: InvoiceLine, b: InvoiceLine) =>
+    a.itemId === b.itemId &&
+    a.rate === b.rate &&
+    a.gstRate === b.gstRate &&
+    a.taxType === b.taxType &&
+    a.discountPercent === b.discountPercent &&
+    (a.discountAmount === undefined) === (b.discountAmount === undefined) &&
+    a.per?.unit === b.per?.unit &&
+    a.per?.factor === b.per?.factor;
+  for (const line of lines) {
+    const lt = calcLine(line, interState);
+    const last = rows[rows.length - 1];
+    if (last && same(last.line, line)) {
+      last.line = {
+        ...last.line,
+        qty: (thousandths(last.line.qty) + thousandths(line.qty)) / 1000,
+      };
+      for (const key of Object.keys(lt) as (keyof LineTotals)[])
+        last.lt = { ...last.lt, [key]: last.lt[key] + lt[key] };
+    } else rows.push({ line, lt });
+  }
+  return rows;
+}
+
 function billHtml(input: PrintInput, title: string): string {
   const { firm, voucher: v, party, items, settings } = input;
   const template = settings.template;
@@ -273,11 +310,10 @@ function billHtml(input: PrintInput, title: string): string {
     ],
   ]);
 
-  // Item rows
-  const rows = (v.lines ?? [])
-    .map((line, i) => {
+  // Item rows (one row per item and price, even when the stock came from several lots)
+  const rows = printRows(v.lines ?? [], interState)
+    .map(({ line, lt }, i) => {
       const it = item(line.itemId);
-      const lt = calcLine(line, interState);
       const q = lineQtyText(line, it?.unit ?? "");
       const qty = `${esc(q.main)}${q.base ? `<div class="small muted">${esc(q.base)}</div>` : ""}`;
       const type = lineTaxType(line);

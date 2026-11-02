@@ -1216,13 +1216,23 @@ export function updateInvoice(
     input.lines = selectStockLines(
       db.items,
       stockForInvoice(db, input, v.id),
-      input.lines.map((l, index) =>
-        savedLineDetails(
+      input.lines.map((l, index) => {
+        // A row keeps its saved batch only while it is still the same item;
+        // other rows take stock oldest first from this bill's own book.
+        const saved = v.lines?.[index];
+        const stockLotId =
+          l.stockLotId ??
+          (saved?.itemId === l.itemId ? saved.stockLotId : undefined);
+        return savedLineDetails(
           historicalBooks,
-          { ...l, stockLotId: l.stockLotId ?? v.lines?.[index]?.stockLotId },
+          {
+            ...l,
+            stockLotId,
+            bookScope: stockLotId ? l.bookScope : bookScopeOf(v),
+          },
           v.lines ?? [],
-        ),
-      ),
+        );
+      }),
       v.date,
     );
   const { side, lines, charges } = billParts(

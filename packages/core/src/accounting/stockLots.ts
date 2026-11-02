@@ -1,4 +1,5 @@
 import type { BookScope, InvoiceLine, Item, TaxScope, Voucher } from "../types";
+import { mulDivRound, thousandths } from "../money";
 import { calcLine } from "./invoice";
 import { baseQty, stockVouchersAsOf } from "./stockInputs";
 import { bookScopeOf } from "./bookScope";
@@ -239,43 +240,111 @@ export function inventoryValue(
     .reduce((sum, l) => sum + l.value, 0);
 }
 
-/** Select a real lot and reserve quantities across repeated rows in the same bill. */
+/** Shown when an item has stock in both books and the sale didn't say which to use. */
+export const STOCK_BOOK_CHOICE_MESSAGE =
+  "This item has stock in both the GST and non-GST books. Choose which stock to sell from.";
+
+/**
+ * Give each sale line its stock. A chosen lot is used as is; otherwise stock comes
+ * oldest first (FIFO) from the line's book, or the only book holding the item.
+ * A line needing several lots becomes one line per lot, so returns, cancellations
+ * and costs keep working lot by lot; prints merge them back into one row.
+ * `available` is copied, so callers can pass cached lots.
+ */
+export function allocateStock(
+  available: StockLot[],
+  lines: InvoiceLine[],
+): InvoiceLine[] {
+  const pool = available.map((lot) => ({ ...lot }));
+  const take = (lot: StockLot, line: InvoiceLine, qty: number) => {
+    const stockCost =
+      qty === lot.qty ? lot.value : Math.round(qty * lot.unitCost);
+    lot.qty = quantity(lot.qty - qty);
+    lot.value -= stockCost;
+    return { ...line, stockLotId: lot.id, stockCost, bookScope: lot.bookScope };
+  };
+  return lines.flatMap((line) => {
+    const choices = pool.filter((l) => l.itemId === line.itemId && l.qty > 0);
+    const qty = baseQty(line);
+    if (line.stockLotId) {
+      const lot = choices.find((l) => l.id === line.stockLotId);
+      if (!lot)
+        throw new Error(
+          choices.length
+            ? "The chosen stock batch has no stock left on this date. Choose another batch."
+            : "No stock available on this date. Record the purchase first.",
+        );
+      if (qty > lot.qty)
+        throw new Error(`Only ${lot.qty} units remain in ${lot.number}.`);
+      return [take(lot, line, qty)];
+    }
+    if (!choices.length)
+      throw new Error(
+        "No stock available on this date. Record the purchase first.",
+      );
+    const scopes = [...new Set(choices.map((l) => l.bookScope))];
+    const scope =
+      line.bookScope ?? (scopes.length === 1 ? scopes[0] : undefined);
+    if (!scope) throw new Error(STOCK_BOOK_CHOICE_MESSAGE);
+    const fifo = choices.filter((l) => l.bookScope === scope);
+    const inStock = quantity(fifo.reduce((sum, l) => sum + l.qty, 0));
+    if (qty > inStock)
+      throw new Error(
+        `Only ${inStock} units are in ${scope === "gst" ? "GST" : "non-GST"} stock on this date.`,
+      );
+    const parts: { lot: StockLot; qty: number }[] = [];
+    let left = qty;
+    for (const lot of fifo) {
+      if (left <= 0) break;
+      const used = quantity(Math.min(left, lot.qty));
+      parts.push({ lot, qty: used });
+      left = quantity(left - used);
+    }
+    if (parts.length === 1) return [take(parts[0].lot, line, qty)];
+    // Split in the unit the line was entered in; the flat discount follows quantity.
+    const factor = line.per?.factor ?? 1;
+    let done = 0;
+    let discountGiven = 0;
+    return parts.map((part, index) => {
+      const partQty = quantity(part.qty / factor);
+      if (Math.abs(partQty * factor - part.qty) > 1e-9)
+        throw new Error(
+          `This quantity uses more than one stock batch and can't be split in ${line.per?.unit}. Enter it in the item's base unit or choose a batch.`,
+        );
+      done = quantity(done + part.qty);
+      let discountAmount = line.discountAmount;
+      if (line.discountAmount !== undefined) {
+        const upTo =
+          index === parts.length - 1
+            ? line.discountAmount
+            : mulDivRound(
+                line.discountAmount,
+                thousandths(done),
+                thousandths(qty),
+              );
+        discountAmount = upTo - discountGiven;
+        discountGiven = upTo;
+      }
+      return take(
+        part.lot,
+        { ...line, qty: partQty, discountAmount },
+        part.qty,
+      );
+    });
+  });
+}
+
+/** Select stock for sale lines from the books as they stood on `date`. */
 export function selectStockLines(
   items: Item[],
   vouchers: Voucher[],
   lines: InvoiceLine[],
   date: string,
 ): InvoiceLine[] {
-  const available = items.flatMap((i) => stockLots(i, vouchers, date));
-  return lines.map((line) => {
-    const choices = available.filter(
-      (l) => l.itemId === line.itemId && l.qty > 0,
-    );
-    const equivalent = choices.every(
-      (l) =>
-        l.bookScope === choices[0]?.bookScope &&
-        l.unitCost === choices[0]?.unitCost,
-    );
-    const lot = line.stockLotId
-      ? choices.find((l) => l.id === line.stockLotId)
-      : equivalent
-        ? (choices.find((l) => l.qty >= baseQty(line)) ?? choices[0])
-        : undefined;
-    if (!lot)
-      throw new Error(
-        choices.length
-          ? "Choose the purchase stock lot for each sale item."
-          : "No stock available on this date. Record the purchase first.",
-      );
-    const qty = baseQty(line);
-    if (qty > lot.qty)
-      throw new Error(`Only ${lot.qty} units remain in ${lot.number}.`);
-    const stockCost =
-      qty === lot.qty ? lot.value : Math.round(qty * lot.unitCost);
-    lot.qty = quantity(lot.qty - qty);
-    lot.value -= stockCost;
-    return { ...line, stockLotId: lot.id, stockCost, bookScope: lot.bookScope };
-  });
+  return allocateStock(
+    items.flatMap((i) => stockLots(i, vouchers, date)),
+    lines,
+  );
 }
 
 /** Backdated entries must also leave enough stock for already-issued later invoices. */
