@@ -240,7 +240,23 @@ acceptance 14/14 (170 HTTP requests, books reconcile).
 8. **H13:** dashboard net-sales labels, balance-sheet profit split, fix `altQtyText`.
 9. **H12:** GSTIN check digit, no ITC on unregistered-supplier purchases, prefix length limit.
 
-### Phase 2: Business Completeness (needs owner decisions first)
+### Phase 2: Business Completeness (needs owner decisions first). **Done 2 Nov 2026**
+
+On branch `phase2/business-features` (5 commits; based on Phase 1):
+- **H14:** automatic FIFO. A row spanning lots is saved one row per lot and
+  printed as one merged row. The sale screen asks GST vs non-GST stock when an
+  item is in both books. A chosen lot still overrides FIFO.
+- **H15:** bill dates editable within the financial year. Blocked by earlier
+  settlements and later stock corrections; period locks are checked on both dates.
+- **H08:** GST on paid expenses from registered suppliers (regular firms),
+  stored as a taxed charge. It counts in input credit and GSTR-3B; no migration.
+- **H07:** composition quarters show the tax already recorded, and
+  **Record in books** posts the quarter-end journal, or the difference.
+
+Not built, by owner decision: H09 part 2 (TDS receivable) and H11. Verified:
+typecheck/lint 7/7; core 81 tests; native 26; API 47/47 on fresh fixture DBs;
+finance acceptance 10/10; system acceptance 14/14; plus an HTTP smoke test of
+FIFO split, date edit, GST expense and a balanced trial balance.
 10. **H14:** automatic FIFO lot allocation with multi-lot lines and manual override,
     plus a cost-correction entry for consumed purchases.
 11. **H08:** GST-aware expenses feeding GSTR-3B input.
