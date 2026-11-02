@@ -1,62 +1,59 @@
-# 17. Offline Books and Pending Saves
+# 17. Offline Books (View-Only)
 
-[Documentation index](README.md)
+[Documentation index](README.md) | [Offline, RBAC and real-time design](33-offline-rbac-realtime.md)
 
-Offline books uses encrypted read caches, a durable
-ordered financial/master outbox, explicit conflict review, stage-before-save
-attachment recovery and original-operation receipts independent of shared-key TTL.
-Check behavior on the intended devices and deployment before relying on offline
-work for business use.
+Offline mode is **view-only**. With no connection the app shows downloaded books
+from an encrypted cache; creating or changing an entry needs a connection, so
+nothing is saved on the device to be sent later and there is nothing to sync or
+merge. Check behavior on the intended devices before relying on it for business use.
 
 ## Workflow
 
 - `/settings/offline-books` is available to an authenticated, unlocked user with
-  an active firm. `OfflineBooksStatus` provides a pending/offline link in the book
-  layout. Viewer roles can read authorized cached books but cannot queue writes.
-- Download books fetches actual API answers: firm/invoice settings, units,
-  authorized party lists/details, items/details where permitted, today's stock
-  lots, cash/bank selectors, accounts, inventory adjustments, vouchers/details,
-  invoice/order selectors and permitted standard reports in all/GST/non-GST scopes.
-  Profit & loss includes the exact dated requests for This month, Last month,
-  Last 3 months and This FY in all three scopes. Screens and downloads share the
-  same period builder; a download from yesterday does not invent today's answer.
-- Successful normal GETs in the supported book namespaces are cached too. Reads
-  are keyed by their exact path and sorted query parameters. Unvisited date ranges
-  and filters without an exact cached answer fail visibly, not with empty or
-  invented records. Number previews are not locally allocated financial numbers.
-- Existing downloaded masters can be selected in the ordinary financial forms.
-  A supported save first persists the original request and key. Offline saves
-  report **pending, not posted**; no synthetic voucher ID, balance, stock movement
-  or successful server answer is produced. Pending changes appear in Offline books.
-- Reconnection, app activation and a foreground 30-second timer try ordered sync
-  after fresh membership verification. A conflict or blocked operation stops later
-  pending entries. The app must be running; this is not a background OS job.
-- A failed or unknown operation offers read-only answer lookup and explicit atomic
-  cancellation. Cancellation cannot remove an already committed financial entry.
-  Confirmed results open their original voucher, party, item, ledger or account.
-- A definitive server rejection exposes the submitted JSON, server comparison
-  record and field errors. The user can discard that rejected request or confirm
-  edited JSON and an explicitly reviewed version as a new replacement. No automatic
-  version refresh, merging or overwrite occurs. Attachment copies keep the original
-  confirmed binding plan, including both invoices for mixed sales.
+  an active firm. While the API can't be reached the book layout shows
+  **Offline - view only**.
+- **Download books** fetches real API answers for every book screen the role may
+  see: firm and invoice settings, units, parties and their details, items and
+  their details where permitted, stock lots (today's and undated), cash/bank,
+  accounts, inventory adjustments, vouchers with details and returnable lines,
+  invoice/order lists, banking entries, standard reports in all/GST/non-GST scopes
+  (P&L for This month, Last month, Last 3 months and This FY), GST months with
+  GSTR-1/3B, composition quarters, notifications, audit log, team, reminders, book
+  controls, opening allocations, last year's year-end review, loans, settlements
+  and associates. Reads a role may not see are skipped.
+- The download sends reads issued together to `POST /v1/reads/batch` in groups of
+  up to 200. Each path runs through its normal route on the server (same
+  authentication, role checks, validation and response) and the firm's books are
+  read once per batch; a batch counts once against the rate limit. A firm with
+  hundreds of records downloads in a handful of requests, and the encrypted cache
+  is written once at the end. A server without batches is read one path at a time.
+- Successful normal GETs in the offline-readable paths are cached too
+  (`OFFLINE_READABLE_PATH` in `packages/contracts/src/reads.ts`, shared with the
+  batch endpoint). Reads are keyed by exact path and sorted query parameters; an
+  unvisited filter or date range shows **You're offline** rather than invented data.
+- Documents, account sessions/invitations and backup need a connection and say so.
+- **Saving:** every save first reaches the server (an original-key lookup). Offline,
+  it is refused before anything is kept: *"You're offline. You need to be online to
+  create or update an entry."* The form stays filled in to save again later.
+- Online, a save is sent at once. If the connection drops after the server received
+  it, the entry is kept under its key and the form asks you to check it in Offline
+  books. Background sync (reconnect, app activation, a 30-second timer) only asks
+  the server for the original answer and **never posts**; **Check and save now** or
+  saving the same form again sends it explicitly under the same key, so it can't be
+  duplicated.
+- A definitive server rejection shows the submitted values, the server's record and
+  field errors. Discard it, or save an edited replacement (sent at once, online).
+- Reads the server rate-limits (429) wait for its `Retry-After` (at most 30 s) and
+  retry up to three times; writes are never repeated automatically.
 
-## Supported Writes
+## Saving Needs a Connection
 
-POST: sales/split sales, purchases, receipts, payments, expenses, journals,
-contras, credit/debit notes, estimates, sales/purchase orders, delivery notes,
-custom accounts, cash/bank ledgers, parties, items and inventory adjustments.
-
-PUT: invoice, party, item and ledger updates with the original `if-match` version.
-The server applies the existing domain services and input contracts, not a second
-financial engine. Inputs are normalized and immutable after enqueue. Identical
-pending values under another key are refused rather than silently merged into an
-attachment draft with a different identity.
-
-Other actions remain their existing online APIs, including auth/team changes,
-file transfers, imports, exports, financial cancellation and specialized operations
-not in `offlineDefinition`. They are not reported as queued or successful offline.
-New masters are not fabricated as server masters before commit; dependent entries
-can use existing downloaded masters, then use new masters after synchronization.
+Every create and update, including sales, purchases, receipts, payments, expenses,
+journals, contras, returns, orders, delivery notes, masters and inventory
+adjustments, is posted by the server's normal domain services the moment it is
+saved. There is no offline outbox of new work. The retained-entry machinery below
+exists only for saves whose reply was lost, for entries kept by earlier app
+versions, and for review after a server restore.
 
 ## Persistence And Access
 
