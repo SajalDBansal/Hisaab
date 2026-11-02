@@ -12,7 +12,7 @@ Public product website (Next.js) ------> Public R2 APK release bucket
                              HTTPS API
                         authentication + roles
                          /                 \
-               External PostgreSQL   External Redis queues
+               PostgreSQL container  Redis queue container
                                            |
                                   Independent worker
                                   /               \
@@ -33,12 +33,18 @@ not the only copy of financial books. Queue durability requires AOF and
 API, worker, public website and signed-in browser export remain separate
 applications. Use their READMEs for local commands and manual builds. API and
 worker share `DATABASE_URL`, `REDIS_URL` and private document storage, with
-separate app environment files. PostgreSQL and Redis must be provided separately.
+separate app environment files. Development Compose supplies only PostgreSQL and
+Redis; apps run on the host. The [deployment folder](../deployment/README.md) also
+provides local app containers and a production setup with PostgreSQL and Redis
+on the same EC2 host. Only API/worker join the internal database network.
+Production Compose supplies their database URLs from passwords in its private
+`.env`; data stays in persistent volumes and requires backups outside the host.
 
 Schema migrations remain in `apps/api/src/db/migrations` and run explicitly with
 `bun run --cwd apps/api db:migrate`. Neither application startup nor worker startup
-migrates the database. Hosting, HTTPS, process supervision and publication are
-manual responsibilities; no deployment automation is included.
+migrates the database. The production Compose file supervises containers behind
+Caddy HTTPS. The GitHub workflow builds images and can deploy after the operator
+configures services, secrets and SSH access; see [guide 25](25-docker-and-cicd.md).
 
 New signed-in browser builds require network access to open or reload. Existing
 encrypted books and queued writes can be used within an already loaded app.

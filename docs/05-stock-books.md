@@ -71,8 +71,22 @@ lost. Financial corrections retain the lot's GST/non-GST classification and
 balance purchase-cost adjustment against Stock Loss/Stock Surplus. Zero-value
 stock still accepts quantity corrections: its audited voucher has no invented
 financial lines. Landed cost increases only stock still on hand and credits an
-explicit cash/bank or expense source. Returns blend original frozen return cost
+explicit cash/bank or expense source. Sales returns blend original frozen return cost
 with the remaining lot's value, including later cost additions.
+
+New purchase returns remove the lot's current carrying cost independently of
+the supplier credit. Returning the final units removes the full remaining value;
+unrecovered freight remains a cost in the existing periodic accounts. A return
+cannot be backdated before later movements in that lot without reconciliation.
+Already-issued sales retain their frozen costs.
+
+Migration `0026_return_amounts.sql` stores each new return's original-bill money
+and tax components. Partial returns allocate those components cumulatively, so
+returning all goods leaves no rounding residue. Return notes may include paise;
+they are not each rounded to a whole rupee. Freight/other charges and their tax
+remain on the original bill. Historical notes are not rewritten; overcredited
+legacy notes require review before further returns. Conflicts with later bill
+allocations also require reconciliation instead of changing payment history.
 
 Reversal appends the original opposite quantity/value and financial lines; it does
 not erase history. Later movements on that lot must be resolved first. Direct

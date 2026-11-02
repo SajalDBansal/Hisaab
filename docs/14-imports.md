@@ -218,15 +218,16 @@ partitions have no edit/delete endpoint; settlement corrections use their
 separate audited workflow. Client retry state does not survive process death;
 server receipts do.
 
-## Known Gaps
+## Reminder and Conflict Handling
 
 - The [notification reader](../packages/backend/src/modules/notifications/notifications.repo.ts)
-  does not hydrate imported `openingBills`, so its notices and scheduled reminder
-  scans cannot use each imported bill's original due date.
-- [Database error translation](../apps/api/src/lib/book-errors.ts) handles `P0010`
-  but not the financial-import guard's `P0021`. The database rejects prohibited
-  changes, but the API can return a generic server error instead of a friendly
-  conflict response.
+  hydrates imported `openingBills`, including original due dates and book shares.
+  Settled imported bills no longer inherit the party's aggregate overdue age.
+- [Database error translation](../apps/api/src/lib/book-errors.ts) maps `P0021`
+  to `409 IMPORTED_OPENING_IMMUTABLE` through wrapped HTTP and sync failures.
+  Reopening a period does not unlock an immutable financial import; use an
+  audited correction as the response explains.
 
-These are implementation follow-ups, separate from manual financial-screen and
-device checks. They are also listed in the [release checklist](23-release-checklist.md).
+These repairs were checked on 26 October 2026; see F08-F09 in the
+[private-use audit](27-private-readiness-audit.md). Deployed reminder preparation
+and device acceptance remain separate checks.
