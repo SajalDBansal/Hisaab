@@ -265,7 +265,46 @@ FIFO split, date edit, GST expense and a balanced trial balance.
 14. **H11:** rate master and place of supply/export/RCM, only for segments chosen in scope.
 15. **H15:** decide on and implement bill date editing.
 
-### Phase 3: Scale and Engineering Hygiene (3–5 days)
+### Phase 3: Scale and Engineering Hygiene (3–5 days). **Done 2 Nov 2026**
+
+On branch `phase3/scale-and-hygiene` (based on Phase 2).
+
+**H16, in-memory engine** (`packages/core/bench/books.bench.ts`, 500 items / 25,000 vouchers):
+
+| Path | Before | After |
+| --- | --- | --- |
+| Stock for one sale save | 6,110 ms | 24 ms |
+| Dashboard | 6,683 ms | 193 ms |
+| Period final accounts | 6,317 ms | 173 ms |
+| Closing stock | 3,138 ms | 43 ms |
+
+Stock and party answers come from per-item and per-party indexes. Equivalence
+tests compare them with whole-book answers for every party and item in the demo
+books.
+
+**H16, save path** (real PostgreSQL, 25,000 vouchers): a sale save fell from
+3.8 s to 1.75 s. A split sale no longer deep-clones the whole book, and the
+credit check no longer reloads the book for customers without a limit. At 5,000
+vouchers a sale saves in about 0.4 s. Voucher children are now read by firm or in
+5,000-id batches; before this, a firm past about 65,000 vouchers would have
+exceeded PostgreSQL's 65,535 bind-parameter limit on every save and report.
+
+**H17:** the CI `check` job now runs lint, the unit suites and the
+database-backed API and finance suites (PostgreSQL service container) before any
+image is published. The API README documents the local commands. Loan schedule
+table tests were added. Core tests now total 109.
+
+**H18:** the engine moved verbatim from `mock/db.ts` into
+`packages/core/src/books/*`. `mock/db.ts` re-exports the same 48 names.
+
+**Left for a separate change (H16b).** About 1.25 s of the remaining 1.4 s load
+at 25,000 vouchers is parsing per-voucher `snapshot` JSON (76 MB; each snapshot
+copies all units and invoice settings). Deferring snapshots on the save path is
+the next step. It needs a check of every write path that reads or rewrites a
+snapshot (edits, returns, fulfilment, associates, settlements), so no issued
+bill's frozen details can be lost. Report reads (1.3 s at 25,000, 0.3 s at
+5,000) could be cached per firm version. Neither matters at the current
+single-owner scale.
 16. **H16:** incremental lot balances, scoped `loadBooks`, FY snapshots, report
     caching. Re-run the benchmark: target under 200 ms at 500 items / 25k vouchers.
 17. **H17:** single fixture-DB test command and a CI test job. Add table tests for
