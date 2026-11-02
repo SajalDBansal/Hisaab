@@ -2,6 +2,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { AppError } from "@repo/backend/lib/app-error";
+import { BATCH_READ_HEADER, BATCH_READ_TOKEN } from "../lib/batch-read";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -85,7 +86,10 @@ export async function registerRateLimits(
     redis,
     nameSpace: "hisaab-rate-limit:",
     skipOnError: true,
-    allowList: (req) => req.method === "OPTIONS",
+    // Reads inside one batch request were already counted as that request.
+    allowList: (req) =>
+      req.method === "OPTIONS" ||
+      req.headers[BATCH_READ_HEADER] === BATCH_READ_TOKEN,
     keyGenerator: apiKey,
     errorResponseBuilder: () =>
       new AppError("RATE_LIMITED", rateLimitBody().error.message, 429),

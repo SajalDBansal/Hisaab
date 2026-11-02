@@ -26,6 +26,7 @@ import { notificationRoutes } from "./modules/notifications/notifications.routes
 import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { syncRoutes } from "./modules/sync/sync.routes";
+import { readRoutes } from "./modules/reads/reads.routes";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
 import { meRoutes } from "./modules/me/me.routes";
@@ -213,6 +214,7 @@ export async function buildApp({
   await app.register(searchRoutes, { db, prefix: "/v1" });
   await app.register(notificationRoutes, { db, prefix: "/v1" });
   await app.register(syncRoutes, { db, prefix: "/v1" });
+  await app.register(readRoutes, { prefix: "/v1" });
 
   return app;
 }

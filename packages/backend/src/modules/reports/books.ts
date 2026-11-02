@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { MockDb } from "@repo/core";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
@@ -33,11 +34,41 @@ export function loadReportSnapshot(
   });
 }
 
+/** Books already read during one batch of reads, by firm and deletion scope. */
+const sharedBooks = new AsyncLocalStorage<Map<string, Promise<MockDb>>>();
+
+/**
+ * Runs `work` so every report-books read inside it shares one load per firm.
+ * Used by batched reads: their answers then come from one consistent book.
+ * Callers must treat the books as read-only, as every report reader already does.
+ */
+export function withSharedReportBooks<T>(work: () => Promise<T>): Promise<T> {
+  return sharedBooks.run(new Map(), work);
+}
+
 /** Reads a firm's full book into the same shape used by the shared core logic. */
 export async function loadReportBooks(
   db: Pick<Db, "select">,
   firmId: string,
   options: { includeDeleted?: boolean } = {},
+): Promise<MockDb> {
+  const shared = sharedBooks.getStore();
+  if (!shared) return readReportBooks(db, firmId, options);
+  const key = `${firmId}:${options.includeDeleted ? "all" : "live"}`;
+  let books = shared.get(key);
+  if (!books) {
+    books = readReportBooks(db, firmId, options);
+    shared.set(key, books);
+    // A failed read is not reused by later reads in the batch.
+    books.catch(() => shared.delete(key));
+  }
+  return books;
+}
+
+async function readReportBooks(
+  db: Pick<Db, "select">,
+  firmId: string,
+  options: { includeDeleted?: boolean },
 ): Promise<MockDb> {
   // A transaction owns one PostgreSQL connection; query it sequentially.
   const [firmRow] = await db
