@@ -37,6 +37,28 @@ functionality. API documentation is at `/docs` when enabled by the app's policy.
 Do not use `drizzle-kit push` in production. Migrations stay in `src/db/migrations`; schema
 source is `packages/backend/src/db/schema`. The extraction does not change tables.
 
+## Database-Backed Tests
+
+`bun test` skips the authorization, financial and data-integrity suites unless they get their
+own disposable databases. They only accept local databases with these exact names, never
+your business database. With the development Compose PostgreSQL running (from `apps/api`):
+
+```sh
+BASE=postgres://hisaab:hisaab@127.0.0.1:55432   # your local superuser URL
+for db in hardening_finance hardening_security hardening_data; do
+  docker exec hisaab-dev-postgres-1 psql -U hisaab -d postgres -c "drop database if exists $db with (force)" -c "create database $db"
+  DATABASE_URL="$BASE/$db" bun run db:migrate
+done
+FINANCE_DATABASE_URL="$BASE/hardening_finance" SECURITY_TEST_DATABASE_URL="$BASE/hardening_security" \
+  HISAAB_DATA_TEST_URL="$BASE/hardening_data" bun test
+FINANCE_DATABASE_URL="$BASE/hardening_finance" bun test checks/finance-acceptance.test.ts
+```
+
+Recreate the databases before a rerun if a run stopped midway. CI runs the same suites against
+a PostgreSQL service container before any image is published. The system acceptance check
+(`checks/system-fixture.ts`, then `checks/system-acceptance.ts`) needs its own PostgreSQL on
+port 55442; see the fixture file for the expected credentials.
+
 ## Manual Build and Start
 
 Use the app's environment settings for the target database. Before an upgrade,
