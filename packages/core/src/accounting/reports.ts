@@ -28,9 +28,10 @@ import {
   overdueSummary,
   partyBalance,
   collectionBills,
+  vouchersByParty,
 } from "./bills";
 import { isLowStock, stockQty } from "./stock";
-import { inventoryValue } from "./stockLots";
+import { inventoryValue, vouchersByItem } from "./stockLots";
 import { gstMonth } from "./gst";
 import { calcInvoice } from "./invoice";
 
@@ -149,27 +150,31 @@ export function gstForMonth(vouchers: Voucher[], month: string) {
 }
 
 /**
- * Goods value of posted bills less their returns, without GST or charges:
- * the same figure as the Sales / Purchase accounts (see Doc 01, "Net sales").
+ * Goods value of posted bills less their returns, by month, without GST or
+ * charges: the same figure as the Sales / Purchase accounts (Doc 01, "Net sales").
  */
-function netGoodsValue(
-  vouchers: Voucher[],
-  side: "sale" | "purchase",
-  match: (v: Voucher) => boolean,
-): Paise {
-  const returnType = side === "sale" ? "credit-note" : "debit-note";
-  return vouchers
-    .filter(
-      (v) =>
-        isPosted(v) && (v.type === side || v.type === returnType) && match(v),
-    )
-    .reduce((s, v) => {
-      const { itemsTaxable } = calcInvoice({
-        lines: v.lines ?? [],
-        interState: !!v.interState,
-      });
-      return s + (v.type === side ? itemsTaxable : -itemsTaxable);
-    }, 0);
+function netGoodsByMonth(vouchers: Voucher[]) {
+  const months = new Map<string, { sale: Paise; purchase: Paise }>();
+  const SIGNS = {
+    sale: ["sale", 1],
+    "credit-note": ["sale", -1],
+    purchase: ["purchase", 1],
+    "debit-note": ["purchase", -1],
+  } as const;
+  for (const v of vouchers) {
+    const sign = SIGNS[v.type as keyof typeof SIGNS];
+    if (!sign || !isPosted(v)) continue;
+    const { itemsTaxable } = calcInvoice({
+      lines: v.lines ?? [],
+      interState: !!v.interState,
+    });
+    const month = yearMonth(v.date);
+    const row = months.get(month) ?? { sale: 0, purchase: 0 };
+    row[sign[0]] += sign[1] * itemsTaxable;
+    months.set(month, row);
+  }
+  return (month: string, side: "sale" | "purchase") =>
+    months.get(month)?.[side] ?? 0;
 }
 
 export interface DashboardData {
@@ -239,8 +244,10 @@ export function computeDashboard(data: {
   let customersWithBalance = 0;
   let suppliersWithBalance = 0;
   const overdueRows: DashboardData["topOverdue"] = [];
+  const byParty = vouchersByParty(parties, vouchers);
   for (const party of parties) {
-    const balance = partyBalance(party, vouchers, asOf);
+    const own = byParty.get(party.id) ?? [];
+    const balance = partyBalance(party, own, asOf);
     if (balance > 0) {
       toCollect += balance;
       customersWithBalance += party.type === "customer" ? 1 : 0;
@@ -250,7 +257,7 @@ export function computeDashboard(data: {
       suppliersWithBalance += party.type === "supplier" ? 1 : 0;
     }
     if (party.type === "customer" && balance > 0) {
-      const summary = overdueSummary(collectionBills(party, vouchers, asOf));
+      const summary = overdueSummary(collectionBills(party, own, asOf));
       if (summary.overdueAmount > 0)
         overdueRows.push({ party, balance, ...summary });
     }
@@ -271,36 +278,27 @@ export function computeDashboard(data: {
   const todaySalesList = vouchers.filter(
     (v) => isPosted(v) && v.type === "sale" && v.date === asOf,
   );
-  const monthSales = netGoodsValue(
-    vouchers,
-    "sale",
-    (v) => yearMonth(v.date) === thisMonth,
-  );
-  const lastMonthSales = netGoodsValue(
-    vouchers,
-    "sale",
-    (v) => yearMonth(v.date) === lastMonth,
-  );
+  const netGoods = netGoodsByMonth(vouchers);
+  const monthSales = netGoods(thisMonth, "sale");
+  const lastMonthSales = netGoods(lastMonth, "sale");
 
   // Stock
   let lowStockCount = 0;
   let totalStockValue = 0;
+  const byItem = vouchersByItem(vouchers);
   for (const item of items) {
-    const qty = stockQty(item, vouchers);
+    const own = byItem.get(item.id) ?? [];
+    const qty = stockQty(item, own);
     if (isLowStock(item, qty)) lowStockCount++;
-    totalStockValue += inventoryValue(item, vouchers);
+    totalStockValue += inventoryValue(item, own);
   }
 
   // Charts
   const salesVsPurchases = months.map((m) => ({
     month: m,
     label: monthLabel(m),
-    sales: netGoodsValue(vouchers, "sale", (v) => yearMonth(v.date) === m),
-    purchases: netGoodsValue(
-      vouchers,
-      "purchase",
-      (v) => yearMonth(v.date) === m,
-    ),
+    sales: netGoods(m, "sale"),
+    purchases: netGoods(m, "purchase"),
   }));
   const cashTrend = months.map((m) => {
     const monthEnd =
@@ -361,7 +359,11 @@ export function computeDashboard(data: {
       amount: gstLast.payable,
     });
   for (const party of parties.filter((p) => p.type === "supplier")) {
-    for (const bill of collectionBills(party, vouchers, asOf)) {
+    for (const bill of collectionBills(
+      party,
+      byParty.get(party.id) ?? [],
+      asOf,
+    )) {
       const left = daysTo(bill.dueDate);
       if (bill.pending > 0 && left >= 0 && left <= 7)
         upcoming.push({
@@ -392,11 +394,7 @@ export function computeDashboard(data: {
     lastMonthSales,
     gst: mode === "regular" ? { month: lastMonth, ...gstLast } : null,
     composition,
-    monthPurchases: netGoodsValue(
-      vouchers,
-      "purchase",
-      (v) => yearMonth(v.date) === thisMonth,
-    ),
+    monthPurchases: netGoods(thisMonth, "purchase"),
     lowStockCount,
     stockValue: totalStockValue,
     salesVsPurchases,

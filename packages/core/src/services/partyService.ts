@@ -67,7 +67,7 @@ export const partyService = {
     const party = parties.find((p) => p.id === id);
     if (!party) throw new Error("Party not found");
     const row = listRow(party, vouchers);
-    const bills = partyBills(party, vouchers, today());
+    const bills = partyBills(party, vouchers, today(), { taxable: true });
     const overLimitBy =
       party.creditLimit > 0 ? Math.max(row.balance - party.creditLimit, 0) : 0;
     const transactions = newestFirst(

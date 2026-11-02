@@ -230,6 +230,40 @@ export function stockLots(
   return lots;
 }
 
+/**
+ * Each item's own vouchers, in book order. A return's source bill holds the same
+ * item, so replaying an item over its own vouchers gives the same lots as
+ * replaying it over the whole book, without rescanning the book per item.
+ */
+export function vouchersByItem(vouchers: Voucher[]): Map<string, Voucher[]> {
+  const byItem = new Map<string, Voucher[]>();
+  const add = (itemId: string, v: Voucher) => {
+    const list = byItem.get(itemId);
+    if (!list) byItem.set(itemId, [v]);
+    else if (list[list.length - 1] !== v) list.push(v);
+  };
+  for (const v of vouchers) {
+    if (v.inventoryAdjustment) add(v.inventoryAdjustment.itemId, v);
+    for (const line of v.lines ?? []) add(line.itemId, v);
+  }
+  return byItem;
+}
+
+/** Lots of many items, in `items` order: stockLots for each, in one pass over the book. */
+export function stockLotsFor(
+  items: Item[],
+  vouchers: Voucher[],
+  asOf?: string,
+  costs?: Map<string, number>,
+): StockLot[][] {
+  const byItem = vouchersByItem(
+    asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers,
+  );
+  return items.map((item) =>
+    stockLots(item, byItem.get(item.id) ?? [], undefined, costs),
+  );
+}
+
 export function inventoryValue(
   item: Item,
   vouchers: Voucher[],
@@ -341,10 +375,7 @@ export function selectStockLines(
   lines: InvoiceLine[],
   date: string,
 ): InvoiceLine[] {
-  return allocateStock(
-    items.flatMap((i) => stockLots(i, vouchers, date)),
-    lines,
-  );
+  return allocateStock(stockLotsFor(items, vouchers, date).flat(), lines);
 }
 
 /** Backdated entries must also leave enough stock for already-issued later invoices. */
@@ -353,11 +384,10 @@ export function assertLotsAvailable(
   vouchers: Voucher[],
   ids: string[],
 ) {
-  for (const item of items)
-    for (const lot of stockLots(item, vouchers)) {
-      if (ids.includes(lot.id) && lot.minimumQty < 0)
-        throw new Error(
-          `Stock in ${lot.number} is already used by another entry. Review its sales and returns first.`,
-        );
-    }
+  for (const lot of stockLotsFor(items, vouchers).flat()) {
+    if (ids.includes(lot.id) && lot.minimumQty < 0)
+      throw new Error(
+        `Stock in ${lot.number} is already used by another entry. Review its sales and returns first.`,
+      );
+  }
 }
