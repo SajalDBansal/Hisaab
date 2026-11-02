@@ -5,6 +5,10 @@ import { calcLine } from "../src/accounting/invoice";
 import { mulDivRound } from "../src/money";
 import { calcTds, tdsBase } from "../src/accounting/tds";
 import { altQtyText } from "../src/accounting/stock";
+import { gstinProblem } from "../src/validation";
+import { UNREGISTERED_SUPPLIER_GST_MESSAGE } from "../src/accounting/taxType";
+import { blankBooks } from "../src/mock/seed";
+import { createPurchase } from "../src/mock/db";
 
 const heads = (cgst: number, sgst: number, igst: number) => ({
   cgst,
@@ -217,5 +221,82 @@ describe("report presentation", () => {
     expect(altQtyText(item, 30.1)).toBe("2 Box 6.1 Nos");
     expect(altQtyText(item, 24)).toBe("2 Box");
     expect(altQtyText(item, -30.1)).toBe("-2 Box -6.1 Nos");
+  });
+});
+
+describe("GSTIN and supplier checks", () => {
+  test.each([
+    ["27AAPFU0939F1ZV", null],
+    ["29AAGCB7383J1Z4", null],
+    ["27AAPFU0939F1ZW", "typing mistake"],
+    ["27AAPFU0939F1Z", "15 characters"],
+  ])("%s", (gstin, problem) => {
+    const found = gstinProblem(gstin);
+    if (problem === null) expect(found).toBeNull();
+    else expect(found).toContain(problem);
+  });
+
+  const books = (supplierGstin?: string) => {
+    const db = blankBooks(
+      {
+        id: "f",
+        name: "F",
+        city: "Mathura",
+        stateCode: "09",
+        gstRegistration: "regular",
+        gstin: "09AAAAA0000A1Z0",
+      },
+      "2026-10-26",
+    );
+    db.parties = [
+      {
+        id: "s",
+        name: "S",
+        type: "supplier",
+        phone: "",
+        city: "Mathura",
+        stateCode: "09",
+        creditDays: 0,
+        creditLimit: 0,
+        openingBalance: 0,
+        openingDate: "2026-04-01",
+        gstin: supplierGstin,
+      },
+    ];
+    db.items = [
+      {
+        id: "i",
+        name: "I",
+        code: "",
+        hsn: "1001",
+        group: "",
+        taxType: "taxable",
+        gstRate: 18,
+        unit: "Nos",
+        purchasePrice: 100,
+        salePrice: 100,
+        mrp: 0,
+        reorderLevel: 0,
+        openingStock: 0,
+      },
+    ];
+    return db;
+  };
+  const buy = (db: ReturnType<typeof books>, bookScope?: "gst" | "nongst") =>
+    createPurchase(db, {
+      date: "2026-10-01",
+      partyId: "s",
+      bookScope,
+      lines: [{ itemId: "i", qty: 1, rate: 10000, gstRate: 18 }],
+    });
+
+  test("GST from a supplier without a GSTIN is refused", () => {
+    expect(() => buy(books())).toThrow(UNREGISTERED_SUPPLIER_GST_MESSAGE);
+  });
+  test("the same supplier can be bought from without GST", () => {
+    expect(buy(books(), "nongst").amount).toBe(10000);
+  });
+  test("a registered supplier's GST is accepted", () => {
+    expect(buy(books("09BBBBB1111B1ZL")).amount).toBe(11800);
   });
 });

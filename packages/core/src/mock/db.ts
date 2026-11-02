@@ -38,6 +38,7 @@ import {
   itemTaxType,
   mixesNonGst,
   NON_GST_MIX_MESSAGE,
+  UNREGISTERED_SUPPLIER_GST_MESSAGE,
 } from "../accounting/taxType";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
 import {
@@ -474,6 +475,9 @@ function createInvoice(
         : saleDocFor(mode, lines)
       : undefined;
   const totals = calcInvoice({ lines, charges, interState });
+  // New bills only: existing purchases keep what they were saved with.
+  if (type === "purchase" && totals.tax > 0 && !party.gstin?.trim())
+    throw new Error(UNREGISTERED_SUPPLIER_GST_MESSAGE);
   const invoice: Voucher = {
     id: newId("v"),
     type,

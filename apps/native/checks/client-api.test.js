@@ -119,7 +119,7 @@ test(
         city: "Agra",
         stateCode: "09",
         gstRegistration: "regular",
-        gstin: "09AAAAA0000A1Z5",
+        gstin: "09AAAAA0000A1Z0",
       });
       const headers = { "x-firm-id": firm.id };
       const write = (path, body, extra = {}) =>

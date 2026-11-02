@@ -43,7 +43,7 @@ export function stateName(code: string): string {
   return STATES.find((s) => s.code === code)?.name ?? code;
 }
 
-/** State code from a GSTIN, e.g. "09AAGFA7788Q1Z1" → "09". Undefined if the code is not a real state. */
+/** State code from a GSTIN, e.g. "09AAGFA7788Q1ZE" → "09". Undefined if the code is not a real state. */
 export function stateFromGstin(gstin: string): string | undefined {
   const code = gstin.slice(0, 2);
   return STATES.some((s) => s.code === code) ? code : undefined;

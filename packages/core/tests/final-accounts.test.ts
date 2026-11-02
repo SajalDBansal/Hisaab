@@ -15,6 +15,8 @@ const party = (type: Party["type"]): Party => ({
   creditLimit: 0,
   openingBalance: 0,
   openingDate: "2026-01-01",
+  // Suppliers that charge GST are registered.
+  ...(type === "supplier" ? { gstin: "09BBBBB1111B1ZL" } : {}),
 });
 
 test("balance sheet separates earlier periods' profit from the period's", () => {
@@ -25,7 +27,7 @@ test("balance sheet separates earlier periods' profit from the period's", () => 
       city: "Mathura",
       stateCode: "09",
       gstRegistration: "regular",
-      gstin: "09AAAAA0000A1Z5",
+      gstin: "09AAAAA0000A1Z0",
     },
     "2026-10-26",
   );

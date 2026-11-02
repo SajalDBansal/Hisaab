@@ -121,7 +121,7 @@ describe.skipIf(!databaseUrl)(
         city: "Mathura",
         stateCode: "09",
         gstRegistration: "regular",
-        gstin: "09AAAAA0000A1Z5",
+        gstin: "09AAAAA0000A1Z0",
       });
       const party = await success(
         "POST",
@@ -318,6 +318,8 @@ describe.skipIf(!databaseUrl)(
                 phone: "",
                 city: "Mathura",
                 stateCode: "09",
+                // A supplier charging GST must be registered.
+                gstin: "09BBBBB1111B1ZL",
                 creditDays: 0,
                 creditLimit: 0,
                 openingBalance: 0,

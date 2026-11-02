@@ -142,7 +142,7 @@ function party(type: "customer" | "supplier", suffix = "") {
     phone: "",
     city: "Delhi",
     stateCode: "07",
-    gstin: type === "supplier" ? "07AAAAA0000A1Z5" : "",
+    gstin: type === "supplier" ? "07AAAAA0000A1Z4" : "",
     creditDays: 0,
     creditLimit: 0,
     openingBalance: 0,
@@ -175,7 +175,7 @@ try {
     city: "Delhi",
     stateCode: "07",
     gstRegistration: "regular",
-    gstin: "07AAAAA0000A1Z5",
+    gstin: "07AAAAA0000A1Z4",
   });
   firmId = firm.data.id;
   await rolesInFirm();

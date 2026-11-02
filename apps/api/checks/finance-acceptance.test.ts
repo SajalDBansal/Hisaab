@@ -128,7 +128,7 @@ describe.skipIf(!databaseUrl)(
         city: "Mathura",
         stateCode: "09",
         gstRegistration: "regular",
-        gstin: "09AAAAA0000A1Z5",
+        gstin: "09AAAAA0000A1Z0",
       });
       const cash = (
         await success("GET", "/v1/ledgers", undefined, row.id)

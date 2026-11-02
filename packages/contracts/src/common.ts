@@ -1,5 +1,5 @@
 import {
-  GSTIN_PATTERN,
+  gstinProblem,
   PAN_PATTERN,
   hasStoredPrecision,
   MAX_QUANTITY,
@@ -39,9 +39,11 @@ export const StateCode = z
   .string("Pick the state.")
   .regex(/^\d{2}$/, "Pick the state (needed for CGST/SGST or IGST).");
 
-export const Gstin = z
-  .string()
-  .regex(GSTIN_PATTERN, "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.");
+// Input only: backups and stored rows are not re-checked, so older data still restores.
+export const Gstin = z.string().superRefine((gstin, ctx) => {
+  const problem = gstinProblem(gstin);
+  if (problem) ctx.addIssue({ code: "custom", message: problem });
+});
 export const Pan = z
   .string()
   .regex(PAN_PATTERN, "PAN should be 10 characters, like AAAAA0000A.");
