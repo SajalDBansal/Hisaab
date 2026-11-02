@@ -30,7 +30,7 @@ export default function TabsLayout() {
 
 type TabBarProps = Parameters<
   NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
->[0];
+>[0] & { navigation?: { navigate: (name: string) => void } };
 
 function TabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
@@ -65,7 +65,7 @@ function TabBar({ state, navigation }: TabBarProps) {
             key={route.key}
             accessibilityRole="tab"
             accessibilityState={{ selected: focused }}
-            onPress={() => navigation.navigate(route.name)}
+            onPress={() => navigation?.navigate(route.name)}
             style={styles.tab}
           >
             <Icon
