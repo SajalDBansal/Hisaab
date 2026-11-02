@@ -20,6 +20,7 @@ export const Bill = z.object({
   pending: Paise,
   ageDays: z.number().int(),
   overdueDays: z.number().int(),
+  taxable: Paise.optional(),
 });
 
 // Keep the flat master fields for existing API clients, and add the screen's read model.
