@@ -12,6 +12,7 @@ import {
   sumPaise,
 } from "./settlements";
 import { importedOpeningBills } from "./openingImport";
+import { calcInvoice } from "./invoice";
 
 /** Only posted vouchers affect balances. Drafts and cancelled vouchers are ignored. */
 export function isPosted(v: Voucher): boolean {
@@ -74,6 +75,8 @@ export interface Bill {
   ageDays: number;
   /** Days past the due date (0 if not yet due). */
   overdueDays: number;
+  /** Bill value without GST; TDS is worked out on this share. Missing on opening balances. */
+  taxable?: Paise;
 }
 
 /** Total allocated to each bill by all posted receipts and payments. */
@@ -125,8 +128,13 @@ export function partyBills(
   for (const v of visible) {
     if (v.partyId !== party.id || v.type !== billType || !isPosted(v)) continue;
     const due = v.dueDate ?? addDays(v.date, party.creditDays);
-    bills.push(
-      makeBill(
+    const { tax } = calcInvoice({
+      lines: v.lines ?? [],
+      charges: v.charges,
+      interState: !!v.interState,
+    });
+    bills.push({
+      ...makeBill(
         v.id,
         v.number,
         v.date,
@@ -135,7 +143,8 @@ export function partyBills(
         settled.get(v.id) ?? 0,
         asOf,
       ),
-    );
+      taxable: v.amount - tax,
+    });
   }
   return bills.sort((a, b) =>
     a.date === b.date
