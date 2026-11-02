@@ -148,8 +148,67 @@ export interface CompositionQuarter {
   returns: Paise;
   rate: number;
   tax: Paise;
+  /** Composition tax already recorded in the books for this quarter. */
+  recorded: Paise;
+  /** Last day of the quarter; the books entry is dated here (missing on older cached answers). */
+  end?: ISODate;
   /** CMP-08 is due on the 18th of the month after the quarter. */
   due: ISODate;
+}
+
+/** Last day of a quarter given its three "YYYY-MM" months. */
+const quarterEnd = (months: string[]): ISODate =>
+  addDays(`${addDays(`${months[2]}-01`, 31).slice(0, 7)}-01`, -1);
+
+/** Expense and liability accounts for the quarterly composition tax entry. */
+export const COMPOSITION_TAX_ACCOUNT = "expense:Composition Tax";
+export const COMPOSITION_TAX_PAYABLE = "provision:Composition Tax Payable";
+
+/** Composition tax recorded in the quarter's dates, by journal or a direct expense. */
+function compositionTaxRecorded(vouchers: Voucher[], months: string[]): Paise {
+  let recorded = 0;
+  for (const v of vouchers) {
+    if (!isPosted(v) || !months.includes(yearMonth(v.date))) continue;
+    if (v.type === "expense" && v.expenseHead === "Composition Tax")
+      recorded += v.amount;
+    for (const l of v.journalLines ?? [])
+      if (l.account === COMPOSITION_TAX_ACCOUNT) recorded += l.debit - l.credit;
+  }
+  return recorded;
+}
+
+/**
+ * Journal that brings the books to the quarter's composition tax: expense against
+ * a payable, for the difference still unrecorded (negative after sales fall).
+ * Payment later clears the payable with a journal or payment from the bank.
+ */
+export function compositionTaxEntry(
+  quarter: Pick<CompositionQuarter, "tax" | "recorded" | "label" | "months"> & {
+    end?: ISODate;
+  },
+) {
+  const difference = quarter.tax - quarter.recorded;
+  if (!difference) return null;
+  const amount = Math.abs(difference);
+  const expense = { account: COMPOSITION_TAX_ACCOUNT, name: "Composition Tax" };
+  const payable = {
+    account: COMPOSITION_TAX_PAYABLE,
+    name: "Composition Tax Payable",
+  };
+  return {
+    date: quarter.end ?? quarterEnd(quarter.months),
+    narration: `Composition tax (CMP-08) for ${quarter.label}${quarter.recorded ? " - adjustment" : ""}`,
+    lines:
+      difference > 0
+        ? [
+            { ...expense, debit: amount, credit: 0 },
+            { ...payable, debit: 0, credit: amount },
+          ]
+        : [
+            { ...payable, debit: amount, credit: 0 },
+            { ...expense, debit: 0, credit: amount },
+          ],
+  };
 }
 
 const QUARTER_NAMES = ["Apr–Jun", "Jul–Sep", "Oct–Dec", "Jan–Mar"];
@@ -190,7 +249,7 @@ export function compositionQuarter(
     .reduce((s, v) => s + value(v), 0);
   const rate = compositionRate(type);
   const turnover = sales - returns;
-  const last = months[2];
+  const nextMonth = addDays(`${months[2]}-01`, 31).slice(0, 8);
   return {
     months,
     label,
@@ -199,6 +258,8 @@ export function compositionQuarter(
     returns,
     rate,
     tax: Math.round((Math.max(turnover, 0) * rate) / 100),
-    due: addDays(`${last}-01`, 31).slice(0, 8) + "18",
+    recorded: compositionTaxRecorded(vouchers, months),
+    end: quarterEnd(months),
+    due: nextMonth + "18",
   };
 }

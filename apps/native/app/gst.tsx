@@ -2,14 +2,18 @@ import { router } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
 import {
+  can,
   COMPOSITION_TYPES,
+  compositionTaxEntry,
   formatINR,
   monthLabel,
+  today,
   type GstMonth,
   count,
 } from "@repo/core";
 import {
   Avatar,
+  Button,
   Card,
   Chip,
   ChipRow,
@@ -22,9 +26,17 @@ import {
   TableRow,
   Txt,
   EmptyState,
+  showError,
+  showToast,
 } from "@/components";
+import { useData } from "@/data/DataProvider";
 import { useGstMode } from "@/data/gstMode";
-import { useCompositionQuarters, useFirm, useGstMonths } from "@/data/queries";
+import {
+  useCompositionQuarters,
+  useCreateJournal,
+  useFirm,
+  useGstMonths,
+} from "@/data/queries";
 import { colors, radius, space } from "@/theme";
 
 const card = {
@@ -243,6 +255,8 @@ function Body({ months }: { months: GstMonth[] }) {
 function CompositionScreen() {
   const quarters = useCompositionQuarters();
   const firm = useFirm();
+  const { role } = useData();
+  const createJournal = useCreateJournal();
   const [index, setIndex] = useState(1);
   const type = COMPOSITION_TYPES.find(
     (t) => t.value === (firm.data?.compositionType ?? "trader"),
@@ -289,6 +303,49 @@ function CompositionScreen() {
                   text="This quarter is still open. The figure grows as you make sales."
                 />
               ) : null}
+              {(() => {
+                // Closed quarters only: the entry is dated on the quarter's last day.
+                const closed = (q.end ?? q.due) < today();
+                if (!closed) return null;
+                const entry = compositionTaxEntry(q);
+                if (!entry)
+                  return q.tax ? (
+                    <Notice
+                      tone="info"
+                      text={`${formatINR(q.recorded)} composition tax is recorded in the books for ${q.label}.`}
+                    />
+                  ) : null;
+                const difference = q.tax - q.recorded;
+                const what = q.recorded
+                  ? `The books show ${formatINR(q.recorded)}; record the ${formatINR(Math.abs(difference))} difference.`
+                  : `Record ${formatINR(q.tax)} as Composition Tax (expense) and Composition Tax Payable.`;
+                return role && can(role, "accounts") ? (
+                  <Card style={{ gap: space.sm }}>
+                    <Txt variant="small" tone="body">
+                      {what}
+                    </Txt>
+                    <Button
+                      label="Record in books"
+                      variant="primary"
+                      loading={createJournal.isPending}
+                      onPress={async () => {
+                        try {
+                          await createJournal.mutateAsync(entry);
+                          await quarters.refetch();
+                          showToast(`Recorded for ${q.label}`, "ok");
+                        } catch (e) {
+                          showError("Couldn't record", e);
+                        }
+                      }}
+                    />
+                  </Card>
+                ) : (
+                  <Notice
+                    tone="info"
+                    text={`${what} Ask the owner or accountant to record it.`}
+                  />
+                );
+              })()}
               <View style={card}>
                 <TableRow header cells={["", "Amount"]} />
                 <TableRow

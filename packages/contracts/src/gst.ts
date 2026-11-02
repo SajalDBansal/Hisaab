@@ -139,6 +139,9 @@ export const CompositionQuarter = z.object({
   returns: Paise,
   rate: z.number(),
   tax: Paise,
+  // Older cached answers predate the books entry.
+  recorded: Paise.default(0),
+  end: IsoDate.optional(),
   due: IsoDate,
 });
 
