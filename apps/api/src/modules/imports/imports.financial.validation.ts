@@ -1,4 +1,4 @@
-import { Id, IsoDate, Quantity } from "@repo/contracts";
+import { Id, IsoDate, Quantity, MAX_OPENING_STOCK_LOTS } from "@repo/contracts";
 import {
   MAX_IMPORT_ERRORS,
   type FinancialImportKind,
@@ -338,6 +338,14 @@ export function validateFinancialImport(
     }
   for (const itemId of new Set(prepared.stock.map((r) => r.itemId))) {
     const lots = prepared.stock.filter((r) => r.itemId === itemId);
+    if (lots.length > MAX_OPENING_STOCK_LOTS)
+      lots.forEach((r) =>
+        add(
+          r.row,
+          "itemId",
+          `An item supports up to ${MAX_OPENING_STOCK_LOTS} opening lots.`,
+        ),
+      );
     const quantity =
       lots.reduce((sum, r) => sum + Math.round(r.quantity * 1000), 0) / 1000;
     if (!Quantity.safeParse(quantity).success)

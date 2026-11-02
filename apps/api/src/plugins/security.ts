@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import type { FastifyInstance } from "fastify";
 import type { Env } from "../config/env";
+import { RECOVERY_EPOCH_HEADER } from "@repo/contracts";
 
 type SecurityEnv = Pick<Env, "NODE_ENV" | "TRUSTED_ORIGINS">;
 
@@ -35,9 +36,16 @@ export async function registerSecurity(app: FastifyInstance, env: SecurityEnv) {
       "if-match",
       "if-none-match",
       "x-request-id",
+      RECOVERY_EPOCH_HEADER,
       "expo-origin",
       "cookie",
     ],
-    exposedHeaders: ["x-request-id", "set-auth-token", "retry-after", "etag"],
+    exposedHeaders: [
+      "x-request-id",
+      "set-auth-token",
+      "retry-after",
+      "etag",
+      RECOVERY_EPOCH_HEADER,
+    ],
   });
 }

@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { metricAlerts, metricsText, recordRequest } from "../lib/metrics";
-import { logErrorReporter, type ErrorReporter } from "@repo/backend/lib/observability";
+import {
+  logErrorReporter,
+  type ErrorReporter,
+} from "@repo/backend/lib/observability";
 import { AppError } from "@repo/backend/lib/app-error";
 
 declare module "fastify" {
@@ -71,7 +74,7 @@ export function registerObservability(
       statusCode: reply.statusCode,
       durationMs: ms,
     });
-    for (const alert of metricAlerts())
+    for (const alert of metricAlerts({ route, method: req.method }))
       req.log.warn({ ...alert, requestId: req.id }, "Metric alert");
     req.log.info(
       {

@@ -18,13 +18,14 @@ const byRoute = new Map<string, RouteMetric>();
 const lastAlertAt = new Map<string, number>();
 const ALERT_COOLDOWN_MS = 5 * 60 * 1_000;
 
-function keyOf(metric: RequestMetric) {
+type RouteKey = Pick<RequestMetric, "method" | "route">;
+
+function keyOf(metric: RouteKey) {
   return `${metric.method} ${metric.route}`;
 }
 
-function percentile(values: number[], p: number) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
+function percentile(sorted: number[], p: number) {
+  if (!sorted.length) return 0;
   const index = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, Math.min(index, sorted.length - 1))] ?? 0;
 }
@@ -49,18 +50,24 @@ export function recordRequest(metric: RequestMetric) {
   byRoute.set(key, current);
 }
 
-export function metricsSnapshot() {
-  return [...byRoute.values()].map((metric) => ({
+function routeSnapshot(metric: RouteMetric) {
+  // One sort provides all percentiles; unrelated routes need no work here.
+  const sorted = [...metric.durations].sort((a, b) => a - b);
+  return {
     route: metric.route,
     method: metric.method,
     count: metric.count,
     errors: metric.errors,
     errorRate: metric.count ? metric.errors / metric.count : 0,
     avgMs: metric.count ? metric.totalMs / metric.count : 0,
-    p50Ms: percentile(metric.durations, 50),
-    p95Ms: percentile(metric.durations, 95),
-    p99Ms: percentile(metric.durations, 99),
-  }));
+    p50Ms: percentile(sorted, 50),
+    p95Ms: percentile(sorted, 95),
+    p99Ms: percentile(sorted, 99),
+  };
+}
+
+export function metricsSnapshot() {
+  return [...byRoute.values()].map(routeSnapshot);
 }
 
 function labelValue(value: string) {
@@ -94,13 +101,13 @@ export function metricsText() {
 }
 
 function shouldAlert(key: string, now: number) {
-  const last = lastAlertAt.get(key) ?? 0;
-  if (now - last < ALERT_COOLDOWN_MS) return false;
+  const last = lastAlertAt.get(key);
+  if (last !== undefined && now - last < ALERT_COOLDOWN_MS) return false;
   lastAlertAt.set(key, now);
   return true;
 }
 
-export function metricAlerts(now = Date.now()) {
+export function metricAlerts(route: RouteKey, now = Date.now()) {
   const alerts: {
     code: "HIGH_ERROR_RATE" | "SLOW_ROUTE";
     method: string;
@@ -108,31 +115,32 @@ export function metricAlerts(now = Date.now()) {
     message: string;
     value: number;
   }[] = [];
-  for (const metric of metricsSnapshot()) {
-    if (
-      metric.count >= 20 &&
-      metric.errorRate > 0.02 &&
-      shouldAlert(`error:${metric.method}:${metric.route}`, now)
-    )
-      alerts.push({
-        code: "HIGH_ERROR_RATE",
-        method: metric.method,
-        route: metric.route,
-        message: "Route error rate is over 2%.",
-        value: metric.errorRate,
-      });
-    if (
-      metric.count >= 20 &&
-      metric.p95Ms > 1_000 &&
-      shouldAlert(`p95:${metric.method}:${metric.route}`, now)
-    )
-      alerts.push({
-        code: "SLOW_ROUTE",
-        method: metric.method,
-        route: metric.route,
-        message: "Route p95 is over 1 second.",
-        value: metric.p95Ms,
-      });
-  }
+  const current = byRoute.get(keyOf(route));
+  if (!current || current.count < 20) return alerts;
+  const metric = routeSnapshot(current);
+  if (
+    metric.count >= 20 &&
+    metric.errorRate > 0.02 &&
+    shouldAlert(`error:${metric.method}:${metric.route}`, now)
+  )
+    alerts.push({
+      code: "HIGH_ERROR_RATE",
+      method: metric.method,
+      route: metric.route,
+      message: "Route error rate is over 2%.",
+      value: metric.errorRate,
+    });
+  if (
+    metric.count >= 20 &&
+    metric.p95Ms > 1_000 &&
+    shouldAlert(`p95:${metric.method}:${metric.route}`, now)
+  )
+    alerts.push({
+      code: "SLOW_ROUTE",
+      method: metric.method,
+      route: metric.route,
+      message: "Route p95 is over 1 second.",
+      value: metric.p95Ms,
+    });
   return alerts;
 }

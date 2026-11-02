@@ -387,9 +387,13 @@ function checkEntryLinks(vouchers: CoreVoucher[]) {
         original.gstRate !== line.gstRate ||
         (original.discountPercent ?? 0) !== (line.discountPercent ?? 0) ||
         (line.discountAmount ?? 0) !==
-          Math.round(
-            ((original.discountAmount ?? 0) * line.qty) / original.qty,
-          ) ||
+          (line.returnAmounts
+            ? original.discountAmount
+              ? line.returnAmounts.discount
+              : 0
+            : Math.round(
+                ((original.discountAmount ?? 0) * line.qty) / original.qty,
+              )) ||
         !isDeepStrictEqual(original.per, line.per) ||
         (line.stockLotId &&
           original.stockLotId &&

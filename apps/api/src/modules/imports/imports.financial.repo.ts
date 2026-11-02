@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { Id } from "@repo/contracts";
+import { Id, OpeningStockLots } from "@repo/contracts";
 import { today } from "@repo/core";
 import { sumOpeningAmounts } from "@repo/core/src/accounting/openingImport";
 import type { ImportApplyResult } from "@repo/contracts/src/imports";
@@ -232,12 +232,14 @@ export async function insertFinancialImport(
     }));
   for (const itemId of new Set(stockLots.map((r) => r.itemId))) {
     const rows = stockLots.filter((r) => r.itemId === itemId);
-    const lots = rows.map(({ id, qty, unitCost, bookScope }) => ({
-      id,
-      qty,
-      unitCost,
-      bookScope,
-    }));
+    const lots = OpeningStockLots.parse(
+      rows.map(({ id, qty, unitCost, bookScope }) => ({
+        id,
+        qty,
+        unitCost,
+        bookScope,
+      })),
+    );
     const first = lots[0];
     if (!first)
       throw new Error("An opening stock import needs at least one lot.");

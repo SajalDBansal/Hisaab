@@ -80,6 +80,8 @@ const excludedTables = new Set([
   "change_log",
   "notice_reads",
   "operation_receipts",
+  // Installation cleanup belongs only in full database backups, never a cloned firm's export.
+  "document_cleanup",
 ]);
 type ColumnInfo = { table_name: string; column_name: string };
 

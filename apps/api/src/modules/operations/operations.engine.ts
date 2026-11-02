@@ -23,6 +23,7 @@ export type OperationReceipt = {
   result: OperationResult;
 };
 export interface OperationTransaction {
+  authorize(input: OperationInput): Promise<void>;
   read(key: string): Promise<OperationReceipt | undefined>;
   save(key: string, receipt: OperationReceipt): Promise<void>;
   apply(input: OperationInput): Promise<unknown>;
@@ -92,6 +93,7 @@ export function createOperationEngine(repository: OperationRepository) {
     const answer = await repository.transaction<OperationResult>(
       actor,
       async (tx) => {
+        await tx.authorize(input);
         const found = await tx.read(key);
         if (found) {
           const matches = found.legacy

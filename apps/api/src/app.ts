@@ -12,6 +12,7 @@ import type { Db } from "@repo/backend/db/client";
 import type { JobQueueClient } from "@repo/backend/jobs/queues";
 import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
+import { safeError } from "@repo/backend/lib/safe-error";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
 import { accountRoutes } from "./modules/accounts/accounts.routes";
@@ -55,6 +56,7 @@ import { recoveryOperationsRoutes } from "./modules/recovery-operations/recovery
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
+import { recoveryEpoch, registerRecoveryEpoch } from "./plugins/recovery";
 
 export type BuildAppOptions = {
   env: Pick<
@@ -76,6 +78,7 @@ export type BuildAppOptions = {
         | "DOCUMENT_STORAGE_MAX_BYTES"
         | "DOCUMENT_STORAGE_MAX_FILES"
         | "APP_MODE"
+        | "RECOVERY_EPOCH"
       >
     >;
   db: Db;
@@ -106,6 +109,7 @@ export async function buildApp({
       : false,
     logger: {
       level: env.LOG_LEVEL,
+      serializers: { err: safeError },
       redact: [
         "req.headers.authorization",
         "req.headers.cookie",
@@ -133,6 +137,10 @@ export async function buildApp({
   });
 
   registerErrorHandling(app);
+  registerRecoveryEpoch(
+    app,
+    recoveryEpoch(env.RECOVERY_EPOCH, env.NODE_ENV === "production"),
+  );
   await registerSecurity(app, env);
   await app.register(compress, { global: true, threshold: 1024 });
   await registerRateLimits(app, redis);

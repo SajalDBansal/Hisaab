@@ -1,9 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { loanSchedule } from "@repo/core/src/accounting/loanSchedule";
 import {
-  loanInterestLines,
-  sumPaise,
-} from "@repo/core/src/accounting/settlements";
+  loanInterestPaymentCapacity,
+  loanInterestReversalDate,
+} from "@repo/core/src/accounting/loanInterest";
+import { loanInterestLines } from "@repo/core/src/accounting/settlements";
 import type { LoanInterestInput } from "@repo/contracts/src/settlements";
 import { schema, type Db } from "@repo/backend/db/client";
 import { loans, loanRepaymentReferences } from "@repo/backend/db/schema/loans";
@@ -22,6 +23,8 @@ export async function postLoanInterest(
   input: LoanInterestInput,
 ) {
   return settlementWrite(db, actor, async (tx) => {
+    if (input.confirmedNoDuplicate !== true)
+      invalid("Review the interest and confirm that it is not duplicated.");
     const [loan] = await tx
       .select()
       .from(loans)
@@ -71,14 +74,9 @@ export async function postLoanInterest(
       )
     )
       invalid("Use a dedicated interest account for this loan.");
-    const reversed = new Set(
-      entries.filter((e) => e.kind === "reversal").map((e) => e.sourceEntryId),
-    );
     const period = entries.filter(
       (e) =>
-        e.loanId === loan.id &&
-        e.installmentNumber === input.installmentNumber &&
-        !reversed.has(e.id),
+        e.loanId === loan.id && e.installmentNumber === input.installmentNumber,
     );
     const references = await tx
       .select()
@@ -94,9 +92,16 @@ export async function postLoanInterest(
         ),
       );
     if (input.kind === "loan-interest-accrual") {
-      if (period.some((e) => e.kind === "loan-interest-accrual"))
+      if (
+        period.some((e) => {
+          if (e.kind !== "loan-interest-accrual") return false;
+          const reversedOn = loanInterestReversalDate(period, e);
+          // The new accrual remains active at every later recorded date.
+          return !reversedOn || reversedOn > input.date;
+        })
+      )
         invalid(
-          "This installment already has an unreversed accrual.",
+          "This installment already has an accrual active on this or a later recorded date.",
           "DUPLICATE_INTEREST",
           409,
         );
@@ -122,8 +127,11 @@ export async function postLoanInterest(
           (e) =>
             e.id === input.sourceEntryId && e.kind === "loan-interest-accrual",
         ),
-        "Select an unreversed accrual for this installment.",
+        "Select an accrual for this installment.",
       );
+      const reversedOn = loanInterestReversalDate(period, accrual);
+      if (reversedOn && reversedOn <= input.date)
+        invalid("Select an accrual that is not reversed on the payment date.");
       if (
         accrual.interestAccountId !== account.id ||
         accrual.bookScope !== input.bookScope ||
@@ -132,18 +140,11 @@ export async function postLoanInterest(
         invalid(
           "Payment must use the accrual's interest account, book and a later/equal date.",
         );
-      const paid = sumPaise(
-        period
-          .filter(
-            (e) =>
-              e.kind === "loan-interest-payment" &&
-              e.sourceEntryId === accrual.id,
-          )
-          .map((e) => e.amount),
-      );
-      if (input.amount > accrual.amount - paid)
+      if (
+        input.amount > loanInterestPaymentCapacity(period, accrual, input.date)
+      )
         invalid(
-          "Payment exceeds the unpaid accrual.",
+          "Payment exceeds the unpaid accrual on this or a later recorded date.",
           "INTEREST_OVERPAYMENT",
           409,
         );
@@ -180,7 +181,7 @@ export async function postLoanInterest(
         details: {
           plannedInterest: installment.interest,
           confirmedAmount: input.amount,
-          confirmedNoDuplicate: true,
+          confirmedNoDuplicate: input.confirmedNoDuplicate,
           loanVersion: loan.version,
           dueDate: installment.dueDate,
         },

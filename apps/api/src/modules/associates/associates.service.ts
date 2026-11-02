@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, ilike, inArray, lte, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { acc, checkVoucherDate, today } from "@repo/core";
 import { commissionStatement } from "@repo/core/src/accounting/associates";
+import { commissionPayoutCapacity } from "@repo/core/src/accounting/commissionCapacity";
 import * as c from "@repo/contracts/src/associates";
 import { schema, type Db } from "@repo/backend/db/client";
 import * as t from "@repo/backend/db/schema/associates";
@@ -562,26 +563,22 @@ export const associatesService = {
         throw invalid(
           "Reconcile the commission statement to its payable ledger before recording a payout.",
         );
-      const dated = await statement(tx, actor.firmId, id, {
-        scope: "all",
-        unpaidOnly: "false",
-        to: input.date,
-      });
+      const entries = await entriesFor(tx, actor.firmId, id);
       const chosen = input.allocations.map((a) => {
         const accrual = balances.accruals.find((r) => r.id === a.accrualId);
-        const atDate = dated.accruals.find((r) => r.id === a.accrualId);
         if (
           !accrual ||
-          !atDate ||
-          a.amount > accrual.balance ||
-          a.amount > atDate.balance
+          a.amount >
+            commissionPayoutCapacity(
+              entries.filter((entry) => entry.accrualId === a.accrualId),
+              input.date,
+            )
         )
           throw invalid(
-            "A payout allocation exceeds the unpaid commission on its date or now.",
+            "A payout allocation exceeds the unpaid commission on this or a later recorded date.",
           );
         return { ...a, accrual };
       });
-      const entries = await entriesFor(tx, actor.firmId, id);
       for (const scope of ["gst", "nongst"] as const) {
         const amount = total(
           chosen
@@ -590,22 +587,17 @@ export const associatesService = {
         );
         if (
           amount >
-            Math.max(0, commissionStatement(entries, { scope }).closing) ||
-          amount >
-            Math.max(
-              0,
-              commissionStatement(entries, { scope, to: input.date }).closing,
-            )
+          commissionPayoutCapacity(
+            entries.filter((entry) => entry.bookScope === scope),
+            input.date,
+          )
         )
           throw invalid(
-            "Recover returned commission before paying more in this book category.",
+            "Recover returned commission before paying more in this book category on this or a later recorded date.",
           );
       }
       const amount = total(chosen.map((a) => a.amount));
-      if (
-        amount > Math.max(0, balances.closing) ||
-        amount > Math.max(0, dated.closing)
-      )
+      if (amount > commissionPayoutCapacity(entries, input.date))
         throw invalid("The payout exceeds the total commission due.");
       const [payout] = await tx
         .insert(t.associatePayouts)

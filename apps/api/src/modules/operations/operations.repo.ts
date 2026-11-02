@@ -10,6 +10,7 @@ import { createAccount } from "@repo/backend/modules/accounts/accountMasters";
 import { writeInventoryAdjustment } from "../inventory/inventory.service";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
 import { partiesService } from "../masters/parties.service";
+import { authorizePartyWrite } from "../masters/parties.permissions";
 import { itemsService, toItemRow } from "../masters/items.service";
 import { itemsRepo } from "../masters/items.repo";
 import { ledgersService, toLedgerRow } from "../masters/ledgers.service";
@@ -50,6 +51,7 @@ async function apply(
           id,
           expectedVersion,
           c.PartyInput.parse(body),
+          actor.role,
         );
       case "items":
         return itemsService.update(
@@ -139,7 +141,12 @@ async function apply(
     case "/ledgers":
       return ledgersService.create(db, firmId, c.LedgerInput.parse(body));
     case "/parties":
-      return partiesService.create(db, firmId, c.PartyInput.parse(body));
+      return partiesService.create(
+        db,
+        firmId,
+        c.PartyInput.parse(body),
+        actor.role,
+      );
     case "/items":
       return itemsService.create(db, firmId, c.ItemInput.parse(body));
   }
@@ -215,6 +222,16 @@ export function operationRepository(
             403,
           );
         return work({
+          authorize: async (input) => {
+            if (input.path === "/parties" || input.path.startsWith("/parties/"))
+              await authorizePartyWrite(
+                tx,
+                actor.firmId,
+                actor.role,
+                c.PartyInput.parse(input.body).type,
+                input.method === "PUT" ? input.path.split("/")[2] : undefined,
+              );
+          },
           read: async (key) => {
             const [row] = await tx
               .select()

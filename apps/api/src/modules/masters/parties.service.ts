@@ -1,10 +1,11 @@
 import type { PartyInput, PartyRow } from "@repo/contracts";
-import { checkParty, cleanParty, today } from "@repo/core";
+import { checkParty, cleanParty, today, type Role } from "@repo/core";
 import { v7 as uuidv7 } from "uuid";
 import type { Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { partiesRepo, type PartyRecord } from "./parties.repo";
+import { requirePartyWrite } from "./parties.permissions";
 import {
   editedElsewhere,
   invalidFields,
@@ -71,7 +72,8 @@ const duplicate = () =>
   });
 
 export const partiesService = {
-  async create(db: Db, firmId: string, input: PartyInput) {
+  async create(db: Db, firmId: string, input: PartyInput, role: Role) {
+    requirePartyWrite(role, input.type);
     return withFirmWrite(db, firmId, async (tx) => {
       const party = await validated(tx, firmId, input);
       const id = uuidv7();
@@ -98,10 +100,12 @@ export const partiesService = {
     id: string,
     version: number,
     input: PartyInput,
+    role: Role,
   ) {
     return withFirmWrite(db, firmId, async (db) => {
       const current = await partiesRepo.get(db, firmId, id);
       if (!current) throw notFound("party");
+      requirePartyWrite(role, current.type, input.type);
       const party = await validated(db, firmId, input, id);
       if (
         current.openingBills?.length &&
@@ -151,9 +155,17 @@ export const partiesService = {
     });
   },
 
-  async remove(db: Db, firmId: string, id: string, version: number) {
+  async remove(
+    db: Db,
+    firmId: string,
+    id: string,
+    version: number,
+    role: Role,
+  ) {
     return withFirmWrite(db, firmId, async (db) => {
-      if (!(await partiesRepo.get(db, firmId, id))) throw notFound("party");
+      const current = await partiesRepo.get(db, firmId, id);
+      if (!current) throw notFound("party");
+      requirePartyWrite(role, current.type);
       if (await partiesRepo.hasEntries(db, firmId, id))
         throw new AppError(
           "PARTY_IN_USE",
