@@ -184,6 +184,14 @@ export const NewExpenseInput = z.object({
   mode: PaymentMode,
   ledgerId: Id,
   narration: z.string().max(500).optional(),
+  // GST on the supplier's bill, claimed as input credit; the server works out the total.
+  gst: z
+    .object({
+      partyId: PartyId,
+      rate: GstRate.refine((rate) => rate > 0, "Pick the GST rate."),
+      taxable: PositivePaise,
+    })
+    .optional(),
 });
 
 /** Journal entry: at least two lines, and debits must equal credits. */

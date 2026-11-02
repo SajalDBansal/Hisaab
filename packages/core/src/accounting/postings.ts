@@ -163,10 +163,28 @@ export function voucherPostings(
 
   if (v.type === "expense") {
     const head = v.expenseHead ?? "Expenses";
-    return [
-      dr(acc.expense(head), head, v.amount),
-      cr(ledgerKey, ledgerName, v.amount),
+    if (!v.charges?.length)
+      return [
+        dr(acc.expense(head), head, v.amount),
+        cr(ledgerKey, ledgerName, v.amount),
+      ];
+    // GST on the supplier's bill is input credit for a regular firm, otherwise cost.
+    const t = calcInvoice({
+      lines: [],
+      charges: v.charges,
+      interState: !!v.interState,
+    });
+    const claim = claimsInputTax(voucherMode(v));
+    const rows = [
+      dr(acc.expense(head), head, t.taxable + (claim ? 0 : t.tax)),
     ];
+    if (claim) {
+      if (t.cgst) rows.push(dr(acc.input("cgst"), "Input CGST", t.cgst));
+      if (t.sgst) rows.push(dr(acc.input("sgst"), "Input SGST", t.sgst));
+      if (t.igst) rows.push(dr(acc.input("igst"), "Input IGST", t.igst));
+    }
+    rows.push(cr(ledgerKey, ledgerName, v.amount));
+    return rows;
   }
 
   if (v.type === "journal") {

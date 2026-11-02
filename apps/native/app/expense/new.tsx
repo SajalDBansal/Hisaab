@@ -5,10 +5,15 @@ import { View } from "react-native";
 import {
   allowedDates,
   amountInWords,
+  calcInvoice,
   checkExpense,
+  claimsInputTax,
+  formatINR,
   parseRupees,
   today,
+  UNREGISTERED_SUPPLIER_GST_MESSAGE,
   voucherPostings,
+  type GstRate,
   type PaymentMode,
 } from "@repo/core";
 import {
@@ -16,6 +21,7 @@ import {
   DateField,
   Button,
   Card,
+  Checkbox,
   Chip,
   FooterBar,
   Header,
@@ -29,7 +35,14 @@ import {
   Txt,
   showError,
 } from "@/components";
-import { useCreateExpense, useLedgers, useNextNumber } from "@/data/queries";
+import {
+  useCreateExpense,
+  useFirm,
+  useLedgers,
+  useNextNumber,
+  useParties,
+} from "@/data/queries";
+import { useGstMode } from "@/data/gstMode";
 import { space } from "@/theme";
 import { AttachmentPicker } from "@/documents/AttachmentPicker";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
@@ -64,16 +77,47 @@ export default function NewExpenseScreen() {
   const [note, setNote] = useState("");
   const [pickBank, setPickBank] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
+  // GST on the supplier's bill: only a regular firm claims it as input credit.
+  const gstMode = useGstMode();
+  const canClaimGst = claimsInputTax(gstMode.mode);
+  const firm = useFirm();
+  const suppliers = useParties("supplier");
+  const [withGst, setWithGst] = useState(false);
+  const [supplierId, setSupplierId] = useState<string | undefined>();
+  const [gstRate, setGstRate] = useState<GstRate>(18);
+  const [pickSupplier, setPickSupplier] = useState(false);
 
   const expenseHead = head === "Other" ? otherHead.trim() : head;
-  const amount = parseRupees(amountText);
+  const entered = parseRupees(amountText);
+  const gst = canClaimGst && withGst;
+  const supplier = suppliers.data?.find(
+    (r) => r.party.id === supplierId,
+  )?.party;
+  const interState =
+    !!supplier && !!firm.data && supplier.stateCode !== firm.data.stateCode;
+  const charges =
+    gst && entered
+      ? [{ name: expenseHead || "Expenses", amount: entered, gstRate }]
+      : undefined;
+  const taxTotals = charges
+    ? calcInvoice({ lines: [], charges, interState })
+    : undefined;
+  /** Money that leaves cash/bank: the bill total including GST. */
+  const amount = taxTotals ? taxTotals.totalBeforeRound : entered;
+  const gstProblem = !gst
+    ? undefined
+    : !supplier
+      ? "Pick the supplier whose bill shows the GST."
+      : !supplier.gstin?.trim()
+        ? UNREGISTERED_SUPPLIER_GST_MESSAGE
+        : undefined;
   const ledgerId =
     mode === "cash"
       ? (ledgers.data?.find((row) => row.ledger.kind === "cash")?.ledger.id ??
         "")
       : bankId;
   const ledger = ledgers.data?.find((l) => l.ledger.id === ledgerId)?.ledger;
-  const problem = checkExpense({ expenseHead, amount });
+  const problem = checkExpense({ expenseHead, amount }) ?? gstProblem;
 
   const postings = voucherPostings(
     {
@@ -84,6 +128,9 @@ export default function NewExpenseScreen() {
       status: "draft",
       expenseHead: expenseHead || "Expenses",
       amount: amount ?? 0,
+      charges,
+      interState,
+      taxMode: gstMode.mode,
       createdAt: "",
     },
     { ledger: ledger?.name ?? "Cash" },
@@ -103,6 +150,10 @@ export default function NewExpenseScreen() {
           mode,
           ledgerId,
           narration: note || undefined,
+          gst:
+            gst && supplierId && entered
+              ? { partyId: supplierId, rate: gstRate, taxable: entered }
+              : undefined,
         },
         createExpense.mutateAsync,
       );
@@ -188,15 +239,62 @@ export default function NewExpenseScreen() {
       <Card variant="soft" style={{ alignItems: "center", gap: space.sm }}>
         <View style={{ flexDirection: "row", alignSelf: "stretch" }}>
           <AmountField
-            label="Amount ₹"
+            label={gst ? "Amount before GST ₹" : "Amount ₹"}
             value={amountText}
             onChangeText={setAmountText}
           />
         </View>
+        {taxTotals ? (
+          <Txt variant="caption" tone="body" center>
+            GST {gstRate}% {formatINR(taxTotals.tax)} · Total{" "}
+            {formatINR(taxTotals.totalBeforeRound)}
+          </Txt>
+        ) : null}
         <Txt variant="caption" tone="body" center>
           {amountInWords(amount ?? 0)}
         </Txt>
       </Card>
+
+      {canClaimGst ? (
+        <View style={{ gap: space.sm }}>
+          <Checkbox
+            label="GST on this bill"
+            note="Claim the GST shown on a registered supplier's bill as input credit. If it can't be claimed, leave this off and enter the full amount."
+            checked={withGst}
+            onChange={setWithGst}
+          />
+          {withGst ? (
+            <>
+              <View style={{ flexDirection: "row" }}>
+                <SelectField
+                  label="Supplier"
+                  value={
+                    supplier
+                      ? `${supplier.name}${supplier.gstin ? ` · ${supplier.gstin}` : ""}`
+                      : undefined
+                  }
+                  placeholder="Pick the supplier"
+                  onPress={() => setPickSupplier(true)}
+                />
+              </View>
+              <Segmented
+                value={String(gstRate)}
+                onChange={(rate) => setGstRate(Number(rate) as GstRate)}
+                options={[
+                  { value: "5", label: "GST 5%" },
+                  { value: "18", label: "GST 18%" },
+                  { value: "40", label: "GST 40%" },
+                ]}
+              />
+              {showErrors && gstProblem ? (
+                <Txt variant="caption" tone="give">
+                  {gstProblem}
+                </Txt>
+              ) : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={{ gap: space.md }}>
         <Txt variant="label" tone="charcoal">
@@ -230,9 +328,26 @@ export default function NewExpenseScreen() {
       </View>
 
       <AttachmentPicker {...attachments} />
-      <BookScopeField value={bookScope} onChange={setBookScope} />
+      {gst ? null : (
+        <BookScopeField value={bookScope} onChange={setBookScope} />
+      )}
       {amount ? <PostingTable rows={postings} /> : null}
 
+      <PickerSheet
+        visible={pickSupplier}
+        title="Supplier"
+        searchPlaceholder="Search suppliers"
+        onClose={() => setPickSupplier(false)}
+        onSelect={(id) => {
+          setSupplierId(id);
+          setPickSupplier(false);
+        }}
+        options={(suppliers.data ?? []).map((r) => ({
+          id: r.party.id,
+          title: r.party.name,
+          subtitle: r.party.gstin || "No GSTIN",
+        }))}
+      />
       <PickerSheet
         visible={pickBank}
         title="Paid from"

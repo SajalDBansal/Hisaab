@@ -205,7 +205,13 @@ function monthTax(vouchers: Voucher[], month: string) {
     // credit notes cut output tax, debit notes cut input credit.
     const isSaleSide = v.type === "sale" || v.type === "credit-note";
     const sign = v.type === "credit-note" || v.type === "debit-note" ? -1 : 1;
-    if (!isSaleSide && v.type !== "purchase" && v.type !== "debit-note")
+    // Expenses carry GST only as a taxed charge (input credit).
+    if (
+      !isSaleSide &&
+      v.type !== "purchase" &&
+      v.type !== "debit-note" &&
+      v.type !== "expense"
+    )
       continue;
     const { taxed, noTax: free } = billTaxSplit(v);
     const side = isSaleSide ? output : input;
@@ -222,7 +228,7 @@ function monthTax(vouchers: Voucher[], month: string) {
       counts.salesCount++;
       if ((v.docType ?? saleDocType(v.lines ?? [])) === "bill-of-supply")
         counts.billsOfSupply++;
-    } else counts.purchaseCount++;
+    } else if (v.type === "purchase") counts.purchaseCount++;
   }
   return { output, input, counts };
 }
