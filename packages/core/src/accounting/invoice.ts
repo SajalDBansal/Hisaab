@@ -2,6 +2,7 @@
  * Invoice maths: line totals, GST split, round-off.
  * Pure functions — same input always gives the same output, no side effects.
  */
+import { mulDivRound, thousandths } from "../money";
 import type { ExtraCharge, GstRate, InvoiceLine, Paise } from "../types";
 
 export interface LineTotals {
@@ -58,6 +59,15 @@ export function calcTax(taxable: Paise, rate: GstRate, interState: boolean) {
   return { cgst: half, sgst: half, igst: 0 };
 }
 
+/** qty × rate in paise. Older lines keep the floating-point total they were issued with. */
+export function lineGross(
+  line: Pick<InvoiceLine, "qty" | "rate" | "exactMath">,
+) {
+  return line.exactMath
+    ? mulDivRound(thousandths(line.qty), line.rate, 1000)
+    : Math.round(line.qty * line.rate);
+}
+
 export function calcLine(line: InvoiceLine, interState: boolean): LineTotals {
   if (line.returnAmounts) {
     const { taxable, discount, cgst, sgst, igst } = line.returnAmounts;
@@ -73,10 +83,12 @@ export function calcLine(line: InvoiceLine, interState: boolean): LineTotals {
       total: taxable + tax,
     };
   }
-  const gross = Math.round(line.qty * line.rate);
+  const gross = lineGross(line);
   let discount = 0;
   if (line.discountPercent)
-    discount = Math.round((gross * line.discountPercent) / 100);
+    discount = line.exactMath
+      ? mulDivRound(gross, thousandths(line.discountPercent), 100_000)
+      : Math.round((gross * line.discountPercent) / 100);
   else if (line.discountAmount) discount = line.discountAmount;
   discount = Math.min(Math.max(discount, 0), gross);
   const taxable = gross - discount;

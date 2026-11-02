@@ -1,6 +1,6 @@
 import type { ExtraCharge, InvoiceLine, OrderType, Voucher } from "../types";
 import { isStoredQuantity } from "../precision";
-import { calcLine } from "./invoice";
+import { calcLine, lineGross } from "./invoice";
 import { checkInvoiceNumbers } from "./invoiceValidation";
 import { CONVERTS_TO, isOrderType } from "./orders";
 import {
@@ -281,7 +281,7 @@ function sliceLine(
   delete line.sourceLine;
   if (line.discountAmount !== undefined) {
     line.discountAmount = Math.min(
-      Math.round(line.qty * line.rate),
+      lineGross(line),
       Math.max(
         0,
         prorate(

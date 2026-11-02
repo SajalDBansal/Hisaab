@@ -294,6 +294,11 @@ export interface InvoiceLine {
   taxType?: TaxType;
   /** Credit/debit notes only: index of the line on the original bill being returned. */
   sourceLine?: number;
+  /**
+   * Saved with exact whole-number maths for qty × rate and percentage discounts.
+   * Missing on older lines, which keep the floating-point totals they were issued with.
+   */
+  exactMath?: boolean;
 }
 
 /** Freight, packing etc. added on top of the items. */
