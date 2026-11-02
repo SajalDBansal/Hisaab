@@ -205,7 +205,19 @@ modules, with no behaviour change.
 
 Each step ends with its tests passing and this document updated with the result.
 
-### Phase 0: Secure the Baseline (about 1 day)
+### Phase 0: Secure the Baseline (about 1 day). **Done 2 Nov 2026**
+
+Committed on branch `release/hardening-2026-10` (12 commits), tagged
+`hardening-2026-10` and pushed. `main` is untouched, because a push to `main`
+deploys. Root cause of H02: Windows long paths were disabled, so Bun silently
+skipped deep React Native/Expo files. They are now enabled on the dev PC. A clean
+`bun install --frozen-lockfile` passes, as do typecheck, lint, build, the web
+export and an Android export (each package bundled once). `expo-doctor`'s
+remaining "duplicates" warning comes from Bun's store layout, and the bundle
+check shows none. `slug` is still `native` until the EAS project is confirmed.
+Still to do: an EAS `direct` build from a fresh clone, which needs the owner's
+Expo credentials.
+
 1. **H01:** review and commit the working tree in logical commits, then push and tag `hardening-2026-10`.
 2. **H02, H03:** clean-install native dependencies, fix the Expo config, get
    `expo-doctor` green, and do a fresh-clone `bun install --frozen-lockfile`
