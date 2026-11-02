@@ -16,8 +16,8 @@ import {
 } from "./accounts";
 import { isPosted } from "./bills";
 import { voucherPostings, type Posting } from "./postings";
-import { stockValue, stockVouchersAsOf } from "./stock";
-import { inventoryValue } from "./stockLots";
+import { stockValue } from "./stock";
+import { stockLotsFor } from "./stockLots";
 import { addDays } from "../dates";
 
 /** Opening balance of an account not covered by parties, cash/bank or stock (e.g. furniture). */
@@ -59,8 +59,9 @@ export function closingStockValue(
   vouchers: Voucher[],
   asOf?: ISODate,
 ): Paise {
-  const upTo = asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers;
-  return items.reduce((s, i) => s + inventoryValue(i, upTo), 0);
+  return stockLotsFor(items, vouchers, asOf)
+    .flat()
+    .reduce((s, lot) => s + lot.value, 0);
 }
 
 /**
@@ -127,10 +128,12 @@ export function partyOpeningMovements(books: Books): PartyOpeningMovement[] {
 /** Every posting of every posted voucher, with its voucher. */
 function allPostings(books: Books, asOf?: ISODate) {
   const out: { voucher: Voucher; posting: Posting }[] = [];
+  const partyNames = new Map(books.parties.map((p) => [p.id, p.name]));
+  const ledgerNames = new Map(books.ledgers.map((l) => [l.id, l.name]));
   for (const v of books.vouchers) {
     if (!isPosted(v) || (asOf && v.date > asOf)) continue;
-    const party = books.parties.find((p) => p.id === v.partyId)?.name;
-    const ledger = books.ledgers.find((l) => l.id === v.ledgerId)?.name;
+    const party = v.partyId ? partyNames.get(v.partyId) : undefined;
+    const ledger = v.ledgerId ? ledgerNames.get(v.ledgerId) : undefined;
     for (const posting of voucherPostings(v, { party, ledger }))
       out.push({ voucher: v, posting });
   }

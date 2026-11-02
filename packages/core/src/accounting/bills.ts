@@ -11,7 +11,7 @@ import {
   settlementUnallocatedAdjustment,
   sumPaise,
 } from "./settlements";
-import { importedOpeningBills } from "./openingImport";
+import { importedOpeningBillId, importedOpeningBills } from "./openingImport";
 import { calcInvoice } from "./invoice";
 
 /** Only posted vouchers affect balances. Drafts and cancelled vouchers are ignored. */
@@ -57,6 +57,40 @@ export function partyBalance(
     .reduce((bal, v) => bal + partyEffect(v, party.id), opening);
 }
 
+/**
+ * The vouchers that can affect each party, in book order: its own entries,
+ * journals naming it, and anything allocated to one of its bills. Balances and
+ * bills worked out from these equal those worked out from the whole book.
+ */
+export function vouchersByParty(
+  parties: Party[],
+  vouchers: Voucher[],
+): Map<string, Voucher[]> {
+  const owner = new Map<string, string>();
+  for (const p of parties) {
+    owner.set(openingBillId(p.id), p.id);
+    for (const bill of p.openingBills ?? [])
+      owner.set(importedOpeningBillId(bill.id), p.id);
+  }
+  for (const v of vouchers) if (v.partyId) owner.set(v.id, v.partyId);
+  const byParty = new Map<string, Voucher[]>();
+  const add = (partyId: string, v: Voucher) => {
+    const list = byParty.get(partyId);
+    if (!list) byParty.set(partyId, [v]);
+    else if (list[list.length - 1] !== v) list.push(v);
+  };
+  for (const v of vouchers) {
+    if (v.partyId) add(v.partyId, v);
+    for (const line of v.journalLines ?? [])
+      if (line.account.startsWith("party:")) add(line.account.slice(6), v);
+    for (const a of billAllocations(v)) {
+      const partyId = owner.get(a.voucherId);
+      if (partyId) add(partyId, v);
+    }
+  }
+  return byParty;
+}
+
 /** Id used for the opening balance when it is treated as a bill. */
 export function openingBillId(partyId: string): string {
   return `opening:${partyId}`;
@@ -98,6 +132,8 @@ export function partyBills(
   party: Party,
   vouchers: Voucher[],
   asOf: ISODate,
+  /** Also work out each bill's value without GST (for TDS); costs a tax calculation per bill. */
+  options: { taxable?: boolean } = {},
 ): Bill[] {
   const billType = party.type === "customer" ? "sale" : "purchase";
   const visible = vouchers.filter((v) => v.date <= asOf);
@@ -128,11 +164,13 @@ export function partyBills(
   for (const v of visible) {
     if (v.partyId !== party.id || v.type !== billType || !isPosted(v)) continue;
     const due = v.dueDate ?? addDays(v.date, party.creditDays);
-    const { tax } = calcInvoice({
-      lines: v.lines ?? [],
-      charges: v.charges,
-      interState: !!v.interState,
-    });
+    const tax = options.taxable
+      ? calcInvoice({
+          lines: v.lines ?? [],
+          charges: v.charges,
+          interState: !!v.interState,
+        }).tax
+      : undefined;
     bills.push({
       ...makeBill(
         v.id,
@@ -143,7 +181,7 @@ export function partyBills(
         settled.get(v.id) ?? 0,
         asOf,
       ),
-      taxable: v.amount - tax,
+      ...(tax === undefined ? {} : { taxable: v.amount - tax }),
     });
   }
   return bills.sort((a, b) =>

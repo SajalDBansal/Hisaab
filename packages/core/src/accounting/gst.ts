@@ -258,7 +258,10 @@ export function creditBroughtForward(
   for (const v of vouchers) {
     if (!isPosted(v) || voucherMode(v) !== "regular") continue;
     const m = yearMonth(v.date);
-    if (m < month) earlier.set(m, [...(earlier.get(m) ?? []), v]);
+    if (m >= month) continue;
+    const list = earlier.get(m);
+    if (list) list.push(v);
+    else earlier.set(m, [v]);
   }
   let carried = zero();
   for (const m of [...earlier.keys()].sort()) {
