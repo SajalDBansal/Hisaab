@@ -40,6 +40,8 @@ import {
   voucherMode,
   count,
   UNREGISTERED_SUPPLIER_GST_MESSAGE,
+  allocateStock,
+  type BookScope,
 } from "@repo/core";
 import {
   AmountField,
@@ -89,6 +91,8 @@ import {
   invoiceDraftItem,
   invoiceDraftUnit,
   invoiceDraftLine,
+  lotsWithoutBill,
+  stockPartsByLine,
   invoiceDraftCharges,
   type LineDraft,
 } from "./invoiceDraft";
@@ -166,6 +170,8 @@ const TEXT = {
 } as const;
 
 type Paid = "none" | "partial" | "full";
+/** Picker choice that clears a line's lot so stock is taken oldest first. */
+const AUTO_LOT = "__auto__";
 
 export function InvoiceForm({
   kind,
@@ -226,8 +232,21 @@ export function InvoiceForm({
   );
   const [date, setDate] = useState(editing?.date ?? today());
   const stock = useStockLots(date);
+  // An edit may reuse the stock this bill already took.
+  const lotPool = lotsWithoutBill(stock.data ?? [], editing);
   const lotsFor = (itemId: string) =>
-    (stock.data ?? []).filter((lot) => lot.itemId === itemId);
+    lotPool.filter((lot) => lot.itemId === itemId);
+  /** Books (GST / non-GST) that still hold this item on the bill date. */
+  const booksFor = (itemId: string) => [
+    ...new Set(
+      lotsFor(itemId)
+        .filter((lot) => lot.qty > 0)
+        .map((lot) => lot.bookScope),
+    ),
+  ];
+  const [sellFrom, setSellFrom] = useState<BookScope | undefined>(
+    editing ? bookScopeOf(editing) : undefined,
+  );
   const [supplierInvoiceNo, setSupplierInvoiceNo] = useState(
     editing?.supplierInvoiceNo ?? "",
   );
@@ -261,34 +280,58 @@ export function InvoiceForm({
     issuedParty.stateCode !== issuedFirm.stateCode;
 
   // ---- Maths (pure functions from @repo/core) -----------------------------------
+  const usesStock = kind === "sale" || kind === "delivery-note";
+  // Rows without a chosen lot take stock oldest first; an item in both books needs the user's choice.
+  const needsBook =
+    usesStock &&
+    lines.some((l) => !l.stockLotId && booksFor(l.itemId).length > 1);
   const rawLines: InvoiceLine[] = lines.map((l) => {
     const lot = lotsFor(l.itemId).find((row) => row.id === l.stockLotId);
     const bookScope =
-      side === "purchase" ? (withoutGst ? "nongst" : "gst") : lot?.bookScope;
+      side === "purchase"
+        ? withoutGst
+          ? "nongst"
+          : "gst"
+        : (lot?.bookScope ??
+          (booksFor(l.itemId).length > 1 ? sellFrom : undefined));
     return invoiceDraftLine(l, itemFor(l), bookScope);
   });
   // Composition sales and firms without GST: no GST on the bill
   const invoiceLines = applyGstMode(rawLines, taxMode, side);
+  // The rows the server will save: each lot a line draws on, as in allocateStock.
+  let stockError: string | undefined;
+  let stockLines = invoiceLines;
+  if (usesStock && stock.data && !(needsBook && !sellFrom))
+    try {
+      stockLines = allocateStock(lotPool, invoiceLines).map((l) =>
+        l.bookScope === "nongst"
+          ? { ...l, gstRate: 0 as const, taxType: "nongst" as const }
+          : l,
+      );
+    } catch (err) {
+      stockError = err instanceof Error ? err.message : String(err);
+    }
+  const linesByEntry = stockPartsByLine(invoiceLines, stockLines);
   const carriesGst =
     billsCarryGst(taxMode, side) &&
     (side === "purchase"
       ? !withoutGst
-      : invoiceLines.some((l) => l.bookScope !== "nongst"));
+      : stockLines.some((l) => l.bookScope !== "nongst"));
   const freightPaise = parseRupees(freight) ?? 0;
   const charges: ExtraCharge[] = applyGstMode(
     invoiceDraftCharges(freightPaise, prefill?.charges),
     carriesGst ? taxMode : "off",
     side,
   );
-  let totals = calcInvoice({ lines: invoiceLines, charges, interState });
+  let totals = calcInvoice({ lines: stockLines, charges, interState });
   // Estimates and orders may hold any goods; only bills split non-GST goods off
   const mixed =
     kind === "sale" &&
-    invoiceLines.some((l) => l.bookScope === "gst") &&
-    invoiceLines.some((l) => l.bookScope === "nongst");
+    stockLines.some((l) => l.bookScope === "gst") &&
+    stockLines.some((l) => l.bookScope === "nongst");
   const splitTotals = (["gst", "nongst"] as const).map((scope, index) =>
     calcInvoice({
-      lines: invoiceLines.filter((l) => l.bookScope === scope),
+      lines: stockLines.filter((l) => l.bookScope === scope),
       charges: index === 0 ? charges : [],
       interState,
     }),
@@ -302,13 +345,13 @@ export function InvoiceForm({
   const noGstBill =
     side === "purchase"
       ? withoutGst
-      : invoiceLines.length > 0 &&
-        invoiceLines.every((l) => l.bookScope === "nongst");
+      : stockLines.length > 0 &&
+        stockLines.every((l) => l.bookScope === "nongst");
   const docType =
     kind === "sale" && !mixed
       ? noGstBill
         ? "invoice"
-        : saleDocFor(taxMode, invoiceLines)
+        : saleDocFor(taxMode, stockLines)
       : undefined;
   const nextNumber = useNextNumber(
     kind,
@@ -327,14 +370,14 @@ export function InvoiceForm({
         ? totals.grandTotal
         : (parseRupees(paidText) ?? 0);
   const stockProblem =
-    (kind === "sale" || kind === "delivery-note") &&
+    usesStock &&
     (stock.isError
       ? "Could not load stock. Try again."
       : stock.isPending
         ? "Loading stock..."
-        : lines.some((l) => !l.stockLotId)
-          ? "Choose stock for each item."
-          : undefined);
+        : needsBook && !sellFrom
+          ? "Choose whether to sell from GST or non-GST stock."
+          : stockError);
   // New purchases only, matching the server; existing bills keep what they saved.
   const supplierProblem =
     kind === "purchase" &&
@@ -364,7 +407,7 @@ export function InvoiceForm({
       date,
       status: "draft",
       taxMode,
-      lines: invoiceLines,
+      lines: stockLines,
       charges,
       interState,
       amount: totals.grandTotal,
@@ -382,10 +425,6 @@ export function InvoiceForm({
       {
         key: Date.now(),
         itemId: item.id,
-        stockLotId:
-          lotsFor(item.id).filter((l) => l.qty > 0).length === 1
-            ? lotsFor(item.id).find((l) => l.qty > 0)?.id
-            : undefined,
         qty: "1",
         rate: (item[text.priceKey] / 100).toFixed(2),
         discountPercent: "",
@@ -752,10 +791,37 @@ export function InvoiceForm({
       {/* Items */}
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Items · {lines.length}</Txt>
+        {needsBook && !editing ? (
+          <View style={{ gap: space.xs }}>
+            <Txt variant="small" tone="body">
+              Some items are in both GST and non-GST stock. Sell from:
+            </Txt>
+            <Segmented
+              value={sellFrom ?? ""}
+              onChange={(value) => setSellFrom(value || undefined)}
+              options={[
+                { value: "gst", label: "GST stock" },
+                { value: "nongst", label: "Non-GST stock" },
+              ]}
+            />
+          </View>
+        ) : null}
         {lines.map((l, i) => {
           const item = itemFor(l);
           const alt = invoiceDraftUnit(l, item);
-          const t = calcLine(invoiceLines[i], interState);
+          // A line drawing on several lots is several saved rows; show their sum.
+          const parts = linesByEntry[i]?.length
+            ? linesByEntry[i]
+            : [invoiceLines[i]];
+          const shown = parts[0];
+          const t = parts
+            .map((part) => calcLine(part, interState))
+            .reduce((sum, row) => ({
+              ...sum,
+              taxable: sum.taxable + row.taxable,
+              tax: sum.tax + row.tax,
+              total: sum.total + row.total,
+            }));
           return (
             <Card key={l.key} style={{ gap: space.sm }}>
               <View
@@ -789,11 +855,19 @@ export function InvoiceForm({
                     const lot = lotsFor(l.itemId).find(
                       (row) => row.id === l.stockLotId,
                     );
-                    return lot
-                      ? `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""} | Cost ${formatINR(Math.round(lot.unitCost))}`
+                    if (lot)
+                      return `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""} | Cost ${formatINR(Math.round(lot.unitCost))}`;
+                    const used = parts.flatMap((part) => {
+                      const from = lotsFor(l.itemId).find(
+                        (row) => row.id === part.stockLotId,
+                      );
+                      return from ? [`${from.number} × ${part.qty}`] : [];
+                    });
+                    return used.length
+                      ? `Oldest first: ${used.join(", ")}`
                       : undefined;
                   })()}
-                  placeholder="Choose purchase stock"
+                  placeholder="Oldest first (automatic)"
                   onPress={() => setLotLine(l.key)}
                 />
               ) : null}
@@ -854,9 +928,9 @@ export function InvoiceForm({
                 <Txt variant="caption" tone="body" num>
                   {!carriesGst
                     ? `${formatINR(t.taxable)}`
-                    : invoiceLines[i].taxType === "taxable"
-                      ? `Taxable ${formatINR(t.taxable)} · GST ${invoiceLines[i].gstRate}% ${formatINR(t.tax)}`
-                      : `${taxTypeLabel(invoiceLines[i].taxType!)} · no GST`}
+                    : shown.taxType === "taxable"
+                      ? `Taxable ${formatINR(t.taxable)} · GST ${shown.gstRate}% ${formatINR(t.tax)}`
+                      : `${taxTypeLabel(shown.taxType!)} · no GST`}
                 </Txt>
                 <Money
                   value={t.total}
@@ -1013,21 +1087,31 @@ export function InvoiceForm({
         title="Choose stock lot"
         onClose={() => setLotLine(null)}
         onSelect={(id) => {
-          if (lotLine !== null) updateLine(lotLine, { stockLotId: id });
+          if (lotLine !== null)
+            updateLine(lotLine, {
+              stockLotId: id === AUTO_LOT ? undefined : id,
+            });
           setLotLine(null);
         }}
-        options={lotsFor(lines.find((l) => l.key === lotLine)?.itemId ?? "")
-          .filter(
-            (lot) =>
-              lot.qty > 0 ||
-              editing?.lines?.some((l) => l.stockLotId === lot.id),
-          )
-          .map((lot) => ({
-            id: lot.id,
-            title: `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`,
-            subtitle: `${lot.date === "0001-01-01" ? "Opening" : formatDate(lot.date)} | ${lot.qty} ${itemById(lot.itemId)?.unit ?? ""} available`,
-            right: <Money value={Math.round(lot.unitCost)} variant="small" />,
-          }))}
+        options={[
+          {
+            id: AUTO_LOT,
+            title: "Oldest first (automatic)",
+            subtitle: "Uses the oldest stock first, across batches if needed",
+          },
+          ...lotsFor(lines.find((l) => l.key === lotLine)?.itemId ?? "")
+            .filter(
+              (lot) =>
+                lot.qty > 0 ||
+                editing?.lines?.some((l) => l.stockLotId === lot.id),
+            )
+            .map((lot) => ({
+              id: lot.id,
+              title: `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`,
+              subtitle: `${lot.date === "0001-01-01" ? "Opening" : formatDate(lot.date)} | ${lot.qty} ${itemById(lot.itemId)?.unit ?? ""} available`,
+              right: <Money value={Math.round(lot.unitCost)} variant="small" />,
+            })),
+        ]}
       />
       <PickerSheet
         visible={picker === "party"}

@@ -118,9 +118,12 @@ export function scopeBooks<T extends Books & { firm?: Firm }>(
     items: books.items.map((i) => ({
       ...i,
       openingLots: i.openingLots?.filter((lot) => lot.bookScope === scope),
-      openingStock:
-        i.openingLots ? i.openingLots.filter((lot) => lot.bookScope === scope).reduce((sum, lot) => sum + lot.qty, 0) : (i.openingBookScope ??
-          (i.taxType === "nongst" ? "nongst" : openingScope)) === scope
+      openingStock: i.openingLots
+        ? i.openingLots
+            .filter((lot) => lot.bookScope === scope)
+            .reduce((sum, lot) => sum + lot.qty, 0)
+        : (i.openingBookScope ??
+              (i.taxType === "nongst" ? "nongst" : openingScope)) === scope
           ? i.openingStock
           : 0,
     })),

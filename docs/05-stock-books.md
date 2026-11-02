@@ -9,7 +9,7 @@ recorded activity; the application is not a GST filing product.
 
 1. Create one item master for a product. Its buying/selling rates are defaults, not historical valuation rates.
 2. On a purchase, tick **Purchase without GST** for a non-GST entry. Each purchase line creates a stock lot with its own date, cost, quantity and book category. A GST purchase and a non-GST purchase of the same product remain under the same item.
-3. On a sale, select **Stock lot** for each item row. The picker shows purchase number/date, category, remaining base-unit quantity and acquisition cost. Add another row to sell from another lot, even for the same item.
+3. On a sale, stock is taken **oldest first (FIFO)** automatically. A row larger than the oldest lot continues into the next lot and is saved as one row per lot, so returns and costs stay exact; the printed invoice merges those rows back into one. If an item has stock in both the GST and non-GST books, the sale asks which book to sell from. To use a particular purchase instead, pick it under **Stock lot**; the picker shows purchase number/date, category, remaining base-unit quantity and acquisition cost.
 4. A sale containing both categories asks **Create two invoices?**. Confirming saves both invoices in one database transaction. Neither bill, receipt, stock movement nor invoice number is left partially saved if the operation fails.
 5. The result links to the second invoice. Both invoices can be viewed, printed, shared, settled and returned independently. Selected attachments are associated with both invoices; attachment transfer retries remain separate from financial saves.
 
@@ -25,7 +25,7 @@ GST-category entries follow the firm's existing tax mode and the item's normal t
 
 ## Stock and Costing
 
-- New sales use selected-lot cost. The server checks ownership, purchase date, available quantity and repeated rows, and derives cost/category itself. Client-provided costs are not trusted.
+- New sales freeze the cost of the lots they use, whether chosen or taken FIFO, at save time; later backdated purchases do not move an issued sale to another lot. The server repeats the FIFO allocation, checks ownership, purchase date, available quantity and repeated rows, and derives cost/category itself. Client-provided costs are not trusted. A second-unit row (e.g. Box) that spans lots must split into whole thousandths, otherwise enter it in the base unit or choose a lot.
 - Firm-level write serialization prevents simultaneous sales consuming the same remaining units. Backdated entries are checked against later committed stock use too.
 - Sales returns restore the original lot and cost. Purchase returns remove their original lot; unavailable stock cannot be returned. Consumed purchases cannot be edited/cancelled until dependent entries are resolved.
 - Opening inventory supports multiple lots with distinct quantities, costs and categories under one item. Changing the default purchase price does not revalue historical stock. Opening stock/cost/category are locked once the item is used.
