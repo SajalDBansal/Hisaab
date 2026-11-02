@@ -31,6 +31,19 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    # Disposable PostgreSQL for the database-backed API tests; no business data.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hardening
+          POSTGRES_PASSWORD: hardening-local-fixture-only
+          POSTGRES_DB: hardening_finance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hardening -d hardening_finance"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +56,29 @@ jobs:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      - run: bun run lint
+      - name: Unit tests
+        run: |
+          for workspace in packages/core apps/native apps/worker; do
+            (cd "$workspace" && bun test)
+          done
+      - name: Database-backed API tests
+        env:
+          PGPASSWORD: hardening-local-fixture-only
+          FIXTURES: postgres://hardening:hardening-local-fixture-only@127.0.0.1:5432
+        run: |
+          for db in hardening_security hardening_data; do
+            psql -h 127.0.0.1 -U hardening -d hardening_finance -c "create database $db"
+          done
+          for db in hardening_finance hardening_security hardening_data; do
+            DATABASE_URL="$FIXTURES/$db" bun run --cwd apps/api db:migrate
+          done
+          cd apps/api
+          export FINANCE_DATABASE_URL="$FIXTURES/hardening_finance"
+          export SECURITY_TEST_DATABASE_URL="$FIXTURES/hardening_security"
+          export HISAAB_DATA_TEST_URL="$FIXTURES/hardening_data"
+          bun test
+          bun test checks/finance-acceptance.test.ts
       - run: bun run build
       - run: bun run --cwd apps/native export:web
       - name: Configuration to review before production approval
