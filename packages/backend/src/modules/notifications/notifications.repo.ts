@@ -1,6 +1,7 @@
 import type { Item, MockDb, Party, Voucher } from "@repo/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
+import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { hydrateVouchers } from "../vouchers/snapshot";
 
 const {
@@ -57,6 +58,11 @@ export const notificationsRepo = {
       .select()
       .from(remindersSent)
       .where(eq(remindersSent.firmId, firmId));
+    const partyOpeningBills = await loadOpeningBills(
+      db,
+      firmId,
+      partyRows.map((row) => row.id),
+    );
 
     const p = firmRow.profile;
     return {
@@ -86,7 +92,9 @@ export const notificationsRepo = {
         creditDays: row.creditDays,
         creditLimit: row.creditLimit,
         openingBalance: row.openingBalance,
+        openingGstBalance: undef(row.openingGstBalance),
         openingDate: row.openingDate,
+        openingBills: partyOpeningBills.get(row.id),
       })),
       items: itemRows.map((row) => ({
         id: row.id,

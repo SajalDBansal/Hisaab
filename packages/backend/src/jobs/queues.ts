@@ -32,8 +32,7 @@ export type PdfJob = {
   revision?: string;
 };
 
-export type BackupJob =
-  { kind: "backup-all-firms" } | { kind: "backup-firm"; firmId: string };
+export type BackupJob = { kind: "backup-database" };
 
 export type ReportJob = {
   kind: "warm-firm";
@@ -41,7 +40,7 @@ export type ReportJob = {
   reason: "write" | "scheduled";
 };
 
-export type CleanupJob = { kind: "nightly-cleanup" };
+export type CleanupJob = { kind: "nightly-cleanup" | "document-cleanup" };
 
 export type JobData = {
   messages: MessageJob;
@@ -65,7 +64,12 @@ export type JobRecord = {
   state: string;
 };
 
-export const SUPPORTED_QUEUES = ["reminders", "pdf", "cleanup"] as const;
+export const SUPPORTED_QUEUES = [
+  "reminders",
+  "pdf",
+  "cleanup",
+  "backup",
+] as const;
 
 function assertSupported(queue: QueueName) {
   if (!(SUPPORTED_QUEUES as readonly string[]).includes(queue))
@@ -131,7 +135,7 @@ function jobIdentity<K extends QueueName>(queue: K, data: JobData[K]) {
       return [job.kind, job.firmId];
     }
     case "cleanup":
-      return ["nightly-cleanup"];
+      return [(data as CleanupJob).kind];
   }
 }
 

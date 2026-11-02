@@ -172,6 +172,7 @@ export async function hydrateVouchers(
         gstRate: l.gstRate as 0 | 5 | 18 | 40,
         taxType: undef(l.taxType),
         sourceLine: undef(l.sourceLine),
+        returnAmounts: undef(l.returnAmounts),
         stockLotId: undef(l.stockLotId),
         stockCost: undef(l.stockCost),
         bookScope: undef(l.bookScope),
