@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a benchmark reports its timings */
 /**
  * Timing of the report and save paths on a synthetic year of books.
  * Run: bun packages/core/bench/books.bench.ts [items] [vouchers]
