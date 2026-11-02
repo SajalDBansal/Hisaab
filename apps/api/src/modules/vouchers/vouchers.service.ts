@@ -423,8 +423,11 @@ export const vouchersService = {
   },
 
   async expense(db: Db, ctx: Ctx, input: NewExpenseInput) {
-    const voucher = await change(db, ctx, {}, (snap) => {
+    const supplierId = input.gst?.partyId;
+    const scope = supplierId ? { parties: [supplierId] } : {};
+    const voucher = await change(db, ctx, scope, (snap) => {
       checkLedger(snap, input.ledgerId, "ledgerId");
+      if (supplierId) findParty(snap, supplierId, "supplier");
       return core(() => createExpense(snap.books, input));
     });
     return voucher;

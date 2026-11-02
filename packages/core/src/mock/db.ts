@@ -43,6 +43,7 @@ import {
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
 import {
   applyGstMode,
+  claimsInputTax,
   gstModeOf,
   modeBlocker,
   saleDocFor,
@@ -611,19 +612,41 @@ export function createExpense(
   input: NewExpenseInput,
   options: CreateOptions = {},
 ): Voucher {
+  const mode = gstModeOf(db.firm);
+  // GST on an expense is a taxed charge, so GST reports and postings treat it like a purchase charge.
+  const gst = input.gst?.rate ? input.gst : undefined;
+  let taxed: Pick<Voucher, "partyId" | "charges" | "interState" | "taxMode"> =
+    {};
+  let amount = input.amount;
+  if (gst) {
+    if (!claimsInputTax(mode))
+      throw new Error("Only a regular GST firm can claim GST on expenses.");
+    const party = findParty(db, gst.partyId);
+    if (party.type !== "supplier") throw new Error("Pick a supplier.");
+    if (!party.gstin?.trim()) throw new Error(UNREGISTERED_SUPPLIER_GST_MESSAGE);
+    const interState = party.stateCode !== db.firm.stateCode;
+    const charges = [
+      { name: input.expenseHead, amount: gst.taxable, gstRate: gst.rate },
+    ];
+    checkInvoiceNumbers([], charges);
+    amount = calcInvoice({ lines: [], charges, interState }).totalBeforeRound;
+    taxed = { partyId: party.id, charges, interState, taxMode: mode };
+  }
   const voucher: Voucher = {
     id: newId("v"),
     type: "expense",
-    bookScope:
-      input.bookScope ?? (gstModeOf(db.firm) === "off" ? "nongst" : "gst"),
+    bookScope: gst
+      ? "gst"
+      : (input.bookScope ?? (mode === "off" ? "nongst" : "gst")),
     number: takeNumber(db, "expense", input.date),
     date: input.date,
     status: options.status ?? "posted",
     expenseHead: input.expenseHead,
-    snapshot: captureVoucherSnapshot(db, undefined),
+    snapshot: captureVoucherSnapshot(db, taxed.partyId),
     ledgerId: input.ledgerId,
     mode: input.mode,
-    amount: input.amount,
+    ...taxed,
+    amount,
     narration: input.narration,
     pendingSync: options.pendingSync,
     createdAt: new Date().toISOString(),

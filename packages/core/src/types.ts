@@ -472,7 +472,13 @@ export interface NewExpenseInput {
   bookScope?: BookScope;
   date: ISODate;
   expenseHead: string;
+  /** Total paid. With `gst`, the server works it out from the taxable value. */
   amount: Paise;
+  /**
+   * GST shown on the supplier's bill, claimed as input credit (regular firms only).
+   * Leave it out when the GST can't be claimed and enter the full amount instead.
+   */
+  gst?: { partyId: ID; rate: GstRate; taxable: Paise };
   mode: PaymentMode;
   ledgerId: ID;
   narration?: string;
