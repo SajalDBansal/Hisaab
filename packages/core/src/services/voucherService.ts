@@ -1,5 +1,9 @@
 import { calcInvoice, type InvoiceTotals } from "../accounting/invoice";
 import {
+  returnAmountBasis,
+  type ReturnAmountBasis,
+} from "../accounting/returnAmounts";
+import {
   postingTotals,
   voucherPostings,
   type Posting,
@@ -141,6 +145,7 @@ export interface ReturnableBill {
     returned: number;
     returnable: number;
     rate: Paise;
+    amountBasis: ReturnAmountBasis;
   }[];
 }
 
@@ -356,6 +361,7 @@ export const voucherService = {
     const db = getDb();
     const rows = returnableLines(db, billId);
     const bill = db.vouchers.find((v) => v.id === billId)!;
+    const amounts = returnAmountBasis(bill, db.vouchers);
     return clone({
       bill,
       partyName: db.parties.find((p) => p.id === bill.partyId)?.name ?? "",
@@ -369,6 +375,7 @@ export const voucherService = {
           returned: r.returned,
           returnable: r.returnable,
           rate: r.line.rate,
+          amountBasis: amounts[r.index],
         };
       }),
     });

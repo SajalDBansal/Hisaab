@@ -11,12 +11,24 @@ import {
 
 export const TaxType = z.enum(["taxable", "nil", "exempt", "nongst"]);
 export const BookScope = z.enum(["gst", "nongst"]);
+// Match the largest supported import while keeping previously imported lots readable.
+export const MAX_OPENING_STOCK_LOTS = 500;
 export const OpeningStockLot = z.object({
   id: z.string().min(1).max(160),
   qty: Quantity.positive(),
   unitCost: NonNegativePaise,
   bookScope: BookScope,
 });
+export const OpeningStockLots = z
+  .array(OpeningStockLot)
+  .max(
+    MAX_OPENING_STOCK_LOTS,
+    `An item supports up to ${MAX_OPENING_STOCK_LOTS} opening lots.`,
+  )
+  .refine(
+    (lots) => new Set(lots.map((lot) => lot.id)).size === lots.length,
+    "Opening lots must have unique IDs.",
+  );
 export const StockLot = z.object({
   id: z.string(),
   itemId: Id,
@@ -59,14 +71,24 @@ export const ItemInput = z
     openingStock: Quantity.min(0, "Can't be negative."),
     openingCost: NonNegativePaise.optional(),
     openingBookScope: BookScope.optional(),
-    openingLots: z.array(OpeningStockLot).max(200).optional(),
+    openingLots: OpeningStockLots.optional(),
     batch: z.object({ number: z.string().max(40), expiry: IsoDate }).optional(),
   })
   .superRefine((item, ctx) => {
-    if (item.openingLots && (
-      Math.round(item.openingLots.reduce((sum, lot) => sum + lot.qty, 0) * 1000) !== Math.round(item.openingStock * 1000) ||
-      new Set(item.openingLots.map((lot) => lot.id)).size !== item.openingLots.length
-    )) ctx.addIssue({ code: "custom", path: ["openingLots"], message: "Opening lots must have unique IDs and add up to opening stock." });
+    if (
+      item.openingLots &&
+      (Math.round(
+        item.openingLots.reduce((sum, lot) => sum + lot.qty, 0) * 1000,
+      ) !== Math.round(item.openingStock * 1000) ||
+        new Set(item.openingLots.map((lot) => lot.id)).size !==
+          item.openingLots.length)
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["openingLots"],
+        message:
+          "Opening lots must have unique IDs and add up to opening stock.",
+      });
     if (item.mrp > 0 && item.salePrice > item.mrp)
       ctx.addIssue({
         code: "custom",

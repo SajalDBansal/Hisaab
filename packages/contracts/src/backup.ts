@@ -14,11 +14,11 @@ import {
   InvoiceSettings,
   InvoiceTemplate,
 } from "./settings";
-import { VoucherSnapshot, VoucherType } from "./vouchers";
+import { ReturnAmounts, VoucherSnapshot, VoucherType } from "./vouchers";
 import { LoanDirection, LoanStatus, LoanTerms } from "./loans";
 import { ImportApplyResult, ImportKind } from "./imports";
 import { ExtendedBackupData, ExtendedBackupRows } from "./backupExtensions";
-import { OpeningStockLot } from "./items";
+import { OpeningStockLots } from "./items";
 import { InventoryAdjustment } from "./inventory";
 import { DeliverySnapshot, CommissionSnapshot } from "./associates";
 
@@ -113,7 +113,7 @@ export const BackupRows = {
     openingStock: Quantity,
     openingCost: Paise.nullable(),
     openingBookScope: Scope,
-    openingLots: z.array(OpeningStockLot).nullable(),
+    openingLots: OpeningStockLots.nullable(),
     batchNumber: Text.nullable(),
     batchExpiry: IsoDate.nullable(),
     deletedAt: IsoDateTime.nullable(),
@@ -211,6 +211,7 @@ export const BackupRows = {
     gstRate: Count,
     taxType: z.enum(["taxable", "nil", "exempt", "nongst"]).nullable(),
     sourceLine: Count.nullable(),
+    returnAmounts: ReturnAmounts.strict().nullable().default(null),
     stockLotId: Text.nullable(),
     stockCost: Paise.nullable(),
     bookScope: Scope,

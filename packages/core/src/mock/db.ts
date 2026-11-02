@@ -8,9 +8,13 @@
  */
 import type { OpeningAccount } from "../accounting/generalLedger";
 import type { CustomAccount } from "../accounting/accounts";
-import { settledAmounts, autoAllocate, partyBills } from "../accounting/bills";
 import { billAllocations } from "../accounting/settlements";
+import { allocateAvailablePayments } from "../accounting/paymentAllocation";
+import { purchaseReturnLines } from "../accounting/purchaseReturnCost";
+import { returnAllocations } from "../accounting/returnAllocations";
 import { calcInvoice } from "../accounting/invoice";
+import { returnAmountBasis, returnAmounts } from "../accounting/returnAmounts";
+import { returnStockCost } from "../accounting/returnStockCost";
 import {
   assertLotsAvailable,
   purchaseLineCost,
@@ -687,44 +691,18 @@ function recordJournal(
 /** Assign unused receipts/payments oldest first, preserving amounts and existing allocations. */
 export function allocatePartyPayments(db: Db, partyId: string, asOf: ISODate) {
   const party = findParty(db, partyId);
-  const type = party.type === "customer" ? "receipt" : "payment";
-  const payments = db.vouchers
-    .filter(
-      (v) =>
-        v.partyId === partyId &&
-        v.type === type &&
-        v.status === "posted" &&
-        !v.settlementLocked &&
-        v.date <= asOf,
-    )
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date) || a.number.localeCompare(b.number),
-    );
-  let allocated = 0;
-  for (const v of payments) {
-    const existing = (v.allocations ?? []).reduce(
-      (sum, a) => sum + a.amount,
-      0,
-    );
-    const available = v.amount + (v.tds?.amount ?? 0) - existing;
-    const result = autoAllocate(
-      available,
-      partyBills(party, db.vouchers, asOf),
-    );
-    if (!result.allocations.length) continue;
-    v.allocations = [...(v.allocations ?? []), ...result.allocations];
-    v.editedAt = new Date().toISOString();
-    allocated += available - result.unallocated;
+  const { allocated, changes } = allocateAvailablePayments(db, party, asOf);
+  for (const { voucher, before, allocated: added } of changes) {
+    voucher.editedAt = new Date().toISOString();
     logAudit(
       db,
       "edited",
-      v,
+      voucher,
       [
         {
           field: "Bill allocation",
-          before: String(existing),
-          after: String(existing + available - result.unallocated),
+          before: String(before),
+          after: String(before + added),
         },
       ],
       "Allocated on-account payment to oldest open bills",
@@ -1357,6 +1335,7 @@ export function createNote(
   if (input.date < bill.date)
     throw new Error("A return can't be dated before its bill.");
   const left = returnableLines(db, bill.id);
+  const amountBasis = returnAmountBasis(bill, db.vouchers);
   const seen = new Set<number>();
   const lines: InvoiceLine[] = [];
   for (const r of input.lines) {
@@ -1371,8 +1350,9 @@ export function createNote(
       throw new Error(
         `Only ${row.returnable} left to return on line ${r.index + 1}.`,
       );
+    const amounts = returnAmounts(amountBasis[r.index], r.qty);
     const discountAmount = row.line.discountAmount
-      ? Math.round((row.line.discountAmount * r.qty) / row.line.qty)
+      ? amounts.discount
       : undefined;
     lines.push({
       ...row.line,
@@ -1381,12 +1361,11 @@ export function createNote(
         row.line.stockLotId ??
         (type === "debit-note" ? purchaseLotId(bill, r.index) : undefined),
       stockCost:
-        row.line.stockCost === undefined
-          ? undefined
-          : Math.round(
-              (row.line.stockCost * (row.returned + r.qty)) / row.line.qty,
-            ) - Math.round((row.line.stockCost * row.returned) / row.line.qty),
+        type === "credit-note"
+          ? returnStockCost(bill, db.vouchers, r.index, r.qty)
+          : undefined,
       discountAmount,
+      returnAmounts: amounts,
       sourceLine: r.index,
     });
   }
@@ -1398,8 +1377,7 @@ export function createNote(
     lines,
     interState: !!bill.interState,
   }).grandTotal;
-  const settled = settledAmounts(db.vouchers).get(bill.id) ?? 0;
-  const againstBill = Math.min(amount, Math.max(bill.amount - settled, 0));
+  const allocations = returnAllocations(bill, db.vouchers, input.date, amount);
   const note: Voucher = {
     id: newId("v"),
     type,
@@ -1417,13 +1395,14 @@ export function createNote(
     bookScope: bookScopeOf(bill),
     lines,
     interState: bill.interState,
-    allocations:
-      againstBill > 0 ? [{ voucherId: bill.id, amount: againstBill }] : [],
+    allocations,
     amount,
     narration: input.narration,
     pendingSync: options.pendingSync,
     createdAt: new Date().toISOString(),
   };
+  if (type === "debit-note")
+    note.lines = purchaseReturnLines(db.items, db.vouchers, note);
   assertLotsAvailable(
     db.items,
     [...db.vouchers, note],

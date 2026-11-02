@@ -253,8 +253,20 @@ export type VoucherStatus = "draft" | "posted" | "cancelled";
 
 export type PaymentMode = "cash" | "upi" | "bank" | "cheque" | "card";
 
+/** Monetary components frozen when a goods return is issued. */
+export interface ReturnAmounts {
+  taxable: Paise;
+  discount: Paise;
+  cgst: Paise;
+  sgst: Paise;
+  igst: Paise;
+  roundOff: Paise;
+}
+
 /** One item row on a sale or purchase invoice. */
 export interface InvoiceLine {
+  /** Issued return components; absent on historical notes that used invoice maths. */
+  returnAmounts?: ReturnAmounts;
   orderLineId?: ID;
   orderSourceLineId?: ID;
   stockFulfilledById?: ID;
