@@ -6,6 +6,11 @@ A [react-native](https://reactnative.dev/) app built using [expo](https://docs.e
 
 Start the API on `0.0.0.0:3000`, then start Expo in LAN mode. The app derives the API host from Expo's LAN address, so a phone on the same Wi-Fi should call `http://<your-computer-ip>:3000`.
 
+If the API uses another port (for example `PORT=3010`), set `EXPO_PUBLIC_API_PORT=3010`
+in `.env.local` instead of pinning a full URL; the host keeps following Expo's LAN
+address when your router assigns a new IP. Also add `http://<your-computer-ip>:8081`
+to the API's `TRUSTED_ORIGINS` and point its `BETTER_AUTH_URL` at the LAN address.
+
 If auto-detect does not work, copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL` manually.
 
 Signed-in sessions use real API data. Keep `EXPO_PUBLIC_REQUIRE_LOGIN=true`;

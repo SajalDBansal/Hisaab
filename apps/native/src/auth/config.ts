@@ -17,7 +17,9 @@ function hostFromExpo() {
 
 function defaultApiUrl() {
   const host = hostFromExpo();
-  return host ? `http://${host}:3000` : "http://localhost:3000";
+  // Match the API's PORT when it isn't 3000; the host still follows Expo's LAN address.
+  const port = process.env.EXPO_PUBLIC_API_PORT?.trim() || "3000";
+  return `http://${host ?? "localhost"}:${port}`;
 }
 
 const envApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();

@@ -20,6 +20,9 @@ engine. It is an accounting tool, not an automated tax-filing service.
 ## Start Locally
 
 Install Node 24 (see `.nvmrc`), Bun 1.4.0 and Docker. Run commands from this folder.
+On Windows, enable long paths first (`LongPathsEnabled=1` under
+`HKLMSYSTEMCurrentControlSetControlFileSystem`, admin PowerShell); otherwise
+`bun install` silently skips deep React Native and Expo files.
 Development Compose starts only PostgreSQL and Redis; the apps run on your computer.
 
 ```sh
