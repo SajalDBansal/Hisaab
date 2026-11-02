@@ -16,6 +16,7 @@ import {
   OfflineScope,
   OperationInput,
   OperationResult,
+  OfflineWriteError,
   PendingOperationError,
   immutable,
   networkFailure,
@@ -314,6 +315,110 @@ export function createOfflineBooks(deps: {
       return key;
     });
   }
+  /** Writes a definite server answer onto the entry and reports it. */
+  const executeNow = async (
+    value: z.infer<typeof Journal>,
+    entry: OutboxEntry,
+  ) => {
+    await deps.beforeExecute?.(immutable(entry));
+    active();
+    entry.state = "sending";
+    entry.firstAttemptAt ??= now();
+    await save(value);
+    try {
+      return await request(entry, "");
+    } catch (error) {
+      entry.state =
+        (error as { code?: string }).code === RECOVERY_REQUIRED ||
+        networkFailure(error) ||
+        ((error as { status?: number }).status ?? 500) >= 500
+          ? "unknown"
+          : "blocked";
+      entry.error = errorText(error);
+      await save(value);
+      if ((error as { code?: string }).code === RECOVERY_REQUIRED)
+        await bindEpoch(value);
+      throw error;
+    }
+  };
+  /**
+   * Offline the books are view-only, so a save goes to the server at once.
+   * Reaching the server (the original-key lookup) is the online check: when it
+   * fails, nothing is kept and the caller is told to connect. Only a save that
+   * reached the server but lost its reply stays retained under its key, and it
+   * is never sent again by itself.
+   */
+  async function saveNow(
+    key: string,
+    input: OperationInput,
+    attachmentDraft = false,
+    pendingStorageKey?: string,
+  ) {
+    return store.lock(journalKey, async () => {
+      const value = await journal();
+      const recoveryEpoch = await bindEpoch(value);
+      const normalized = immutable(validateOperation(input));
+      if (normalized.role !== scope.role)
+        throw new Error("The original role changed.");
+      const found = value.entries.find((entry) => entry.key === key);
+      if (found) {
+        if (found.recoveryEpoch !== recoveryEpoch) throw recoveryRequired();
+        if (requestIdentity(found.request) !== requestIdentity(normalized))
+          throw new Error(
+            "The original request key cannot be reused for edited values.",
+          );
+        if (terminal(found) || ["conflict", "blocked"].includes(found.state))
+          return found;
+      } else {
+        const equivalent = value.entries.find(
+          (entry) =>
+            !terminal(entry) &&
+            requestIdentity(entry.request) === requestIdentity(normalized),
+        );
+        if (equivalent)
+          throw new PendingOperationError(
+            equivalent.key,
+            "An identical entry is already retained. Review it in Offline books before saving another one.",
+          );
+        if (value.entries.filter((entry) => !terminal(entry)).length >= 1000)
+          throw new Error("Resolve retained entries before adding more.");
+      }
+      const entry: OutboxEntry = found ?? {
+        key,
+        request: normalized,
+        createdAt: now(),
+        state: "queued",
+        recoveryEpoch,
+        ...(attachmentDraft ? { attachmentDraft: true } : {}),
+        ...(pendingStorageKey ? { pendingStorageKey } : {}),
+      };
+      let result;
+      try {
+        result = await request(entry, "/lookup");
+      } catch (error) {
+        if (networkFailure(error)) {
+          notify({ online: false });
+          throw new OfflineWriteError();
+        }
+        throw error;
+      }
+      if (!found) value.entries.push(entry);
+      if (result.state === "absent") result = await executeNow(value, entry);
+      // A server restore during the save: its answer can't be confirmed as current.
+      if (entry.recoveryEpoch !== currentEpoch()) {
+        entry.state = "unknown";
+        entry.error = recoveryMessage;
+        await save(value);
+        await bindEpoch(value);
+        throw recoveryRequired();
+      }
+      accept(entry, result);
+      await save(value);
+      active();
+      notify({ online: true });
+      return immutable(entry);
+    });
+  }
   const request = async (entry: OutboxEntry, suffix: string) => {
     active();
     if (!entry.recoveryEpoch || entry.recoveryEpoch !== currentEpoch())
@@ -364,27 +469,23 @@ export function createOfflineBooks(deps: {
       await verify();
       await store.lock(journalKey, async () => {
         const value = await journal();
+        // Offline is view-only: background sync only asks for original answers.
+        // An entry the server never saved stays for the user to save or discard.
         for (const entry of value.entries) {
           active();
-          if (terminal(entry)) continue;
-          if (["conflict", "blocked"].includes(entry.state)) break;
+          if (terminal(entry) || ["conflict", "blocked"].includes(entry.state))
+            continue;
           try {
-            let result = await request(entry, "/lookup");
-            if (result.state === "absent") {
-              await deps.beforeExecute?.(immutable(entry));
-              active();
-              entry.state = "sending";
-              entry.firstAttemptAt ??= now();
-              await save(value);
-              result = await request(entry, "");
-            }
+            const result = await request(entry, "/lookup");
             if (entry.recoveryEpoch !== currentEpoch())
               throw recoveryRequired();
-            accept(entry, result);
+            if (result.state === "absent")
+              entry.error =
+                "Not saved. Open it in Offline books to save it now or discard it.";
+            else accept(entry, result);
             await save(value);
             active();
             notify({ online: true });
-            if (!terminal(entry)) break;
           } catch (error) {
             if (entry.state !== "committed") {
               entry.state =
@@ -458,11 +559,10 @@ export function createOfflineBooks(deps: {
       const value = await journal(),
         entry = value.entries.find((item) => item.key === key);
       if (!entry || terminal(entry)) return;
-      const result = await request(entry, cancel ? "/cancel" : "/lookup");
-      if (result.state === "absent") {
-        entry.state = "queued";
-        entry.error = undefined;
-      } else accept(entry, result);
+      let result = await request(entry, cancel ? "/cancel" : "/lookup");
+      // The user asked to check it while online, so an unsaved original is sent now.
+      if (result.state === "absent") result = await executeNow(value, entry);
+      accept(entry, result);
       await save(value);
       return immutable(entry);
     });
@@ -474,40 +574,50 @@ export function createOfflineBooks(deps: {
     expectedVersion?: number,
   ) {
     active();
-    return store.lock(journalKey, async () => {
-      const value = await journal(),
-        index = value.entries.findIndex((item) => item.key === key),
-        old = value.entries[index];
-      const recoveryEpoch = await bindEpoch(value);
-      if (!old || old.state !== "conflict" || old.result?.state !== "conflict")
-        throw new Error(
-          "Only a definitively rejected operation can be replaced. Resolve its original answer first.",
+    return store
+      .lock(journalKey, async () => {
+        const value = await journal(),
+          index = value.entries.findIndex((item) => item.key === key),
+          old = value.entries[index];
+        const recoveryEpoch = await bindEpoch(value);
+        if (
+          !old ||
+          old.state !== "conflict" ||
+          old.result?.state !== "conflict"
+        )
+          throw new Error(
+            "Only a definitively rejected operation can be replaced. Resolve its original answer first.",
+          );
+        const request = immutable(
+          validateOperation({
+            ...old.request,
+            body,
+            expectedVersion,
+            legacy: false,
+          }),
         );
-      const request = immutable(
-        validateOperation({
-          ...old.request,
-          body,
-          expectedVersion,
-          legacy: false,
-        }),
-      );
-      const replacement = {
-        key: deps.newId(),
-        sourceKey: old.sourceKey ?? old.key,
-        attachmentDraft: old.attachmentDraft,
-        pendingStorageKey: old.pendingStorageKey,
-        request,
-        createdAt: now(),
-        state: "queued" as const,
-        recoveryEpoch,
-      };
-      old.state = "superseded";
-      old.replacedBy = replacement.key;
-      value.entries.splice(index + 1, 0, replacement);
-      active();
-      await save(value);
-      return replacement.key;
-    });
+        const replacement = {
+          key: deps.newId(),
+          sourceKey: old.sourceKey ?? old.key,
+          attachmentDraft: old.attachmentDraft,
+          pendingStorageKey: old.pendingStorageKey,
+          request,
+          createdAt: now(),
+          state: "queued" as const,
+          recoveryEpoch,
+        };
+        old.state = "superseded";
+        old.replacedBy = replacement.key;
+        value.entries.splice(index + 1, 0, replacement);
+        active();
+        await save(value);
+        return replacement.key;
+      })
+      .then(async (replacementKey) => {
+        // Replacing is an online user action; it is sent now, never by background sync.
+        await reconcile(replacementKey);
+        return replacementKey;
+      });
   }
   async function dismissConflict(key: string) {
     const dismissed = await store.lock(journalKey, async () => {
@@ -676,36 +786,44 @@ export function createOfflineBooks(deps: {
         throw new Error(
           "A scoped stable request key is required before queuing an entry.",
         );
-      const id = await enqueue(
-        key,
-        {
-          method: method as "POST" | "PUT",
-          path: operationPath,
-          body: options.body as Record<string, unknown>,
-          role: scope.role,
-          ...(options.headers?.["x-hisaab-legacy-operation"] === "true"
-            ? { legacy: true }
-            : {}),
-          ...(options.headers?.["if-match"]
-            ? { expectedVersion: Number(options.headers["if-match"]) }
-            : {}),
-        },
-        options.headers?.["x-hisaab-attachment-draft"] === "true",
-        options.headers?.["x-hisaab-pending-key"],
-      );
+      let entry: OutboxEntry;
       try {
-        await sync(false);
-      } catch {
-        active(); /* Persisted entry and original result are examined below. */
+        entry = await saveNow(
+          key,
+          {
+            method: method as "POST" | "PUT",
+            path: operationPath,
+            body: options.body as Record<string, unknown>,
+            role: scope.role,
+            ...(options.headers?.["x-hisaab-legacy-operation"] === "true"
+              ? { legacy: true }
+              : {}),
+            ...(options.headers?.["if-match"]
+              ? { expectedVersion: Number(options.headers["if-match"]) }
+              : {}),
+          },
+          options.headers?.["x-hisaab-attachment-draft"] === "true",
+          options.headers?.["x-hisaab-pending-key"],
+        );
+      } catch (error) {
+        if (
+          error instanceof OfflineWriteError ||
+          error instanceof PendingOperationError
+        )
+          throw error;
+        // The save reached the server but its reply was lost: keep it, never resend it.
+        if (
+          networkFailure(error) ||
+          ((error as { status?: number }).status ?? 0) >= 500
+        )
+          throw new PendingOperationError(key);
+        throw error;
       }
-      const entry = (await store.lock(journalKey, journal)).entries.find(
-        (value) => value.key === id,
-      )!;
       if (entry.result?.state === "committed") return entry.result.response;
       throw new PendingOperationError(
-        id,
+        key,
         entry.error
-          ? `${entry.error} Original request retained in Offline books; it has not been reported as saved.`
+          ? `${entry.error} The original request is kept in Offline books; it has not been reported as saved.`
           : undefined,
       );
     }
@@ -757,6 +875,10 @@ export function createOfflineBooks(deps: {
           await revoke();
         }
       }
+      if (networkFailure(error) && !["GET", "HEAD"].includes(method)) {
+        notify({ online: false });
+        throw new OfflineWriteError();
+      }
       if (
         !capturing &&
         networkFailure(error) &&
@@ -779,6 +901,7 @@ export function createOfflineBooks(deps: {
     scope,
     transport,
     enqueue,
+    saveNow,
     sync,
     load,
     reconcile,

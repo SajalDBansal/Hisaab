@@ -128,7 +128,13 @@ test("a queued form cannot create another operation after background sync succee
     (error) => error.pending && error.key === key,
   );
   f.execute(async () => committed);
+  // Offline is view-only: background sync only asks for the original answer.
+  f.calls.length = 0;
   await books.sync();
+  assert.equal(books.getSnapshot().entries[0].state, "unknown");
+  assert(f.calls.every((call) => call.path.endsWith("/lookup")));
+  // Checking it from Offline books while online saves the absent original once.
+  await books.reconcile(key);
   assert.equal(books.getSnapshot().entries[0].state, "committed");
   f.calls.length = 0;
   await assert.rejects(
@@ -161,8 +167,7 @@ test("uncertain operations remain quarantined after restore and a fresh login", 
   f.execute(async () => {
     throw new ApiFailure(0, "OFFLINE", "reply lost");
   });
-  await original.enqueue(key, operation, true);
-  await assert.rejects(original.sync());
+  await assert.rejects(original.saveNow(key, operation, true));
   assert.equal(original.getSnapshot().entries[0].state, "unknown");
   f.restore();
   f.calls.length = 0;
@@ -206,11 +211,10 @@ test("manual review keeps absent requests without replay and permits only new wo
     code: "RECOVERY_REQUIRED",
   });
   const fresh = newRequestId(randomUUID());
-  await books.enqueue(fresh, {
+  await books.saveNow(fresh, {
     ...operation,
     body: { ...body, name: "New customer" },
   });
-  await books.sync();
   assert.equal(
     f.calls.filter((call) => !call.path.endsWith("lookup")).length,
     1,
@@ -276,8 +280,9 @@ test("a request started before restoration cannot become a current confirmed sav
     f.restore();
     return committed;
   });
-  await books.enqueue(newRequestId(randomUUID()), operation);
-  await assert.rejects(books.sync(), { code: "RECOVERY_REQUIRED" });
+  await assert.rejects(books.saveNow(newRequestId(randomUUID()), operation), {
+    code: "RECOVERY_REQUIRED",
+  });
   assert.equal(books.getSnapshot().entries[0].state, "unknown");
   assert(books.getSnapshot().quarantine);
   assert(f.calls.every((call) => call.input.headers["x-recovery-epoch"] === a));

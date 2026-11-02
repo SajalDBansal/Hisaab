@@ -211,9 +211,19 @@ export class PendingOperationError extends Error {
   readonly pending = true;
   constructor(
     readonly key: string,
-    message = "Saved on this device, not posted. Open Offline books to sync or review the original request.",
+    message = "The connection dropped while saving, so it isn't known yet whether this entry was saved. Open Offline books when you're online to check it. It is never sent again by itself.",
   ) {
     super(message);
+  }
+}
+
+/** Offline the books are view-only: entries are created and changed only online. */
+export class OfflineWriteError extends Error {
+  readonly offline = true;
+  constructor() {
+    super(
+      "You're offline. You need to be online to create or update an entry. Your form is kept, so save it again once you're connected.",
+    );
   }
 }
 export const networkFailure = (error: unknown) =>
