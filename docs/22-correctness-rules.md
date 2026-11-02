@@ -13,6 +13,7 @@
 - Lines saved from migration 0029 onwards use exact whole-number maths for qty × rate and percentage discounts (`exact_math`). Older lines keep the floating-point totals they were issued with, because reports recompute postings from stored lines.
 - New purchases from a supplier without a GSTIN cannot carry GST. Firm and party GSTINs must pass the mod-36 check character on input; stored rows and backups are not re-checked.
 - Payment TDS is worked out on the GST-exclusive share of the bills settled; money not allocated to a bill counts in full.
+- A saved sale or purchase may move to another date inside its own financial year (its number carries the year). Money settled against it must not be dated before the new date, open period locks apply to both dates, a sale must still find its stock on the new date, and later stock corrections must be reversed first. The number never changes and the audit log records the move.
 - GSTR-1 includes negative HSN rows in return-only months and keeps different units separate.
 - Issued vouchers freeze firm, party, item, unit and invoice-setting details. Detail reads, printing and GST classification use these snapshots. Returns inherit the original bill's details; edits preserve existing selections and snapshot newly selected masters.
 - Archived masters are excluded from live selectors. Historical report readers retain their labels for issued entries but suppress their deleted opening balances; archiving does not erase posted history.

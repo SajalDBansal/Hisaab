@@ -1180,7 +1180,31 @@ export function editBlocker(db: Db, v: Voucher): string | null {
 }
 
 /**
- * Edit a saved sale or purchase. The number and date stay the same.
+ * Why a bill can't move to `date`, or null. The number carries its financial
+ * year, so the date stays inside it; money settled against the bill must not
+ * come before it; stock corrections already made on or after either date must
+ * be reversed first.
+ */
+export function dateChangeBlocker(
+  db: Db,
+  v: Voucher,
+  date: ISODate,
+): string | null {
+  if (date === v.date) return null;
+  if (financialYear(date).short !== financialYear(v.date).short)
+    return `${v.number} belongs to financial year ${financialYear(v.date).short}. Pick a date in that year, or cancel and make a new bill.`;
+  const earlier = settlementsOf(db, v.id).filter((s) => s.voucher.date < date);
+  if (earlier.length)
+    return `${earlier.map((s) => s.voucher.number).join(", ")} settles this bill before ${formatDate(date)}. Choose a date on or before ${formatDate(earlier.map((s) => s.voucher.date).sort()[0])}.`;
+  return inventoryHistoryBlocker(db, {
+    ...v,
+    date: date < v.date ? date : v.date,
+  });
+}
+
+/**
+ * Edit a saved sale or purchase. The number stays; the date may move within its
+ * financial year (see dateChangeBlocker).
  * Money already received/paid against it can't be more than the new total.
  */
 export function updateInvoice(
@@ -1191,9 +1215,10 @@ export function updateInvoice(
 ): Voucher {
   const v = db.vouchers.find((x) => x.id === id);
   if (!v) throw new Error("Bill not found");
+  const date = input.date ?? v.date;
   if (v.type === "purchase")
-    checkSupplierInvoice(db.vouchers, { ...input, date: v.date }, id);
-  const blocker = editBlocker(db, v);
+    checkSupplierInvoice(db.vouchers, { ...input, date }, id);
+  const blocker = editBlocker(db, v) ?? dateChangeBlocker(db, v, date);
   if (blocker) throw new Error(blocker);
   const settled = settlementsOf(db, id).reduce((s, x) => s + x.amount, 0);
   if (input.partyId !== v.partyId && settled > 0)
@@ -1233,7 +1258,7 @@ export function updateInvoice(
           v.lines ?? [],
         );
       }),
-      v.date,
+      date,
     );
   const { side, lines, charges } = billParts(
     historicalBooks,
@@ -1287,18 +1312,17 @@ export function updateInvoice(
   const before = structuredClone(v);
   assertLotsAvailable(
     db.items,
-    [...stockForInvoice(db, input, v.id), { ...v, lines }],
+    [...stockForInvoice(db, input, v.id), { ...v, date, lines }],
     lines.flatMap((l) => (l.stockLotId ? [l.stockLotId] : [])),
   );
   Object.assign(v, {
+    date,
     partyId: party.id,
     snapshot,
     lines,
     charges,
     interState,
-    dueDate: isOrderType(v.type)
-      ? undefined
-      : addDays(v.date, party.creditDays),
+    dueDate: isOrderType(v.type) ? undefined : addDays(date, party.creditDays),
     supplierInvoiceNo:
       v.type === "purchase" ? input.supplierInvoiceNo : undefined,
     amount,
