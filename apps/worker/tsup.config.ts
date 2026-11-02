@@ -1,6 +1,10 @@
 import { defineConfig } from "tsup";
 export default defineConfig({
-  entry: ["src/worker.ts", "src/healthcheck.ts"],
+  entry: {
+    worker: "src/worker.ts",
+    healthcheck: "src/healthcheck.ts",
+    backup: "src/backup/operator.ts",
+  },
   format: "esm",
   target: "node22",
   outDir: "dist",

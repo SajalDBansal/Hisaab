@@ -3,9 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Hisaab background jobs: private PDFs, reminder preparation and cleanup.",
+  "description": "Hisaab background jobs: private PDFs, reminders, cleanup and database backups.",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/worker.ts",
@@ -13,7 +13,8 @@
     "start": "node --env-file-if-exists=.env dist/worker.js",
     "healthcheck": "node --env-file-if-exists=.env dist/healthcheck.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "backup": "tsx --env-file-if-exists=.env src/backup/operator.ts"
   },
   "dependencies": {
     "@repo/backend": "*",
@@ -23,12 +24,12 @@
     "@sentry/node": "^11.7.0",
     "bullmq": "^6.3.15",
     "drizzle-orm": "^0.45.3",
-    "fastify": "^5.6.0",
+    "fastify": "^5.12.6",
     "ioredis": "^6.0.0",
     "pg": "^8.23.1",
     "playwright-core": "^1.64.1",
     "uuid": "^14.0.2",
-    "zod": "^4.1.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",
