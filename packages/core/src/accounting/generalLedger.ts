@@ -293,13 +293,33 @@ export function finalAccounts(
   const netProfit = grossProfit - sum(indirectIncomes) - sum(indirectExpenses);
 
   // ---- Balance sheet ----
-  // Capital = capital account + this year's profit − drawings.
+  // Books run continuously, so retained profit is cumulative. With a period,
+  // show earlier periods' profit apart from the period's own result.
+  const period = from && asOf ? periodProfitAndLoss(books, from, asOf) : null;
+  const earlierProfit = period ? netProfit - period.netProfit : 0;
   const capitalRows = inGroup("Capital Account");
   const capitalLines: StatementLine[] = [
     ...lines(capitalRows, -1),
+    ...(earlierProfit
+      ? [
+          {
+            name:
+              earlierProfit >= 0
+                ? "Add: profit of earlier periods"
+                : "Less: loss of earlier periods",
+            amount: earlierProfit,
+          },
+        ]
+      : []),
     {
-      name: netProfit >= 0 ? "Add: net profit" : "Less: net loss",
-      amount: netProfit,
+      name: period
+        ? period.netProfit >= 0
+          ? "Add: net profit for the period"
+          : "Less: net loss for the period"
+        : netProfit >= 0
+          ? "Add: net profit"
+          : "Less: net loss",
+      amount: period ? period.netProfit : netProfit,
     },
   ];
   const liabilities: BalanceSheetSide["sections"] = [
@@ -347,20 +367,19 @@ export function finalAccounts(
   const totalA = assets.reduce((s, x) => s + x.total, 0);
 
   return {
-    profitAndLoss:
-      from && asOf
-        ? periodProfitAndLoss(books, from, asOf)
-        : {
-            sales,
-            openingStock,
-            purchases,
-            directExpenses: lines(direct, 1),
-            closingStock,
-            grossProfit,
-            indirectIncomes: lines(indirectIncomes, -1),
-            indirectExpenses: lines(indirectExpenses, 1),
-            netProfit,
-          },
+    profitAndLoss: period
+      ? period
+      : {
+          sales,
+          openingStock,
+          purchases,
+          directExpenses: lines(direct, 1),
+          closingStock,
+          grossProfit,
+          indirectIncomes: lines(indirectIncomes, -1),
+          indirectExpenses: lines(indirectExpenses, 1),
+          netProfit,
+        },
     balanceSheet: {
       liabilities: { sections: liabilities, total: totalL },
       assets: { sections: assets, total: totalA },

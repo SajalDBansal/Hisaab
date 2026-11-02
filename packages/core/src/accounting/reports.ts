@@ -32,6 +32,7 @@ import {
 import { isLowStock, stockQty } from "./stock";
 import { inventoryValue } from "./stockLots";
 import { gstMonth } from "./gst";
+import { calcInvoice } from "./invoice";
 
 /** Newest first: by date, and for the same date the one entered last comes first. */
 export function newestFirst(vouchers: Voucher[]): Voucher[] {
@@ -147,14 +148,28 @@ export function gstForMonth(vouchers: Voucher[], month: string) {
   };
 }
 
-function sumAmount(
+/**
+ * Goods value of posted bills less their returns, without GST or charges:
+ * the same figure as the Sales / Purchase accounts (see Doc 01, "Net sales").
+ */
+function netGoodsValue(
   vouchers: Voucher[],
-  type: Voucher["type"],
+  side: "sale" | "purchase",
   match: (v: Voucher) => boolean,
 ): Paise {
+  const returnType = side === "sale" ? "credit-note" : "debit-note";
   return vouchers
-    .filter((v) => isPosted(v) && v.type === type && match(v))
-    .reduce((s, v) => s + v.amount, 0);
+    .filter(
+      (v) =>
+        isPosted(v) && (v.type === side || v.type === returnType) && match(v),
+    )
+    .reduce((s, v) => {
+      const { itemsTaxable } = calcInvoice({
+        lines: v.lines ?? [],
+        interState: !!v.interState,
+      });
+      return s + (v.type === side ? itemsTaxable : -itemsTaxable);
+    }, 0);
 }
 
 export interface DashboardData {
@@ -166,14 +181,16 @@ export interface DashboardData {
   cash: Paise;
   banks: { ledger: Ledger; balance: Paise }[];
   bankTotal: Paise;
+  /** Bills issued today, as billed (GST included). */
   todaySales: { amount: Paise; count: number };
+  /** Net sales: goods value without GST, after sales returns. */
   monthSales: Paise;
   lastMonthSales: Paise;
   /** Regular GST firms: last month's output − input. Null for composition and no-GST firms. */
   gst: { month: string; output: Paise; input: Paise; payable: Paise } | null;
   /** Composition firms: this quarter's tax so far (CMP-08). */
   composition: CompositionQuarter | null;
-  /** Purchases this month (shown instead of GST for firms without GST). */
+  /** Net purchases this month, after returns (shown instead of GST for firms without GST). */
   monthPurchases: Paise;
   lowStockCount: number;
   stockValue: Paise;
@@ -254,12 +271,12 @@ export function computeDashboard(data: {
   const todaySalesList = vouchers.filter(
     (v) => isPosted(v) && v.type === "sale" && v.date === asOf,
   );
-  const monthSales = sumAmount(
+  const monthSales = netGoodsValue(
     vouchers,
     "sale",
     (v) => yearMonth(v.date) === thisMonth,
   );
-  const lastMonthSales = sumAmount(
+  const lastMonthSales = netGoodsValue(
     vouchers,
     "sale",
     (v) => yearMonth(v.date) === lastMonth,
@@ -278,8 +295,12 @@ export function computeDashboard(data: {
   const salesVsPurchases = months.map((m) => ({
     month: m,
     label: monthLabel(m),
-    sales: sumAmount(vouchers, "sale", (v) => yearMonth(v.date) === m),
-    purchases: sumAmount(vouchers, "purchase", (v) => yearMonth(v.date) === m),
+    sales: netGoodsValue(vouchers, "sale", (v) => yearMonth(v.date) === m),
+    purchases: netGoodsValue(
+      vouchers,
+      "purchase",
+      (v) => yearMonth(v.date) === m,
+    ),
   }));
   const cashTrend = months.map((m) => {
     const monthEnd =
@@ -371,7 +392,7 @@ export function computeDashboard(data: {
     lastMonthSales,
     gst: mode === "regular" ? { month: lastMonth, ...gstLast } : null,
     composition,
-    monthPurchases: sumAmount(
+    monthPurchases: netGoodsValue(
       vouchers,
       "purchase",
       (v) => yearMonth(v.date) === thisMonth,
