@@ -75,14 +75,28 @@ export default function AccountStatementScreen() {
                 </Txt>
                 {st.rows.map((r, i) => (
                   <ListRow
-                    key={`${r.voucher.id}-${i}`}
-                    title={
-                      r.voucher.narration ||
-                      r.voucher.expenseHead ||
-                      `${voucherTypeLabel[r.voucher.type]} ${r.voucher.number}`
+                    key={
+                      r.kind === "opening"
+                        ? `opening:${r.partyId}`
+                        : `${r.voucher.id}-${i}`
                     }
-                    subtitle={`${voucherTypeLabel[r.voucher.type]} · ${r.voucher.number} · ${formatDate(r.voucher.date)}`}
-                    onPress={() => router.push(`/voucher/${r.voucher.id}`)}
+                    title={
+                      r.kind === "opening"
+                        ? "Opening balance"
+                        : r.voucher.narration ||
+                          r.voucher.expenseHead ||
+                          `${voucherTypeLabel[r.voucher.type]} ${r.voucher.number}`
+                    }
+                    subtitle={
+                      r.kind === "opening"
+                        ? `${r.counterName} · ${formatDate(r.date)}`
+                        : `${voucherTypeLabel[r.voucher.type]} · ${r.voucher.number} · ${formatDate(r.date)}`
+                    }
+                    onPress={
+                      r.kind === "voucher"
+                        ? () => router.push(`/voucher/${r.voucher.id}`)
+                        : undefined
+                    }
                     right={
                       <View style={{ alignItems: "flex-end" }}>
                         <Txt

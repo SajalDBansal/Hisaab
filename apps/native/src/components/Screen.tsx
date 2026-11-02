@@ -14,6 +14,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useNotices } from "@/data/queries";
+import { OfflineBooksStatus } from "@/offline/OfflineBooksStatus";
 
 import { colors, space } from "@/theme";
 import { IconButton } from "./Button";
@@ -44,6 +45,7 @@ export function Screen({
   return (
     <SafeAreaView edges={["top"]} style={styles.page}>
       {header}
+      <OfflineBooksStatus />
       {scroll ? (
         <ScrollView
           keyboardShouldPersistTaps="handled"

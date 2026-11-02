@@ -3,6 +3,7 @@ import * as c from "@repo/contracts";
 import type { Client } from "./client";
 import type { Services } from "./services";
 import type { DocumentFile } from "@repo/core";
+import { assertRecoveryEpoch } from "./recoveryEpoch";
 import {
   attachmentRetry,
   attachmentReservationProblem,
@@ -26,6 +27,7 @@ export function documentServices(
     const check = () => retry && checkAttachmentTarget(retry, body);
     check();
     const record = await retry?.read();
+    if (record) assertRecoveryEpoch(record.recoveryEpoch);
     if (
       retry?.scope.target === "library" &&
       (!record?.input ||

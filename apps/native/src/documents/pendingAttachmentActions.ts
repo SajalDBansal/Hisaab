@@ -1,4 +1,5 @@
 import type { NewDocumentInput } from "@repo/core";
+import { serverRecovery } from "@/data/recoveryEpoch";
 import {
   attachmentReservationProblem,
   type AttachmentRecord,
@@ -26,6 +27,11 @@ export function pendingAttachmentProblem({
 }: PendingAttachment) {
   if (record.bindingPending)
     return "Entry saved; finish its attachment binding in the retained draft below.";
+  if (
+    !record.recoveryEpoch ||
+    record.recoveryEpoch !== serverRecovery.current()
+  )
+    return "Kept after recovery. Check the restored reservation before retrying or cleaning this copy.";
   if (record.completed) return "Upload confirmed; local cleanup pending.";
   if (
     fileError &&

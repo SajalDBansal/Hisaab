@@ -13,7 +13,7 @@ import { colors, space } from "@/theme";
 const date = (value?: number) =>
   value ? new Date(value).toLocaleString() : "Not downloaded";
 const terminal = (entry: OutboxEntry) =>
-  ["committed", "cancelled", "superseded"].includes(entry.state);
+  ["committed", "cancelled", "superseded", "retained"].includes(entry.state);
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 
 function Entry({
@@ -28,6 +28,10 @@ function Entry({
   run(work: () => Promise<unknown>): void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [reviewNote, setReviewNote] = useState(
+    entry.recoveryReview?.note ?? "",
+  );
+  const quarantine = books.getSnapshot().quarantine;
   const [body, setBody] = useState(json(entry.request.body));
   const [version, setVersion] = useState(
     String(entry.request.expectedVersion ?? ""),
@@ -74,13 +78,70 @@ function Entry({
       }}
     >
       <Txt variant="bodyStrong">
-        {label} - {entry.state}
+        {label} -{" "}
+        {entry.recoveryReview ? "retained recovery history" : entry.state}
       </Txt>
       <Txt variant="small">{date(entry.createdAt)}</Txt>
       <Txt variant="small" selectable>
         {entry.key}
       </Txt>
       {entry.error ? <Notice tone="warn" text={entry.error} /> : null}
+      {quarantine ? (
+        <View style={{ gap: space.sm }}>
+          <Notice
+            tone="warn"
+            text="This request will not be replayed after recovery. Check the restored entry and original answer; keep missing work for manual reconciliation."
+          />
+          <Button
+            label="Check restored answer"
+            disabled={busy}
+            onPress={() => run(() => books.inspectRecovery(entry.key))}
+          />
+          {entry.recoveryLookup?.epoch === quarantine.current ? (
+            <>
+              <Txt variant="small" selectable>
+                {json(entry.recoveryLookup.result)}
+              </Txt>
+              <TextField
+                label="What did you reconcile?"
+                value={reviewNote}
+                onChangeText={setReviewNote}
+                multiline
+              />
+              <Button
+                label="Record review and keep original"
+                disabled={busy || reviewNote.trim().length < 10}
+                onPress={() =>
+                  confirmAction(
+                    "Record this recovery review?",
+                    "No financial entry will be posted or deleted. Keep the original request and attachments. Missing or different entries must be reconciled with the owner/accountant before manual re-entry.",
+                    "Record review",
+                    () =>
+                      run(() => books.reviewRecovery(entry.key, reviewNote)),
+                  )
+                }
+              />
+            </>
+          ) : null}
+          {entry.recoveryReview?.epoch === quarantine.current ? (
+            <Txt variant="small">
+              Recovery review recorded; original retained.
+            </Txt>
+          ) : null}
+        </View>
+      ) : null}
+      {entry.state === "retained" ? (
+        <Notice
+          tone="info"
+          text="Preserved after recovery for manual reconciliation. This request will never be replayed automatically."
+        />
+      ) : null}
+      {entry.recoveryReview ? (
+        <Txt
+          variant="small"
+          selectable
+        >{`Recovery review: ${entry.recoveryReview.note}. Restored answer: ${entry.recoveryLookup?.result.state ?? "not checked"}. Original local state: ${entry.state}.`}</Txt>
+      ) : null}
       {entry.replacedBy ? (
         <Txt variant="small" selectable>
           Replacement: {entry.replacedBy}
@@ -93,7 +154,7 @@ function Entry({
           size="sm"
           onPress={() => setExpanded(!expanded)}
         />
-        {!terminal(entry) ? (
+        {!terminal(entry) && !quarantine ? (
           <Button
             label="Check original answer"
             icon="refresh-cw"
@@ -102,7 +163,7 @@ function Entry({
             onPress={() => run(() => books.reconcile(entry.key))}
           />
         ) : null}
-        {!terminal(entry) ? (
+        {!terminal(entry) && !quarantine ? (
           <Button
             label={
               conflict ? "Discard rejected request" : "Cancel original request"
@@ -150,7 +211,7 @@ function Entry({
           <Txt variant="small" selectable>
             {json(entry.request.body)}
           </Txt>
-          {conflict ? (
+          {conflict && !quarantine ? (
             <>
               <Txt variant="bodyStrong">Current server record</Txt>
               <Txt variant="small" selectable>
@@ -217,8 +278,16 @@ function Entry({
 
 export default function OfflineBooksScreen() {
   const { services, firmId, role } = useData();
-  const { books, entries, online, syncing, error, downloadedAt, cachedAt } =
-    useOfflineBooks();
+  const {
+    books,
+    entries,
+    online,
+    syncing,
+    error,
+    downloadedAt,
+    cachedAt,
+    quarantine,
+  } = useOfflineBooks();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
   const [history, setHistory] = useState(false);
@@ -261,6 +330,33 @@ export default function OfflineBooksScreen() {
           {failure || error ? (
             <Notice tone="warn" text={failure || error} />
           ) : null}
+          {quarantine ? (
+            <View style={{ gap: space.sm }}>
+              <Notice
+                tone="warn"
+                text="Server recovery detected. Automatic saves are paused. Review every retained request below, including completed history. Existing attachments remain in Pending uploads and require their own original-record check."
+              />
+              <Button
+                label="Resume new work after review"
+                disabled={
+                  busy ||
+                  syncing ||
+                  entries.some(
+                    (entry) =>
+                      entry.recoveryReview?.epoch !== quarantine.current,
+                  )
+                }
+                onPress={() =>
+                  confirmAction(
+                    "Resume new work?",
+                    "Confirm that the retained requests were reconciled with the restored books. Old requests remain preserved and are not replayed. Cached answers will be refreshed; retained attachments remain protected separately.",
+                    "Resume new work",
+                    () => run(() => books.finishRecovery()),
+                  )
+                }
+              />
+            </View>
+          ) : null}
           <View
             style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
           >
@@ -269,14 +365,14 @@ export default function OfflineBooksScreen() {
               icon="refresh-cw"
               size="sm"
               loading={syncing}
-              disabled={busy}
+              disabled={busy || !!quarantine}
               onPress={() => run(() => books.sync())}
             />
             <Button
               label="Download books"
               icon="download"
               size="sm"
-              disabled={busy || syncing}
+              disabled={busy || syncing || !!quarantine}
               onPress={() => run(() => downloadOfflineBooks(books, services))}
             />
             <Button
@@ -308,10 +404,10 @@ export default function OfflineBooksScreen() {
             size="sm"
             onPress={() => setHistory(!history)}
           />
-          {!(history ? entries : pending).length ? (
+          {!(history || quarantine ? entries : pending).length ? (
             <Txt variant="body">No pending changes.</Txt>
           ) : null}
-          {(history ? entries : pending).map((entry) => (
+          {(history || quarantine ? entries : pending).map((entry) => (
             <Entry
               key={entry.key}
               entry={entry}

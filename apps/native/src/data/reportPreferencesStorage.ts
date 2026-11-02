@@ -36,9 +36,9 @@ export const reportPreferencesStorage: ReportPreferenceStorage = {
       const { directory, published, next } = await files(key);
       directory.create({ intermediates: true, idempotent: true });
       // Recover an interrupted publish before replacing the staging file.
-      if (!published.exists && next.exists) next.move(published);
+      if (!published.exists && next.exists) await next.move(published);
       const staging = new File(directory, "preferences.next");
       staging.write(value);
-      staging.move(published, { overwrite: true });
+      await staging.move(published, { overwrite: true });
     }),
 };

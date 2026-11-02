@@ -7,11 +7,7 @@ import * as SecureStore from "expo-secure-store";
 export const secretsSupported = true;
 
 export async function getSecret(key: string): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(key);
-  } catch {
-    return null;
-  }
+  return SecureStore.getItemAsync(key);
 }
 
 export async function setSecret(key: string, value: string): Promise<void> {
@@ -19,9 +15,5 @@ export async function setSecret(key: string, value: string): Promise<void> {
 }
 
 export async function deleteSecret(key: string): Promise<void> {
-  try {
-    await SecureStore.deleteItemAsync(key);
-  } catch {
-    // Nothing stored under that name
-  }
+  await SecureStore.deleteItemAsync(key);
 }

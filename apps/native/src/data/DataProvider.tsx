@@ -35,6 +35,7 @@ import { subscribeOfflineReconnect } from "./offlineReconnect";
 import { createAttachmentDrafts } from "./attachmentDrafts";
 import { attachmentStorage } from "./attachmentStorage";
 import type { Transport } from "./client";
+import { serverRecovery } from "./recoveryEpoch";
 import {
   availableFirm,
   clearPreviousBookAccess,
@@ -105,6 +106,14 @@ function UserData({
 }) {
   const cache = useQueryClient();
   const { endSession } = useAuth();
+  useEffect(
+    () =>
+      serverRecovery.subscribe(() => {
+        cache.removeQueries({ queryKey: ["books", userId] });
+        void cache.invalidateQueries({ queryKey: ["firm-selection", userId] });
+      }),
+    [cache, userId],
+  );
   const [selected, setSelected] = useState<string | null | undefined>();
   const firms = useQuery({
     networkMode: "always",
@@ -366,7 +375,10 @@ function UserData({
         },
       }}
     >
-      <Fragment key={accessKey}>{children}</Fragment>
+      {/* Other firms can change without discarding this firm's open draft. */}
+      <Fragment key={`${firmId ?? "no-firm"}:${role ?? "no-role"}`}>
+        {children}
+      </Fragment>
     </DataContext.Provider>
   );
 }

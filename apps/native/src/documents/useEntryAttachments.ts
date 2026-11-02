@@ -39,7 +39,6 @@ export function useEntryAttachments(
     viewKey,
     accessKey,
     status,
-    locked,
     sessionRevision,
   ]);
   if (generation.current.identity !== identity)
@@ -53,19 +52,23 @@ export function useEntryAttachments(
   });
   const add = useAddDocument();
   const files = state.key === viewKey && active.current ? state.files : [];
-  const assertActive = () => {
+  const assertScope = () => {
     if (
       !mounted.current ||
       generation.current.value !== revision ||
-      sessionStore.revision !== sessionRevision ||
-      !active.current
+      sessionStore.revision !== sessionRevision
     )
       throw new Error(
         "The open account or firm changed. Reopen the original entry to retry its attachments.",
       );
   };
-  const scopeFor = (entryId: string): AttachmentScope => {
-    assertActive();
+  const assertActive = () => {
+    assertScope();
+    if (!active.current)
+      throw new Error("Unlock the app before uploading attachments.");
+  };
+  const scopeFor = (entryId: string, check = assertActive): AttachmentScope => {
+    check();
     if (!entryId || !firmId) throw new Error("Choose a saved entry first.");
     return { userId, firmId, target, entryId };
   };
@@ -93,8 +96,9 @@ export function useEntryAttachments(
 
   useEffect(() => {
     let cancelled = false;
-    if (voucherId && active.current) {
-      void queue.load(scopeFor(voucherId), assertActive).then(
+    if (voucherId && status === "signedIn" && firmId) {
+      // Reading a retained local copy is safe under the privacy cover; uploads still require unlock.
+      void queue.load(scopeFor(voucherId, assertScope), assertScope).then(
         (restored) => {
           if (cancelled) restored.forEach(queue.release);
           else show(keep(restored));
@@ -111,7 +115,8 @@ export function useEntryAttachments(
   }, [identity]);
 
   const changeFiles = async (next: DocumentFile[]) => {
-    assertActive();
+    // A picker can return after a PIN timeout: retain local files, but do not upload while locked.
+    assertScope();
     if (running.current === revision || state.busy)
       throw new Error("Wait for the attachments to finish loading.");
     if (!voucherId) {
@@ -122,11 +127,11 @@ export function useEntryAttachments(
     show(files, "", true);
     try {
       const staged = keep(
-        await queue.stage(scopeFor(voucherId), next, assertActive),
+        await queue.stage(scopeFor(voucherId, assertScope), next, assertScope),
       );
       for (const file of files.filter((file) => !next.includes(file)))
         await queue.discard(file);
-      assertActive();
+      assertScope();
       show(staged);
     } catch (error) {
       show(files, message(error));

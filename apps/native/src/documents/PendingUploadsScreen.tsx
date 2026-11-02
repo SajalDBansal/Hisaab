@@ -12,6 +12,7 @@ import {
 } from "@/components";
 import { useAuth } from "@/auth/AuthProvider";
 import { useData } from "@/data/DataProvider";
+import { serverRecovery } from "@/data/recoveryEpoch";
 import { confirmAction } from "@/data/confirm";
 import {
   attachmentScopeKey,
@@ -237,6 +238,24 @@ function PendingUploads() {
                     gap: space.sm,
                   }}
                 >
+                  {(!record.recoveryEpoch ||
+                    record.recoveryEpoch !== serverRecovery.current()) &&
+                  !record.bindingPending ? (
+                    <Button
+                      label="Check restored reservation"
+                      icon="search"
+                      size="sm"
+                      disabled={busy}
+                      onPress={() =>
+                        confirmAction(
+                          "Check this restored upload?",
+                          "The original reservation and document must still exist before an attempted upload can continue. Missing answers keep this file for manual reconciliation; no replacement financial entry or document reservation is created.",
+                          "Check reservation",
+                          () => void pending.recover(record),
+                        )
+                      }
+                    />
+                  ) : null}
                   {!record.completed ? (
                     <Button
                       label={
