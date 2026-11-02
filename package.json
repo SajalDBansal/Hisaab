@@ -16,7 +16,7 @@
     "turbo": "^2.11.7"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24 <25"
   },
   "name": "hisaab",
   "devEngines": {
@@ -28,5 +28,8 @@
   "workspaces": [
     "apps/*",
     "packages/*"
-  ]
+  ],
+  "patchedDependencies": {
+    "decode-uri-component@0.2.2": "patches/decode-uri-component@0.2.2.patch"
+  }
 }

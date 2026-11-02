@@ -124,7 +124,7 @@ export function PickerSheet({
               message="Try a shorter search."
             />
           }
-          renderItem={({ item, index }) => (
+          renderItem={({ item, index }: { item: PickerOption; index: number }) => (
             <ListRow
               title={item.title}
               subtitle={item.subtitle}

@@ -286,7 +286,13 @@ export function AddUnitSheet({
               keyExtractor={(c) => c.code}
               keyboardShouldPersistTaps="handled"
               style={{ maxHeight: 420 }}
-              renderItem={({ item, index }) => (
+              renderItem={({
+                item,
+                index,
+              }: {
+                item: (typeof UQC_CODES)[number];
+                index: number;
+              }) => (
                 <ListRow
                   title={item.code}
                   subtitle={item.label}
