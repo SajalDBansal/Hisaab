@@ -107,6 +107,7 @@ export const ReturnAmounts = z.object({
 // Calculated amounts and fulfillment metadata are output-only.
 export const InvoiceLine = InputInvoiceLine.safeExtend({
   returnAmounts: ReturnAmounts.optional(),
+  exactMath: z.boolean().optional(),
   orderLineId: Id.optional(),
   orderSourceLineId: Id.optional(),
   stockFulfilledById: Id.optional(),

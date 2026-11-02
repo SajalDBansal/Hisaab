@@ -215,6 +215,8 @@ export const BackupRows = {
     stockLotId: Text.nullable(),
     stockCost: Paise.nullable(),
     bookScope: Scope,
+    // Exports made before exact line maths existed omit this; those lines keep float totals.
+    exactMath: z.boolean().default(false),
   }),
   voucherCharges: z.strictObject({
     ...entry,

@@ -176,6 +176,7 @@ export async function hydrateVouchers(
         stockLotId: undef(l.stockLotId),
         stockCost: undef(l.stockCost),
         bookScope: undef(l.bookScope),
+        exactMath: l.exactMath || undefined,
       })),
       charges: charges?.map((c) => ({
         name: c.name,

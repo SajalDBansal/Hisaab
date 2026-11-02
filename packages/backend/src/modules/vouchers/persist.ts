@@ -296,6 +296,7 @@ export async function saveChanges(
           stockLotId: l.stockLotId ?? null,
           stockCost: l.stockCost ?? null,
           bookScope: l.bookScope ?? null,
+          exactMath: l.exactMath ?? false,
         })),
       );
     if (v.charges?.length)

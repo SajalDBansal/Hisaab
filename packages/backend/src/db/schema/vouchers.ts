@@ -208,6 +208,8 @@ export const voucherLines = pgTable(
     stockLotId: text("stock_lot_id"),
     stockCost: bigint("stock_cost", { mode: "number" }),
     bookScope: bookScope("book_scope"),
+    // Older lines keep the floating-point totals they were issued with.
+    exactMath: boolean("exact_math").notNull().default(false),
   },
   (t) => [
     uniqueIndex("voucher_lines_position_idx").on(t.voucherId, t.position),

@@ -90,6 +90,8 @@ export function invoiceDraftLine(
     gstRate: taxType === "taxable" ? (saved?.gstRate ?? item?.gstRate ?? 0) : 0,
     taxType,
     per: draft.inAlt ? invoiceDraftUnit(draft, item) : undefined,
+    // The server saves new and edited lines with exact maths; preview the same totals.
+    exactMath: true,
   };
 }
 

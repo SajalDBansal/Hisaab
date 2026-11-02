@@ -279,6 +279,7 @@ async function insertVouchers(
           : null,
       stockCost: l.stockCost ?? null,
       bookScope: l.bookScope ?? null,
+      exactMath: l.exactMath ?? false,
     })),
   );
   await insertInChunks(lines, (slice) =>

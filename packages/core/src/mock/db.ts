@@ -330,15 +330,17 @@ function billParts(
   previousLines: InvoiceLine[] = [],
 ) {
   const side = sideOf(type) ?? "sale";
-  const lines = applyGstMode(
+  const lines: InvoiceLine[] = applyGstMode(
     input.lines.map((line) => savedLineDetails(db, line, previousLines)),
     mode,
     side,
-  ).map((l) =>
-    input.bookScope === "nongst" || l.bookScope === "nongst"
+  ).map((l) => ({
+    ...(input.bookScope === "nongst" || l.bookScope === "nongst"
       ? { ...l, gstRate: 0 as const, taxType: "nongst" as const }
-      : l,
-  );
+      : l),
+    // Lines saved now use exact maths; old lines keep theirs until edited.
+    exactMath: true,
+  }));
   const charges = input.charges
     ? applyGstMode(input.charges, mode, side).map((c) =>
         input.bookScope === "nongst" ? { ...c, gstRate: 0 as const } : c,
