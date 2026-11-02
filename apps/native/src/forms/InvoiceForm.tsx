@@ -42,6 +42,7 @@ import {
   UNREGISTERED_SUPPLIER_GST_MESSAGE,
   allocateStock,
   type BookScope,
+  financialYear,
 } from "@repo/core";
 import {
   AmountField,
@@ -231,6 +232,17 @@ export function InvoiceForm({
     prefill?.partyId ?? initialPartyId,
   );
   const [date, setDate] = useState(editing?.date ?? today());
+  // A saved bill may move only within its own financial year (its number carries it).
+  const dateRange = editing
+    ? (() => {
+        const year = financialYear(editing.date);
+        const open = allowedDates();
+        return {
+          min: year.start > open.min ? year.start : open.min,
+          max: year.end < open.max ? year.end : open.max,
+        };
+      })()
+    : allowedDates();
   const stock = useStockLots(date);
   // An edit may reuse the stock this bill already took.
   const lotPool = lotsWithoutBill(stock.data ?? [], editing);
@@ -522,7 +534,7 @@ export function InvoiceForm({
         }
         const sale = {
           ...base,
-          date: editing.date,
+          date,
           lines: invoiceLines,
           charges,
         };
@@ -685,20 +697,12 @@ export function InvoiceForm({
           editable={false}
           mono
         />
-        {editing ? (
-          <TextField
-            label="Date"
-            value={formatDate(editing.date)}
-            editable={false}
-          />
-        ) : (
-          <DateField
-            value={date}
-            onChange={setDate}
-            min={allowedDates().min}
-            max={allowedDates().max}
-          />
-        )}
+        <DateField
+          value={date}
+          onChange={setDate}
+          min={dateRange.min}
+          max={dateRange.max}
+        />
       </View>
 
       <AttachmentPicker {...attachments} />

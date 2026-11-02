@@ -221,6 +221,8 @@ export async function saveChanges(
       .update(schema.vouchers)
       .set({
         ...headerColumns(v, ids),
+        // Bills may move within their financial year; the number never changes.
+        date: v.date,
         version: sql`${schema.vouchers.version} + 1`,
         updatedAt: new Date(),
       })
