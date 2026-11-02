@@ -1,0 +1,132 @@
+# Compiled apps on localhost. Databases are configured in local.*.env.
+# To use development databases too, also pass -f deployment/compose.dev.yml.
+name: hisaab-local
+
+x-service: &service
+  platform: linux/amd64
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  api:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    image: hisaab-api:local
+    pull_policy: never
+    init: true
+    env_file:
+      - path: ./local.api.env
+        format: raw
+    environment:
+      # Local HTTP needs development cookies/settings; production remains strict.
+      NODE_ENV: development
+      APP_MODE: normal
+      HOST: 0.0.0.0
+      PORT: "3000"
+      BETTER_AUTH_URL: http://localhost:3000
+      TRUSTED_ORIGINS: http://localhost:8081,http://localhost:3002,hisaab://
+      TRUSTED_PROXY_CIDRS: ""
+    ports:
+      - "127.0.0.1:3000:3000"
+    stop_grace_period: 75s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/ready',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  worker:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.worker
+    image: hisaab-worker:local
+    pull_policy: never
+    init: true
+    env_file:
+      - path: ./local.worker.env
+        format: raw
+    environment:
+      NODE_ENV: development
+      APP_MODE: normal
+      PDF_BROWSER_PATH: /usr/bin/chromium
+      WORKER_HEALTH_PORT: "3011"
+    shm_size: 256m
+    security_opt:
+      - seccomp=./chromium-seccomp.json
+    stop_grace_period: 90s
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  website:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.website
+      args:
+        NEXT_PUBLIC_SITE_URL: http://localhost:3002
+        NEXT_PUBLIC_APP_URL: http://localhost:8081
+        NEXT_PUBLIC_SUPPORT_EMAIL: sajaldutt.bansal@gmail.com
+        NEXT_PUBLIC_DOWNLOAD_MANIFEST_URL: ""
+    image: hisaab-website:local
+    pull_policy: never
+    init: true
+    ports:
+      - "127.0.0.1:3002:3002"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  app:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.app
+      args:
+        EXPO_PUBLIC_API_URL: http://localhost:3000
+        EXPO_PUBLIC_WEB_API_URL: http://localhost:3000
+    image: hisaab-app:local
+    pull_policy: never
+    ports:
+      - "127.0.0.1:8081:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "-T",
+          "3",
+          "http://127.0.0.1/index.html",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
