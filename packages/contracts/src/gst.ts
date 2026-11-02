@@ -12,6 +12,8 @@ export const CountQuery = z.object({
 const TaxHeads = z.object({ cgst: Paise, sgst: Paise, igst: Paise });
 const NoTaxValues = z.object({ nil: Paise, exempt: Paise, nonGst: Paise });
 const TaxTotal = TaxHeads.extend({ total: Paise });
+// Answers cached offline before credit carry-forward existed read as zero.
+const NoCarry = TaxTotal.default({ cgst: 0, sgst: 0, igst: 0, total: 0 });
 const TaxableTotal = TaxTotal.extend({ taxable: Paise }).merge(NoTaxValues);
 
 export const GstMonth = z.object({
@@ -19,6 +21,7 @@ export const GstMonth = z.object({
   title: z.string(),
   output: TaxableTotal,
   input: TaxableTotal,
+  broughtForward: NoCarry,
   payable: TaxTotal,
   creditLeft: TaxTotal,
   salesCount: z.number().int(),
@@ -123,6 +126,7 @@ export const Gstr3b = z.object({
     nilExempt: z.object({ inter: Paise, intra: Paise }),
     nonGst: z.object({ inter: Paise, intra: Paise }),
   }),
+  broughtForward: NoCarry,
   payable: TaxTotal,
   creditLeft: TaxTotal,
 });

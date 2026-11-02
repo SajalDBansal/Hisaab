@@ -71,10 +71,13 @@ function Body({ g }: { g: Gstr3b }) {
         </Txt>
         <Money value={g.payable.total} variant="display" tone="onDark" />
         <Txt variant="caption" tone="onDarkMute">
-          Unused period input tax {formatINR(g.creditLeft.total)}
+          {g.broughtForward.total
+            ? `Credit brought forward ${formatINR(g.broughtForward.total)} · `
+            : ""}
+          Credit carried to next month {formatINR(g.creditLeft.total)}
         </Txt>
       </Card>
-      <Notice text="Book estimates only. Opening credit, credit eligibility and actual tax payments are not included." />
+      <Notice text="Book estimates only. Unused credit from earlier months in these books is carried forward; credit from before the books started, credit eligibility and actual tax payments are not included." />
 
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">3.1 · Outward supplies</Txt>
