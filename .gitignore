@@ -63,3 +63,9 @@ bun-debug.log*
 *.key
 *.mobileprovision
 credentials.json
+
+.codelens
+
+# Local AI transcripts and browser-test screenshots
+/ai.md
+/output/
