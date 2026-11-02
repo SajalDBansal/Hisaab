@@ -1,10 +1,11 @@
-import { UploadRequest, UploadTicket } from "@repo/contracts";
+import { UploadRequest } from "@repo/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { schema, type Db } from "@repo/backend/db/client";
 import { operationReceipts } from "@repo/backend/db/schema/operations";
 import { AppError } from "@repo/backend/lib/app-error";
 import { documentsRepo } from "../documents/documents.repo";
+import { savedReservationId } from "../documents/documents.receipts";
 import { legacyHashes, type OperationActor } from "./operations.engine";
 import { OperationResult } from "./operations.schema";
 
@@ -29,7 +30,7 @@ export function reservationId(
       "This reservation belongs to another request or firm.",
       422,
     );
-  return UploadTicket.parse(receipt.response).document.id;
+  return savedReservationId(receipt.response);
 }
 // Read-only identity reconciliation. Renewal/confirmation keep their existing role checks.
 export function lookupDocumentReservation(

@@ -168,13 +168,19 @@ export const documentsRepo = {
     return row;
   },
 
-  async get(db: Db, firmId: string, id: string, role?: Role) {
+  async get(
+    db: Db,
+    firmId: string,
+    id: string,
+    role?: Role,
+    includeDeleted = false,
+  ) {
     const [row] = await db
       .select()
       .from(documents)
       .where(
         and(
-          live(firmId),
+          includeDeleted ? eq(documents.firmId, firmId) : live(firmId),
           eq(documents.id, id),
           role ? readableDocument(firmId, role) : undefined,
         ),
@@ -237,10 +243,10 @@ export const documentsRepo = {
       .limit(limit);
   },
 
-  async softDelete(db: Db, firmId: string, id: string) {
+  async softDelete(db: Db, firmId: string, id: string, deletedAt = new Date()) {
     const rows = await db
       .update(documents)
-      .set({ deletedAt: new Date() })
+      .set({ deletedAt })
       .where(and(live(firmId), eq(documents.id, id)))
       .returning({ id: documents.id });
     return rows.length > 0;

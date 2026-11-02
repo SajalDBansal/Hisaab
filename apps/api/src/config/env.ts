@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { isIP } from "node:net";
+import { recoveryEpoch } from "../plugins/recovery";
+import { RecoveryEpoch } from "@repo/contracts";
 
 const commaList = (value: string) =>
   value
@@ -21,6 +23,7 @@ function isProxyAddress(value: string) {
 // stops the server at start-up with a clear message, not later in the middle of a request.
 const EnvSchema = z.object({
   APP_MODE: z.enum(["normal", "recovery"]).default("normal"),
+  RECOVERY_EPOCH: RecoveryEpoch.optional(),
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
@@ -90,7 +93,9 @@ const EnvSchema = z.object({
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
 });
 
-export type Env = z.infer<typeof EnvSchema>;
+export type Env = Omit<z.infer<typeof EnvSchema>, "RECOVERY_EPOCH"> & {
+  RECOVERY_EPOCH: string;
+};
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
   const result = EnvSchema.safeParse(source);
@@ -108,7 +113,13 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(
       "RESEND_API_KEY is required in production, or nobody can sign up.",
     );
-  const env = result.data;
+  const env: Env = {
+    ...result.data,
+    RECOVERY_EPOCH: recoveryEpoch(
+      result.data.RECOVERY_EPOCH,
+      result.data.NODE_ENV === "production",
+    ),
+  };
   const r2 = [
     env.R2_ACCOUNT_ID,
     env.R2_BUCKET,
@@ -127,7 +138,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
   )
     throw new Error("R2_BUCKET (or S3_BUCKET) is required in production.");
   if (env.NODE_ENV === "production") validateProduction(env);
-  return result.data;
+  return env;
 }
 
 function exactHttpsOrigin(value: string) {

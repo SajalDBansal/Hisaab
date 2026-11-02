@@ -78,8 +78,12 @@ export function registerCacheHelpers(
       !["GET", "HEAD"].includes(req.method) ||
       !req.firm ||
       reply.statusCode !== 200
-    )
+    ) {
+      // Account, write and error responses must not be stored by HTTP caches.
+      if (!reply.hasHeader("cache-control"))
+        reply.header("cache-control", "private, no-store");
       return payload;
+    }
     if (String(reply.getHeader("cache-control") ?? "").includes("no-store"))
       return payload;
     const version = req.firmDataVersion ?? (await app.firmVersion(req.firm.id));

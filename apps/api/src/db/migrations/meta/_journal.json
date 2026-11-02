@@ -176,6 +176,34 @@
       "when": 1792247766410,
       "tag": "0024_production_completion_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "0025_durable_retry_answers",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0026_return_amounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793145600000,
+      "tag": "0027_document_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "0028_backup_state",
+      "breakpoints": true
     }
   ]
 }

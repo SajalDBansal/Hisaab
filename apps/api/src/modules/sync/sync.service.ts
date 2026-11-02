@@ -10,7 +10,11 @@ import type {
   SyncPushMutation,
   SyncPushResult,
 } from "@repo/contracts";
-import { VoucherType } from "@repo/contracts";
+import {
+  isDurableRequestId,
+  SYNC_CURSOR_RESET,
+  VoucherType,
+} from "@repo/contracts";
 import { sql } from "drizzle-orm";
 import type { Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
@@ -24,10 +28,11 @@ import {
 import { toItemRow } from "../masters/items.service";
 import { toLedgerRow } from "../masters/ledgers.service";
 import { toPartyRow } from "../masters/parties.service";
-import { isUniqueViolation } from "@repo/backend/modules/masters/shared";
+import { unknownRetry } from "@repo/backend/modules/vouchers/idempotency";
 import { itemsService } from "../masters/items.service";
 import { ledgersService } from "../masters/ledgers.service";
 import { partiesService } from "../masters/parties.service";
+import { authorizePartyWrite } from "../masters/parties.permissions";
 import { toStoredDocument } from "../documents/documents.service";
 import { documentsRepo } from "../documents/documents.repo";
 import {
@@ -113,15 +118,8 @@ async function replay(
   key: string,
   hash: string,
 ): Promise<StoredPushResult | undefined> {
-  const row = await syncRepo.replayMutation(db, userId, key);
-  if (!row) return undefined;
-  if (row.requestHash !== hash)
-    throw new AppError(
-      "KEY_REUSED",
-      "This offline change id was already used for something different.",
-      422,
-    );
-  return row.response as StoredPushResult;
+  return (await syncRepo.replayMutation(db, userId, key, hash)) as
+    StoredPushResult | undefined;
 }
 
 async function remember(
@@ -131,11 +129,7 @@ async function remember(
   hash: string,
   result: StoredPushResult,
 ) {
-  try {
-    await syncRepo.rememberMutation(db, userId, key, hash, result);
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-  }
+  await syncRepo.rememberMutation(db, userId, key, hash, result);
 }
 
 async function liveRecord(
@@ -168,12 +162,15 @@ async function liveRecord(
 }
 
 function readablePushRecord(role: Role, entity: PushEntity, record: unknown) {
-  if (record === null || canReadBooks(role)) return associatePayloadForRead(role, record);
+  if (record === null || canReadBooks(role))
+    return associatePayloadForRead(role, record);
   if (!record || typeof record !== "object") return null;
   if (entity === "item") return record;
   if (entity === "voucher" && "type" in record) {
     const type = VoucherType.safeParse(record.type);
-    return type.success && canReadVoucher(role, type.data) ? associatePayloadForRead(role, record) : null;
+    return type.success && canReadVoucher(role, type.data)
+      ? associatePayloadForRead(role, record)
+      : null;
   }
   if (entity === "party" && "type" in record)
     return record.type === "customer" && canReadParty(role, record.type)
@@ -315,7 +312,12 @@ async function applyMutation(
   ensureRight(ctx.role, mutation.entity);
   if (mutation.entity === "party") {
     if (mutation.operation === "create") {
-      const record = await partiesService.create(db, ctx.firmId, mutation.data);
+      const record = await partiesService.create(
+        db,
+        ctx.firmId,
+        mutation.data,
+        ctx.role,
+      );
       return appliedOf(mutation, record.id, record);
     }
     if (mutation.operation === "update") {
@@ -325,6 +327,7 @@ async function applyMutation(
         mutation.id,
         mutation.baseVersion,
         mutation.data,
+        ctx.role,
       );
       return appliedOf(mutation, mutation.id, record);
     }
@@ -333,6 +336,7 @@ async function applyMutation(
       ctx.firmId,
       mutation.id,
       mutation.baseVersion,
+      ctx.role,
     );
     return appliedOf(mutation, mutation.id, null);
   }
@@ -397,8 +401,37 @@ async function pushOne(
 
     let result: StoredPushResult;
     try {
+      if (mutation.entity === "party") {
+        // Keep the saved type stable through permission checks, replay and mutation.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${ctx.firmId}, 0))`,
+        );
+        await authorizePartyWrite(
+          tx,
+          ctx.firmId,
+          ctx.role,
+          "data" in mutation ? mutation.data.type : undefined,
+          "id" in mutation ? mutation.id : undefined,
+        );
+      }
       const replayed = await replay(lockedDb, ctx.userId, key, hash);
       if (replayed) return replayed;
+      // Older cleanup could remove the envelope while retaining the original voucher.
+      if (mutation.entity === "voucher") {
+        const saved = await syncRepo.replayMutation(
+          lockedDb,
+          ctx.userId,
+          `voucher-sync:${mutation.clientMutationId}`,
+          hash,
+        );
+        if (saved) {
+          const voucher = saved as { id: string };
+          const recovered = appliedOf(mutation, voucher.id, saved);
+          await remember(lockedDb, ctx.userId, key, hash, recovered);
+          return recovered;
+        }
+      }
+      if (!isDurableRequestId(mutation.clientMutationId)) throw unknownRetry();
       // A failed database statement must roll back before reading the conflict record.
       result = await tx.transaction((inner) =>
         applyMutation(inner as unknown as Db, ctx, mutation),
@@ -418,6 +451,13 @@ async function pushOne(
               id,
             );
       result = conflictOf(mutation, failure, current);
+      // Rejections of an occupied/unknown key must never replace its original identity.
+      if (
+        ["FORBIDDEN", "KEY_REUSED", "RETRY_RESULT_UNKNOWN"].includes(
+          failure.code,
+        )
+      )
+        return result;
     }
     await remember(lockedDb, ctx.userId, key, hash, result);
     return result;
@@ -516,6 +556,12 @@ export const syncService = {
     params: { since: number; limit: number },
     role: Role,
   ): Promise<SyncChanges> {
+    if (params.since > (await syncRepo.latestCursor(db, firmId)))
+      throw new AppError(
+        SYNC_CURSOR_RESET,
+        "This sync cursor is ahead of the available books. Preserve pending entries and reconcile them before rebuilding the local read cache.",
+        409,
+      );
     const rows = await syncRepo.changes(db, firmId, params.since, params.limit);
     const page = rows.slice(0, params.limit);
     const items: SyncChange[] = [];

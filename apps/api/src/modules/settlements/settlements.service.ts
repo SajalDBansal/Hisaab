@@ -24,6 +24,10 @@ import { schema, type Db } from "@repo/backend/db/client";
 import { loans } from "@repo/backend/db/schema/loans";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
 import {
+  partyRefundCapacity,
+  partySettlementDates,
+} from "@repo/core/src/accounting/refundCapacity";
+import {
   settlementEntries,
   settlementAllocations,
 } from "@repo/backend/db/schema/settlements";
@@ -72,7 +76,7 @@ async function sourceState(
       .map((d) => ({
         voucherId: d.openingBillId
           ? importedOpeningBillId(d.openingBillId)
-          : d.billId ?? `opening:${d.openingPartyId}`,
+          : (d.billId ?? `opening:${d.openingPartyId}`),
         amount: d.amount,
       })),
   );
@@ -391,7 +395,12 @@ export const settlementsService = {
             -sumPaise(before.map((a) => a.amount)),
           ]);
           const direction = party.type === "customer" ? 1 : -1;
-          for (const cutoff of [input.date, today()]) {
+          for (const cutoff of partySettlementDates(
+            party,
+            scoped.vouchers,
+            input.date,
+            today(),
+          )) {
             const pending = sumPaise(
               partyBills(party, scoped.vouchers, cutoff).map((b) => b.pending),
             );
@@ -432,7 +441,8 @@ export const settlementsService = {
           invalid("Write-off exceeds the party's remaining net balance.");
         if (
           input.kind.endsWith("refund") &&
-          amount > Math.max(0, -Math.max(...balances))
+          amount >
+            partyRefundCapacity(party, scoped.vouchers, input.date, today())
         )
           invalid("Refund exceeds the party's credit balance in this book.");
         let bank;
@@ -555,7 +565,12 @@ export const settlementsService = {
             "Party not found.",
           );
           const direction = party.type === "customer" ? 1 : -1;
-          for (const cutoff of [input.date, today()]) {
+          for (const cutoff of partySettlementDates(
+            party,
+            scoped.vouchers,
+            input.date,
+            today(),
+          )) {
             const funding = sumPaise([
               ...partyBills(party, scoped.vouchers, cutoff).map(
                 (b) => b.pending,
@@ -605,7 +620,7 @@ export const settlementsService = {
           allocations.map((a) => ({
             voucherId: a.openingBillId
               ? importedOpeningBillId(a.openingBillId)
-              : a.billId ?? `opening:${a.openingPartyId}`,
+              : (a.billId ?? `opening:${a.openingPartyId}`),
             amount: -a.amount,
           })),
         );

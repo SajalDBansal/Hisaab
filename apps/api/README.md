@@ -7,8 +7,9 @@ reports, documents and sync. Background consumers now live in
 ## Local Setup
 
 From the repository root, install Node from `.nvmrc` and Bun 1.4.0, run
-`bun install --frozen-lockfile`, and provision separate development PostgreSQL
-and Redis services. Copy `apps/api/.env.example` to an ignored `apps/api/.env`,
+`bun install --frozen-lockfile`, and start PostgreSQL/Redis with
+`docker compose -f deployment/compose.dev.yml up -d --wait`. Copy
+`apps/api/.env.example` to an ignored `apps/api/.env` if it does not exist,
 set `DATABASE_URL` and `REDIS_URL`, and review the remaining values.
 
 ```sh

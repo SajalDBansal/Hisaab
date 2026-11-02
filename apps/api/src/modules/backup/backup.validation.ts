@@ -38,6 +38,51 @@ function checkJsonDepth(value: unknown) {
   }
 }
 
+// Pre-F04 exports omit this nullable column. Verify their original checksum and exact
+// schema before filling it; historical notes keep their issued calculations.
+function upgradeReturnAmounts(input: unknown): unknown {
+  const lines = (
+    input as { payload?: { data?: { voucherLines?: unknown } } } | null
+  )?.payload?.data?.voucherLines;
+  if (
+    !Array.isArray(lines) ||
+    !lines.some(
+      (line) => line && typeof line === "object" && !("returnAmounts" in line),
+    )
+  )
+    return input;
+  for (const schema of [
+    FirmExportFile,
+    LegacyFirmExportFileV3,
+    LegacyFirmExportFileV2,
+  ]) {
+    const result = schema.safeParse(input);
+    if (!result.success) continue;
+    const original = input as typeof result.data;
+    const payload = {
+      ...original.payload,
+      data: {
+        ...original.payload.data,
+        voucherLines: original.payload.data.voucherLines.map((line) => ({
+          ...line,
+          returnAmounts: line.returnAmounts ?? null,
+        })),
+      },
+    };
+    if (
+      !isDeepStrictEqual({ ...original, payload }, result.data) ||
+      exportDigest(original.payload) !== result.data.integrity.digest
+    )
+      throw invalid("The legacy export checksum or schema does not match.");
+    return {
+      ...original,
+      payload,
+      integrity: { algorithm: "sha256", digest: exportDigest(payload) },
+    };
+  }
+  return input;
+}
+
 export function readExport(text: string) {
   if (Buffer.byteLength(text, "utf8") > MAX_FIRM_EXPORT_BYTES)
     throw new AppError(
@@ -52,7 +97,7 @@ export function readExport(text: string) {
     throw invalid("Choose a valid Hisaab JSON export.");
   }
   checkJsonDepth(input);
-  input = upgradeVersionThree(upgradeVersionTwo(input));
+  input = upgradeVersionThree(upgradeVersionTwo(upgradeReturnAmounts(input)));
   const parsed = FirmExportFile.safeParse(input);
   if (!parsed.success || !isDeepStrictEqual(input, parsed.data))
     throw invalid();

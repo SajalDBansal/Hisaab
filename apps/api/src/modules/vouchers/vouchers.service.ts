@@ -24,6 +24,7 @@ import {
   openingBillId,
   partyBills,
   postingTotals,
+  returnAmountBasis,
   setCleared,
   settledAmounts,
   today,
@@ -193,7 +194,11 @@ export async function change(
     // A create that was already done: give back the same answer, save nothing
     if (ctx.idem) {
       const seen = await replayOf<Voucher | Voucher[]>(tx, ctx.id, ctx.idem);
-      if (seen) return seen;
+      if (seen) {
+        for (const voucher of [seen].flat())
+          requireRight(ctx.role, voucher.type);
+        return seen;
+      }
     }
     const snap = await loadBooks(tx, ctx.firmId, ctx, scope);
     const result = await work(snap, tx);
@@ -471,6 +476,13 @@ export const vouchersService = {
         );
       },
     );
+    // Historical order keys hashed /orders/:type, so also verify the saved order kind.
+    if (voucher.type !== type)
+      throw new AppError(
+        "KEY_REUSED",
+        "This request key belongs to another order type.",
+        422,
+      );
     return voucher;
   },
 
@@ -768,6 +780,7 @@ export const vouchersService = {
     const bill = books.vouchers.find((voucher) => voucher.id === billId);
     if (!bill || (bill.type !== "sale" && bill.type !== "purchase"))
       throw notFound("bill");
+    const amounts = returnAmountBasis(bill, books.vouchers);
 
     return {
       bill: apiVoucher(bill),
@@ -783,6 +796,7 @@ export const vouchersService = {
           returned: row.returned,
           returnable: row.returnable,
           rate: row.line.rate,
+          amountBasis: amounts[row.index],
         };
       }),
     };

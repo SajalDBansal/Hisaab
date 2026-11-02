@@ -7,9 +7,15 @@ import { canReadBooks } from "../../lib/read-permissions";
 import { documentKey, type FileStorage } from "../../lib/storage";
 import { notFound } from "@repo/backend/modules/masters/shared";
 import { documentsRepo } from "./documents.repo";
+import { savedReservationId } from "./documents.receipts";
+import { scheduleDocumentCleanup } from "@repo/backend/modules/documents/cleanup";
 import { requireRight } from "../vouchers/vouchers.service";
 import { accountsService } from "../accounts/accounts.service";
-import { rememberAnswer, replayOf, type Idem } from "@repo/backend/modules/vouchers/idempotency";
+import {
+  rememberAnswer,
+  replayOf,
+  type Idem,
+} from "@repo/backend/modules/vouchers/idempotency";
 import {
   availableDocumentBytes,
   DocumentLimits,
@@ -85,10 +91,25 @@ async function checkLinks(
   return voucher?.partyId ?? input.partyId ?? null;
 }
 
-async function editable(db: Db, firmId: string, id: string, role: Role) {
-  const row = await documentsRepo.get(db, firmId, id);
+async function editable(
+  db: Db,
+  firmId: string,
+  id: string,
+  role: Role,
+  includeDeleted = false,
+) {
+  const row = await documentsRepo.get(
+    db,
+    firmId,
+    id,
+    undefined,
+    includeDeleted,
+  );
   if (!row) throw notFound("document");
-  if (!canReadBooks(role) && !(await documentsRepo.get(db, firmId, id, role)))
+  if (
+    !canReadBooks(role) &&
+    !(await documentsRepo.get(db, firmId, id, role, includeDeleted))
+  )
     throw new AppError(
       "FORBIDDEN",
       "Your role cannot change this document.",
@@ -192,12 +213,8 @@ export const documentsService = {
       await lockDocumentFirm(tx, firmId);
       const connection = tx as unknown as Db;
       if (request?.idem) {
-        const seen = await replayOf<{ documentId: string }>(
-          tx,
-          request.userId,
-          request.idem,
-        );
-        if (seen) return seen.documentId;
+        const seen = await replayOf<unknown>(tx, request.userId, request.idem);
+        if (seen) return savedReservationId(seen);
       }
       const partyId = await checkLinks(connection, firmId, input, role);
       if (!input.voucherId && !can(role, "settings") && !can(role, "accounts"))
@@ -334,7 +351,7 @@ export const documentsService = {
 
   async remove(
     db: Db,
-    storage: FileStorage,
+    _storage: FileStorage,
     firmId: string,
     id: string,
     role: Role,
@@ -342,9 +359,18 @@ export const documentsService = {
     await db.transaction(async (tx) => {
       await lockDocumentFirm(tx, firmId, id);
       const connection = tx as unknown as Db;
-      const row = await editable(connection, firmId, id, role);
-      if (row.s3Key) await storage.remove(row.s3Key);
-      await documentsRepo.softDelete(connection, firmId, id);
+      const row = await editable(connection, firmId, id, role, true);
+      if (row.deletedAt) return;
+      const deletedAt = new Date();
+      await documentsRepo.softDelete(connection, firmId, id, deletedAt);
+      if (row.s3Key)
+        await scheduleDocumentCleanup(connection, {
+          documentId: id,
+          firmId,
+          objectKey: row.s3Key,
+          thumbnailKey: row.thumbnailKey,
+          deletedAt,
+        });
     });
   },
 };

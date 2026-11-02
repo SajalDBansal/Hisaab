@@ -66,7 +66,9 @@ export async function partyRoutes(app: FastifyInstance, options: { db: Db }) {
     async (req, reply) =>
       reply
         .code(201)
-        .send(await partiesService.create(db, req.firm.id, req.body)),
+        .send(
+          await partiesService.create(db, req.firm.id, req.body, req.firm.role),
+        ),
   );
 
   typed.put(
@@ -86,6 +88,7 @@ export async function partyRoutes(app: FastifyInstance, options: { db: Db }) {
         req.params.id,
         expectedVersion(req.headers["if-match"]),
         req.body,
+        req.firm.role,
       ),
   );
 
@@ -104,6 +107,7 @@ export async function partyRoutes(app: FastifyInstance, options: { db: Db }) {
         req.firm.id,
         req.params.id,
         expectedVersion(req.headers["if-match"]),
+        req.firm.role,
       );
       return { ok: true as const };
     },

@@ -2,6 +2,7 @@ import type { FastifyError, FastifyInstance } from "fastify";
 import { hasZodFastifySchemaValidationErrors } from "fastify-type-provider-zod";
 import type { ApiError } from "@repo/contracts";
 import { AppError } from "@repo/backend/lib/app-error";
+import { safeError } from "@repo/backend/lib/safe-error";
 import { bookControlError } from "../lib/book-errors";
 
 const body = (
@@ -53,8 +54,8 @@ export function registerErrorHandling(app: FastifyInstance) {
       return reply.code(status).send(body("BAD_REQUEST", error.message));
     }
 
-    // Unknown failure: log everything, tell the caller nothing about the inside
-    req.log.error({ err: error }, "Unhandled error");
+    // Keep useful error codes without copying SQL parameters into diagnostics.
+    req.log.error({ err: safeError(error) }, "Unhandled error");
     return reply
       .code(500)
       .send(

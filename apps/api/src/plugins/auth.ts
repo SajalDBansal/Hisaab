@@ -21,9 +21,14 @@ declare module "fastify" {
 }
 
 const FIVE_MINUTES = 5 * 60 * 1000;
+// Better Auth's enabled OTP send routes all share the same normalized email quota.
+// The email-otp plugin also overrides /send-verification-email to send a code.
 const EMAIL_CODE_SEND_PATHS = new Set([
   "/api/auth/sign-up/email",
+  "/api/auth/send-verification-email",
+  "/api/auth/email-otp/send-verification-otp",
   "/api/auth/email-otp/request-password-reset",
+  "/api/auth/forget-password/email-otp",
 ]);
 const CODE_VERIFY_PATHS = new Set([
   "/api/auth/email-otp/verify-email",
