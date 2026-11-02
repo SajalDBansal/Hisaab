@@ -4,6 +4,7 @@ import { gstMonth, gstr3b, setOff } from "../src/accounting/gst";
 import { calcLine } from "../src/accounting/invoice";
 import { mulDivRound } from "../src/money";
 import { calcTds, tdsBase } from "../src/accounting/tds";
+import { altQtyText } from "../src/accounting/stock";
 
 const heads = (cgst: number, sgst: number, igst: number) => ({
   cgst,
@@ -204,5 +205,17 @@ describe("TDS base", () => {
     expect(tdsBase(5000, [{ amount: 5000, bill: { amount: 5000 } }])).toBe(
       5000,
     );
+  });
+});
+
+describe("report presentation", () => {
+  test("second-unit text has no floating-point leftovers", () => {
+    const item = {
+      unit: "Nos",
+      altUnit: { name: "Box", factor: 12 },
+    } as Parameters<typeof altQtyText>[0];
+    expect(altQtyText(item, 30.1)).toBe("2 Box 6.1 Nos");
+    expect(altQtyText(item, 24)).toBe("2 Box");
+    expect(altQtyText(item, -30.1)).toBe("-2 Box -6.1 Nos");
   });
 });

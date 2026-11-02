@@ -163,12 +163,14 @@ function Dashboard({ d, canCreate }: { d: DashboardData; canCreate: boolean }) {
         <Stat
           label={"Today's sales"}
           value={formatINR(d.todaySales.amount)}
-          note={formatText("{n} invoices", { n: d.todaySales.count })}
+          note={formatText("{n} invoices, incl. GST", {
+            n: d.todaySales.count,
+          })}
         />
         <Stat
-          label={"This month's sales"}
+          label={"This month's net sales"}
           value={formatINR(d.monthSales)}
-          note={formatText("Last month {amount}", {
+          note={formatText("Excl. GST, after returns · last month {amount}", {
             amount: formatINR(d.lastMonthSales, { decimals: false }),
           })}
         />
@@ -197,7 +199,7 @@ function Dashboard({ d, canCreate }: { d: DashboardData; canCreate: boolean }) {
           <Stat
             label={"This month's purchases"}
             value={formatINR(d.monthPurchases)}
-            note={"Purchase bills"}
+            note={"Net of returns"}
             onPress={() => router.push("/purchases")}
           />
         )}
@@ -216,7 +218,7 @@ function Dashboard({ d, canCreate }: { d: DashboardData; canCreate: boolean }) {
         <View>
           <Txt variant="heading">{"Sales vs purchases"}</Txt>
           <Txt variant="small" tone="body">
-            {"Last 6 months"}
+            {"Last 6 months · excl. GST, after returns"}
           </Txt>
         </View>
         <PairedBarChart
