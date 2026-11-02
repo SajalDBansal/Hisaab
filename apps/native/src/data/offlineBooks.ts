@@ -1,9 +1,12 @@
 import { z } from "zod";
 import {
+  BatchReadResult,
+  MAX_BATCH_READS,
   RECOVERY_EPOCH_HEADER,
   RECOVERY_REQUIRED,
   RecoveryEpoch,
 } from "@repo/contracts";
+import { ApiFailure } from "../auth/apiFailure";
 import {
   serverRecovery,
   recoveryRequired,
@@ -141,6 +144,9 @@ export function createOfflineBooks(deps: {
   const listeners = new Set<() => void>();
   let revoked = false;
   let capturing = false;
+  /** Answers received during a download, written to the cache once at the end. */
+  let captured = new Map<string, { at: number; response: unknown }>();
+  let batchRead: ((path: string) => Promise<unknown>) | undefined;
   let syncing: Promise<void> | undefined;
   let status: OfflineStatus = {
     entries: [],
@@ -647,15 +653,108 @@ export function createOfflineBooks(deps: {
       notify({ downloadedAt: value.downloadedAt });
     });
   }
+  /**
+   * Reads issued together during a download go to the server as one batch of up
+   * to 200. Each answer is exactly what its own route returns. A server without
+   * batches (404) gets the reads one by one, as before.
+   */
+  function createBatchRead() {
+    const queue: {
+      path: string;
+      resolve(value: unknown): void;
+      reject(error: unknown): void;
+    }[] = [];
+    let scheduled = false;
+    let supported = true;
+    const one = (path: string) =>
+      deps.transport(path, { headers: { "x-firm-id": scope.firmId } });
+    const flush = async () => {
+      scheduled = false;
+      const group = queue.splice(0, MAX_BATCH_READS);
+      if (queue.length) {
+        scheduled = true;
+        setTimeout(flush, 0);
+      }
+      if (!group.length) return;
+      if (!supported) {
+        for (const item of group)
+          one(item.path).then(item.resolve, item.reject);
+        return;
+      }
+      try {
+        const { results } = BatchReadResult.parse(
+          await deps.transport("/v1/reads/batch", {
+            method: "POST",
+            body: { paths: group.map((item) => item.path) },
+            headers: { "x-firm-id": scope.firmId },
+          }),
+        );
+        group.forEach((item, index) => {
+          const result = results[index];
+          if (!result || result.path !== item.path)
+            return item.reject(
+              new Error("The batch answer did not match its reads."),
+            );
+          if (result.status >= 200 && result.status < 300)
+            return item.resolve(result.body);
+          const error = (
+            result.body as { error?: { code?: string; message?: string } }
+          )?.error;
+          item.reject(
+            new ApiFailure(
+              result.status,
+              error?.code ?? "ERROR",
+              error?.message ?? "Something went wrong. Please try again.",
+              (result.body ?? {}) as Record<string, unknown>,
+            ),
+          );
+        });
+      } catch (error) {
+        if ((error as { status?: number }).status === 404) {
+          supported = false;
+          for (const item of group)
+            one(item.path).then(item.resolve, item.reject);
+        } else for (const item of group) item.reject(error);
+      }
+    };
+    return (path: string) =>
+      new Promise<unknown>((resolve, reject) => {
+        queue.push({ path, resolve, reject });
+        if (!scheduled) {
+          scheduled = true;
+          setTimeout(flush, 0);
+        }
+      });
+  }
+  async function writeCaptured() {
+    if (!captured.size) return;
+    await store.lock(cacheKey, async () => {
+      const value = await cached();
+      for (const [key, entry] of captured) value.reads[key] = entry;
+      const encoded = JSON.stringify(value);
+      if (new TextEncoder().encode(encoded).byteLength > 25 * 1024 * 1024)
+        throw new Error(
+          "Offline read cache reached 25 MB. Clear downloaded books before refreshing it.",
+        );
+      active();
+      await store.set(cacheKey, encoded);
+    });
+  }
   async function capture(work: () => Promise<void>) {
     if (capturing) throw new Error("A download is already in progress.");
     await verify();
     capturing = true;
+    captured = new Map();
+    batchRead = createBatchRead();
     try {
       await work();
+      // One encrypted write for the whole download instead of one per answer.
+      await writeCaptured();
       await downloaded();
     } finally {
       capturing = false;
+      batchRead = undefined;
+      captured = new Map();
     }
   }
   async function lookupOriginal(key: string, input: OperationInput) {
@@ -834,16 +933,25 @@ export function createOfflineBooks(deps: {
         await save(value);
       });
     try {
+      const batched =
+        batchRead &&
+        method === "GET" &&
+        cacheable(path) &&
+        (options.headers?.["x-firm-id"] ?? scope.firmId) === scope.firmId;
       const response = associatePayloadForRead(
         scope.role,
-        await deps.transport(path, withoutOfflineHints(options)),
+        batched
+          ? await batchRead!(path)
+          : await deps.transport(path, withoutOfflineHints(options)),
       );
       const validated = options.validate
         ? options.validate(response)
         : response;
       active();
       notify({ online: true });
-      if (method === "GET" && cacheable(path)) {
+      if (method === "GET" && cacheable(path) && capturing) {
+        captured.set(readKey(path), { at: now(), response: validated });
+      } else if (method === "GET" && cacheable(path)) {
         try {
           await store.lock(cacheKey, async () => {
             const value = await cached();
