@@ -101,9 +101,16 @@ function Body({ months }: { months: GstMonth[] }) {
         </Txt>
         <Money value={m.payable.total} variant="display" tone="onDark" />
         <Txt variant="caption" tone="onDarkMute">
-          {m.creditLeft.total > 0
-            ? `${formatINR(m.creditLeft.total)} unused input tax in this period`
-            : ""}
+          {[
+            m.broughtForward.total
+              ? `${formatINR(m.broughtForward.total)} credit brought forward`
+              : "",
+            m.creditLeft.total > 0
+              ? `${formatINR(m.creditLeft.total)} credit carried to next month`
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </Txt>
       </Card>
 
