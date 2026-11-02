@@ -28,10 +28,10 @@ export function OfflineBooksStatus() {
         quarantine
           ? "Review restored books"
           : pending
-            ? `${pending} pending ${pending === 1 ? "save" : "saves"} - review`
+            ? `${pending} ${pending === 1 ? "entry" : "entries"} to review`
             : online
               ? "Review offline books"
-              : "Viewing downloaded books"
+              : "Offline - view only"
       }
       onPress={() => router.push("/settings/offline-books")}
     />

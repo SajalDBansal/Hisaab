@@ -156,7 +156,7 @@ function Entry({
         />
         {!terminal(entry) && !quarantine ? (
           <Button
-            label="Check original answer"
+            label="Check and save now"
             icon="refresh-cw"
             size="sm"
             disabled={busy}
@@ -245,9 +245,9 @@ function Entry({
                 disabled={busy}
                 onPress={() =>
                   confirmAction(
-                    "Queue reviewed replacement?",
-                    "The original key remains rejected. The edited values and selected server version will be queued with a new key. Existing attachment copies retain their original binding plan, including both invoices for a mixed sale. No server version is selected automatically.",
-                    "Queue replacement",
+                    "Save reviewed replacement?",
+                    "The original key remains rejected. The edited values and selected server version are saved now under a new key, so you need to be online. Existing attachment copies retain their original binding plan, including both invoices for a mixed sale. No server version is selected automatically.",
+                    "Save replacement",
                     () =>
                       run(async () => {
                         const input: unknown = JSON.parse(body);
@@ -314,7 +314,12 @@ export default function OfflineBooksScreen() {
       ) : (
         <>
           <Txt variant="bodyStrong">
-            {online ? "Connected" : "Offline"} - {pending.length} pending
+            {online ? "Connected" : "Offline - view only"} - {pending.length} to
+            review
+          </Txt>
+          <Txt variant="small">
+            Offline you can read downloaded books. Creating or changing entries
+            needs a connection; nothing is saved on this device to send later.
           </Txt>
           <Txt variant="small" selectable>
             {firmId} - {role}
@@ -361,7 +366,7 @@ export default function OfflineBooksScreen() {
             style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
           >
             <Button
-              label="Sync pending"
+              label="Check retained entries"
               icon="refresh-cw"
               size="sm"
               loading={syncing}

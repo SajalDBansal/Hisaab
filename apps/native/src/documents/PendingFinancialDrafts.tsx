@@ -297,7 +297,7 @@ export function PendingFinancialDrafts({
             </View>
             {offline && !draft.response ? (
               <Button
-                label="Review queued request"
+                label="Review retained request"
                 icon="list"
                 size="sm"
                 onPress={() => router.push("/settings/offline-books")}
