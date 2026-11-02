@@ -224,7 +224,15 @@ Expo credentials.
    plus an EAS `direct` APK build.
 3. **H04:** document LAN/phone dev setup and restore `localhost` defaults.
 
-### Phase 1: Correctness Fixes, No Owner Decisions Needed (2–3 days)
+### Phase 1: Correctness Fixes, No Owner Decisions Needed (2–3 days). **Done 2 Nov 2026**
+
+On branch `phase1/financial-correctness` (6 commits; based on the Phase 0
+branch). H05, H06, H09 (payment TDS), H10, H12 and H13 are fixed. For H12, the
+prefix length was already enforced (5 characters, so `SALES/26-27/0001` is 16).
+H10 adds migration 0029 (`voucher_lines.exact_math`), so only new and edited
+lines change. Verified: typecheck/lint 7/7; core 58 tests (32 new); native 26;
+API 47/47 on fresh fixture DBs (run twice); finance acceptance 10/10; system
+acceptance 14/14 (170 HTTP requests, books reconcile).
 4. **H05:** Rule 88A set-off allocation, with table tests.
 5. **H06:** carry input credit forward on the GST screen, GSTR-3B and dashboard.
 6. **H10:** integer quantity × rate and percentage maths, with boundary tests (0.145, 0.086 × 1250 and so on).
@@ -255,7 +263,13 @@ Expo credentials.
 22. **O6, O7:** restore drill and capacity measurement.
 23. **O8, O9:** write the release record and close the advisory triage.
 
-### Decisions Needed from the Owner Before Phase 2
+### Owner Decisions (2 Nov 2026)
+- No-GSTIN suppliers: block GST on new purchases (done in Phase 1).
+- Costing: automatic FIFO with multi-lot lines and manual override (H14).
+- Build: GST on expenses (H08), composition tax entry (H07), editable bill date (H15).
+- Not wanted: TDS receivable on receipts (H09 part 2), special rates, exports/SEZ, reverse charge (H11).
+
+### Original Questions
 - **Costing method:** automatic FIFO (recommended), weighted average, or keep manual lot selection.
 - **Target businesses:** jewellery (3% rate), exporters/SEZ, or reverse-charge purchases?
 - **Expense GST and receipt TDS:** confirm both are wanted. Recommended for any B2B firm.
