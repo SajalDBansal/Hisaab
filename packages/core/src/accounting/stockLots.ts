@@ -40,6 +40,7 @@ function consumeStock(
   line: InvoiceLine,
   scope: BookScope,
   lotId?: string,
+  purchaseReturn = false,
 ) {
   let left = baseQty(line);
   const used: StockAllocation[] = [];
@@ -55,12 +56,15 @@ function consumeStock(
   };
   for (const lot of candidates) {
     const qty = lotId ? left : Math.min(left, lot.qty);
+    // Depleting returns release all carrying cost; issued sale and partial-return costs stay frozen.
     const cost =
-      line.stockCost !== undefined && lotId
-        ? line.stockCost
-        : qty === lot.qty
-          ? lot.value
-          : Math.round(qty * lot.unitCost);
+      purchaseReturn && qty === lot.qty
+        ? lot.value
+        : line.stockCost !== undefined && lotId
+          ? line.stockCost
+          : qty === lot.qty
+            ? lot.value
+            : Math.round(qty * lot.unitCost);
     take(lot, qty, cost);
     if (left <= 0) break;
   }
@@ -97,7 +101,8 @@ function restoreStock(
   for (const allocation of restored) {
     allocation.lot.qty = quantity(allocation.lot.qty + allocation.qty);
     allocation.lot.value += allocation.cost;
-    if (allocation.lot.qty > 0) allocation.lot.unitCost = allocation.lot.value / allocation.lot.qty;
+    if (allocation.lot.qty > 0)
+      allocation.lot.unitCost = allocation.lot.value / allocation.lot.qty;
   }
   return restored.reduce((sum, allocation) => sum + allocation.cost, 0);
 }
@@ -112,26 +117,28 @@ export function stockLots(
   const openingScope =
     item.openingBookScope ?? (item.taxType === "nongst" ? "nongst" : "gst");
   const openingCost = item.openingCost ?? item.purchasePrice;
-  const lots: StockLot[] = item.openingLots?.length ? item.openingLots.map((lot) => ({
-    ...lot,
-    itemId: item.id,
-    number: "Opening stock",
-    date: "0001-01-01",
-    value: Math.round(lot.qty * lot.unitCost),
-    minimumQty: lot.qty,
-  })) : [
-    {
-      id: `opening:${item.id}`,
-      itemId: item.id,
-      number: "Opening stock",
-      date: "0001-01-01",
-      bookScope: openingScope,
-      qty: item.openingStock,
-      value: Math.round(item.openingStock * openingCost),
-      unitCost: openingCost,
-      minimumQty: item.openingStock,
-    },
-  ];
+  const lots: StockLot[] = item.openingLots?.length
+    ? item.openingLots.map((lot) => ({
+        ...lot,
+        itemId: item.id,
+        number: "Opening stock",
+        date: "0001-01-01",
+        value: Math.round(lot.qty * lot.unitCost),
+        minimumQty: lot.qty,
+      }))
+    : [
+        {
+          id: `opening:${item.id}`,
+          itemId: item.id,
+          number: "Opening stock",
+          date: "0001-01-01",
+          bookScope: openingScope,
+          qty: item.openingStock,
+          value: Math.round(item.openingStock * openingCost),
+          unitCost: openingCost,
+          minimumQty: item.openingStock,
+        },
+      ];
   const rows = (asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers)
     .filter((v) => v.status === "posted")
     .sort(
@@ -157,7 +164,8 @@ export function stockLots(
     const outward =
       v.type === "sale" ||
       v.type === "debit-note" ||
-      (v.type === "delivery-note" && (!v.convertedToId || v.fulfillmentManaged));
+      (v.type === "delivery-note" &&
+        (!v.convertedToId || v.fulfillmentManaged));
     if (!inward && !outward && v.type !== "credit-note") continue;
     for (const [index, line] of (v.lines ?? []).entries()) {
       if (line.itemId !== item.id) continue;
@@ -204,7 +212,13 @@ export function stockLots(
         costs?.set(`${v.id}:${index}`, cost);
         continue;
       }
-      const used = consumeStock(lots, line, scope, lotId);
+      const used = consumeStock(
+        lots,
+        line,
+        scope,
+        lotId,
+        v.type === "debit-note",
+      );
       consumed.set(`${v.id}:${index}`, used);
       costs?.set(
         `${v.id}:${index}`,

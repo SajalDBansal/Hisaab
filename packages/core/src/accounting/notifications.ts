@@ -70,6 +70,7 @@ export function buildNotices(input: {
   items: Item[];
   vouchers: Voucher[];
   reminders: ReminderDue[];
+  /** Legacy export-preparation time; not proof of a saved or tested backup. */
   lastBackupAt?: string;
   today: ISODate;
 }): Notice[] {
@@ -163,21 +164,21 @@ export function buildNotices(input: {
     });
   }
 
-  const backupAge = input.lastBackupAt
-    ? daysBetween(input.lastBackupAt.slice(0, 10), today)
-    : Infinity;
-  if (backupAge > 7)
-    out.push({
-      id: `backup:${input.lastBackupAt ?? "never"}`,
-      kind: "backup",
-      title: input.lastBackupAt
-        ? `Last backup was ${backupAge} days ago`
-        : "Your books have never been backed up",
-      body: "Save a backup file to keep your data safe.",
-      date: today,
-      tone: "ink",
-      link: { screen: "backup" },
-    });
+  // Export preparation cannot verify recovery, even when the export is recent.
+  out.push({
+    // Keep existing read-state keys; "never" is only a legacy identifier.
+    id: `backup:${input.lastBackupAt ?? "never"}`,
+    kind: "backup",
+    title: "Backup status is unverified",
+    body:
+      (input.lastBackupAt
+        ? `An export was prepared on ${formatDate(input.lastBackupAt.slice(0, 10))}. This does not confirm a saved or tested backup. `
+        : "Last export preparation time is unknown. ") +
+      "Open Books export and recovery to save an export and review manual recovery.",
+    date: today,
+    tone: "ink",
+    link: { screen: "backup" },
+  });
 
   return out;
 }

@@ -95,8 +95,18 @@ const InputInvoiceLine = z
     message: "Use either a percentage or an amount for the discount, not both.",
   });
 
-// Fulfillment metadata is output-only; callers cannot claim that stock already moved.
+export const ReturnAmounts = z.object({
+  taxable: NonNegativePaise,
+  discount: NonNegativePaise,
+  cgst: NonNegativePaise,
+  sgst: NonNegativePaise,
+  igst: NonNegativePaise,
+  roundOff: Paise,
+});
+
+// Calculated amounts and fulfillment metadata are output-only.
 export const InvoiceLine = InputInvoiceLine.safeExtend({
+  returnAmounts: ReturnAmounts.optional(),
   orderLineId: Id.optional(),
   orderSourceLineId: Id.optional(),
   stockFulfilledById: Id.optional(),
@@ -417,6 +427,12 @@ export const ReturnableBill = z.object({
       returned: z.number(),
       returnable: z.number(),
       rate: Paise,
+      amountBasis: z.object({
+        qty: Quantity,
+        returnedQty: Quantity,
+        original: ReturnAmounts,
+        returned: ReturnAmounts,
+      }),
     }),
   ),
 });

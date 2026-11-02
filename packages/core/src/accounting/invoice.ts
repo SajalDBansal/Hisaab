@@ -40,9 +40,9 @@ export interface InvoiceTotals {
   tax: Paise;
   /** Before rounding to the nearest rupee. */
   totalBeforeRound: Paise;
-  /** Added to reach a whole rupee; between −50 and +50 paise. */
+  /** Invoice rupee rounding, or the original rounding allocated to a return. */
   roundOff: Paise;
-  /** What the customer pays. Always a whole rupee. */
+  /** Invoice total in whole rupees; cumulative returns may include paise. */
   grandTotal: Paise;
   /** Tax summary per GST rate, for the invoice footer and GSTR-1. */
   byRate: RateBreakup[];
@@ -59,6 +59,20 @@ export function calcTax(taxable: Paise, rate: GstRate, interState: boolean) {
 }
 
 export function calcLine(line: InvoiceLine, interState: boolean): LineTotals {
+  if (line.returnAmounts) {
+    const { taxable, discount, cgst, sgst, igst } = line.returnAmounts;
+    const tax = cgst + sgst + igst;
+    return {
+      gross: taxable + discount,
+      discount,
+      taxable,
+      cgst,
+      sgst,
+      igst,
+      tax,
+      total: taxable + tax,
+    };
+  }
   const gross = Math.round(line.qty * line.rate);
   let discount = 0;
   if (line.discountPercent)
@@ -124,7 +138,18 @@ export function calcInvoice(input: {
   const igst = sum("igst");
   const tax = cgst + sgst + igst;
   const totalBeforeRound = taxable + tax;
-  const grandTotal = roundToRupee(totalBeforeRound);
+  const savedReturn = input.lines.some((line) => line.returnAmounts);
+  if (
+    savedReturn &&
+    (chargeList.length || input.lines.some((line) => !line.returnAmounts))
+  )
+    throw new Error(
+      "Return amounts must cover every goods line without charges.",
+    );
+  const grandTotal = savedReturn
+    ? totalBeforeRound +
+      input.lines.reduce((sum, line) => sum + line.returnAmounts!.roundOff, 0)
+    : roundToRupee(totalBeforeRound);
 
   // Group tax by rate (items and charges together)
   const rates = [
