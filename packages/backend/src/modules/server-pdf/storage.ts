@@ -24,7 +24,13 @@ export function createPdfStorage(env: StorageConfig): PdfStorage {
   const bucket = env.R2_BUCKET || env.S3_BUCKET;
   const client = new S3Client({
     maxAttempts: 3,
-    requestHandler: { connectionTimeout: 5_000, requestTimeout: 30_000 },
+    // Abort stalled storage requests so a PDF job can retry instead of hanging.
+    requestHandler: {
+      connectionTimeout: 5_000,
+      requestTimeout: 30_000,
+      socketTimeout: 30_000,
+      throwOnRequestTimeout: true,
+    },
     region: env.R2_BUCKET ? "auto" : env.AWS_REGION,
     endpoint: env.R2_BUCKET
       ? env.R2_ENDPOINT ||

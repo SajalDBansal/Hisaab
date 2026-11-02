@@ -3,6 +3,7 @@ import type {
   CommissionSnapshot,
   DeliverySnapshot,
   InventoryAdjustment,
+  ReturnAmounts,
   VoucherSnapshot,
 } from "@repo/core";
 import {
@@ -203,6 +204,7 @@ export const voucherLines = pgTable(
     taxType: taxType("tax_type"),
     // Credit/debit notes: index of the returned line on the original bill
     sourceLine: smallint("source_line"),
+    returnAmounts: jsonb("return_amounts").$type<ReturnAmounts>(),
     stockLotId: text("stock_lot_id"),
     stockCost: bigint("stock_cost", { mode: "number" }),
     bookScope: bookScope("book_scope"),

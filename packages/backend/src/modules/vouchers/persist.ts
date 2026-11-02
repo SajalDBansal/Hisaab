@@ -6,7 +6,7 @@ import {
   today,
   type Voucher,
 } from "@repo/core";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "../../db/client";
 import { AppError } from "../../lib/app-error";
@@ -146,6 +146,43 @@ export async function saveChanges(
         : [v.date];
     }),
   );
+  const partyChanges = changed.flatMap((v) => {
+    const stored = snap.before.get(v.id);
+    if (!stored || v.type === "journal") return [];
+    const previous = JSON.parse(stored) as Voucher;
+    return previous.partyId !== v.partyId
+      ? [{ voucher: v, previousPartyId: ids.optional(previous.partyId) }]
+      : [];
+  });
+  if (partyChanges.length) {
+    // Match the upload writer's lock before any write takes the sync cursor lock.
+    // Otherwise a concurrent reservation can copy the old party after this update.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`documents:${firmId}`}, 0))`,
+    );
+    for (const { voucher: v, previousPartyId } of partyChanges) {
+      const { documents } = schema;
+      await tx
+        .update(documents)
+        .set({
+          partyId: ids.optional(v.partyId),
+          version: sql`${documents.version} + 1`,
+          // Relinking must not renew a pending upload's quota reservation.
+          updatedAt: sql`case when ${documents.readyAt} is null then ${documents.updatedAt} else now() end`,
+        })
+        .where(
+          and(
+            eq(documents.firmId, firmId),
+            eq(documents.voucherId, ids.uuid(v.id)),
+            isNull(documents.deletedAt),
+            // Only the copied link follows the voucher; explicit links stay put.
+            previousPartyId
+              ? eq(documents.partyId, previousPartyId)
+              : isNull(documents.partyId),
+          ),
+        );
+    }
+  }
   // Lot identities must also remain unique across API processes and restarts.
   const newLots = new Map(
     created
@@ -255,6 +292,7 @@ export async function saveChanges(
           gstRate: l.gstRate,
           taxType: l.taxType ?? null,
           sourceLine: l.sourceLine ?? null,
+          returnAmounts: l.returnAmounts ?? null,
           stockLotId: l.stockLotId ?? null,
           stockCost: l.stockCost ?? null,
           bookScope: l.bookScope ?? null,
