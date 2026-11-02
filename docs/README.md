@@ -49,7 +49,7 @@ and Redis; local/prod files run the applications with their respective settings.
 | ----- | --------------------------------------------------------- | ------------------------------------------------------------ |
 | 15    | [Documents and attachments](15-document-storage.md)       | Entry images, document organization and access               |
 | 16    | [Storage setup](16-document-storage-setup.md)             | Private R2 configuration, permissions, limits and thumbnails |
-| 17    | [Offline books](17-offline-books.md)                      | Cached reads, pending saves, access limits and reconnect     |
+| 17    | [Offline books](17-offline-books.md)                      | View-only offline reading, downloads and access limits       |
 | 18    | [Attachment recovery](18-attachment-recovery.md)          | Staged files, failed transfers, retries and retention        |
 | 19    | [Firm export and recovery](19-backup-recovery.md)         | Financial JSON exports and recovery into a new firm          |
 | 20    | [Manual recovery responsibilities](20-manual-recovery.md) | Full database/file backups and controlled reconnection       |
@@ -79,6 +79,7 @@ define the latest repairs and backup/migration work.
 | 30    | [PostgreSQL backup and EC2 migration](30-postgres-r2-backup-and-ec2-migration.md) | Daily latest-only R2 backup setup, controlled restores and moving to another EC2/account |
 | 31    | [Implementation and verification](31-implementation-and-verification.md) | Current A01-A16/B01-B06 repair status, integrated acceptance evidence and owner actions |
 | 32    | [Production polish audit and work plan](32-production-polish-audit-and-work-plan.md) | Independent re-verification, H01-H18 findings (release, GST/TDS, costing, scale) and the ordered plan to production |
+| 33    | [Offline viewing, access control and real-time design](33-offline-rbac-realtime.md) | View-only offline flow and batched downloads, the RBAC model with findings, and the WebSocket layer design |
 
 ## How to Use These Guides
 
