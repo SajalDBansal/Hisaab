@@ -3,9 +3,12 @@ import {
   NewDocumentInput as DocumentInput,
   StoredDocument,
   UploadTicket,
+  newRequestId,
+  RecoveryEpoch,
 } from "@repo/contracts";
 import type { DocumentFile, NewDocumentInput } from "@repo/core";
 import { AttachmentDraft, AttachmentFileInfo } from "./attachmentDraftModel";
+import { serverRecovery, assertRecoveryEpoch } from "./recoveryEpoch";
 
 export const AttachmentScope = z.object({
   userId: z.string().min(1),
@@ -26,7 +29,7 @@ export const attachmentOwnedBy = (
   owner: AttachmentOwner,
 ) => scope.userId === owner.userId && scope.firmId === owner.firmId;
 
-// The server currently purges shared keys after seven days. Leave a day of margin.
+// Reconcile old reservations before retrying; historical answers may have expired.
 export const attachmentReservationRetryMs = 6 * 24 * 60 * 60 * 1000;
 export function attachmentReservationProblem(
   record: AttachmentRecord,
@@ -57,6 +60,7 @@ export const AttachmentRecord = z.object({
   file: AttachmentFileInfo,
   draft: AttachmentDraft.optional(),
   bindingPending: z.boolean().optional(),
+  recoveryEpoch: RecoveryEpoch.optional(),
   draftOrigin: z
     .object({ operationId: z.uuid(), sourceId: z.uuid() })
     .optional(),
@@ -143,8 +147,9 @@ export async function attachmentLock<T>(key: string, work: () => Promise<T>) {
 
 export function createAttachmentQueue(
   storage: AttachmentStorage,
-  newId: () => string,
+  randomId: () => string,
 ) {
+  const newId = () => newRequestId(randomId());
   const assertScope = (scope: AttachmentScope) => {
     AttachmentScope.parse(scope);
     if (scope.userId === "signed-out")
@@ -214,6 +219,7 @@ export function createAttachmentQueue(
       },
       reserve: async () => {
         const saved = await read();
+        assertRecoveryEpoch(saved.recoveryEpoch);
         const problem = attachmentReservationProblem(saved);
         if (problem) throw new Error(problem);
         assertActive();
@@ -273,7 +279,11 @@ export function createAttachmentQueue(
         for (const record of records.sort((a, b) => a.order - b.order)) {
           assertActive();
           if (record.bindingPending) continue;
-          if (record.completed) {
+          if (
+            record.completed &&
+            record.recoveryEpoch === serverRecovery.current() &&
+            !!record.recoveryEpoch
+          ) {
             await storage.remove(record).catch(() => {});
           } else files.push(await bind(record, assertActive));
         }
@@ -321,6 +331,7 @@ export function createAttachmentQueue(
             scope,
             file: details,
             reservation: {},
+            recoveryEpoch: serverRecovery.current(),
           });
           await storage.write(record, file);
           created.push(record);
@@ -416,6 +427,7 @@ export function createAttachmentQueue(
       // Save the receipt before cleanup, so a cleanup failure cannot create another document.
       await retry.complete(document);
       const record = await storage.read(retry.scope, retry.id);
+      assertRecoveryEpoch(record?.recoveryEpoch);
       if (record) await storage.remove(record).catch(() => {});
       storage.release(file);
     });
@@ -530,9 +542,43 @@ export function createAttachmentQueue(
         assertActive();
         const record = await storage.read(reference.scope, reference.id);
         assertActive();
-        if (record?.completed) await storage.remove(record);
+        if (record?.completed) {
+          assertRecoveryEpoch(record.recoveryEpoch);
+          await storage.remove(record);
+        }
       });
     }
+  }
+
+  async function recover(
+    owner: AttachmentOwner,
+    reference: AttachmentReference,
+    verify: (
+      record: AttachmentRecord,
+      epoch: string,
+    ) => Promise<Pick<AttachmentRecord, "progress" | "completed">>,
+    assertActive: () => void,
+  ) {
+    assertReference(owner, reference);
+    return storage.lock(attachmentScopeKey(reference.scope), async () => {
+      assertActive();
+      const record = await storage.read(reference.scope, reference.id);
+      const epoch = serverRecovery.current();
+      assertRecoveryEpoch(epoch);
+      if (!record || record.bindingPending || record.scope.target === "draft")
+        throw new Error(
+          "Finish the original financial draft's recovery first.",
+        );
+      const checked = await verify(record, epoch!);
+      assertActive();
+      assertRecoveryEpoch(epoch);
+      await storage.write({
+        ...record,
+        ...checked,
+        recoveryEpoch: epoch,
+        failure: undefined,
+      });
+    });
   }
 
   return {
@@ -545,6 +591,7 @@ export function createAttachmentQueue(
     open,
     discardMany,
     cleanupCompleted,
+    recover,
     release: storage.release,
   };
 }

@@ -5,6 +5,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useData } from "./DataProvider";
 import { scopedKey } from "./firmSelection";
 import type { Services } from "./services";
+import { createPendingForm } from "./pendingForm";
 
 export function useServiceQuery<T>(options: {
   queryKey: QueryKey;
@@ -49,6 +50,7 @@ export function useServiceMutation<T, V = void>(options: {
     auth.locked,
   ]);
   const current = useRef(scope);
+  const submit = useRef(createPendingForm());
   const mounted = useRef(true);
   current.current = scope;
   useEffect(() => {
@@ -67,7 +69,9 @@ export function useServiceMutation<T, V = void>(options: {
         (!firmId && !options.changesFirm)
       )
         throw new Error("Sign in, unlock and select a firm before saving.");
-      const result = await options.mutationFn(services, input);
+      const result = await submit.current(() =>
+        options.mutationFn(services, input),
+      );
       // A save may finish after switching firms or roles; never display its old-scope result.
       if (
         !options.changesFirm &&

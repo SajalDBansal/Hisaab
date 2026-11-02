@@ -1,6 +1,7 @@
 import { can, today } from "@repo/core";
 import type { Services } from "./services";
 import type { OfflineBooks } from "./offlineBooks";
+import { finalAccountsPeriod, REPORT_PERIODS } from "./reportPeriods";
 
 // Cache real API answers through the same transport used by forms. No optimistic
 // balances, synthetic voucher IDs or locally posted financial entries are produced.
@@ -59,12 +60,13 @@ export async function downloadOfflineBooks(
         await services.accountService.chart(tax);
         await services.accountService.trialBalance(tax);
         await services.accountService.finalAccounts(tax);
-        for (const period of [
-          "this-month",
-          "last-month",
-          "quarter",
-          "fy",
-        ] as const) {
+        for (const { key: period } of REPORT_PERIODS) {
+          const range = finalAccountsPeriod(period);
+          await services.accountService.finalAccounts(
+            tax,
+            range.from,
+            range.asOf,
+          );
           await services.reportService.tradeSummary("sale", period, tax);
           await services.reportService.tradeSummary("purchase", period, tax);
           await services.reportService.expenses(period, tax);

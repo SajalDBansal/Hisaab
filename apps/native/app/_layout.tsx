@@ -11,6 +11,8 @@ import { ToastHost, Screen, Txt, Button } from "@/components";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { DataProvider, useData } from "@/data/DataProvider";
 import { REQUIRE_LOGIN } from "@/auth/config";
+import { availableWithoutFirm } from "@/auth/accountRoutes";
+import { PrivacyBoundary } from "@/auth/PrivacyBoundary";
 
 /** Root of the app: data cache, safe areas, fonts and the screen stack. */
 export default function RootLayout() {
@@ -29,8 +31,10 @@ export default function RootLayout() {
         <DataProvider>
           <SafeAreaProvider>
             <StatusBar style="dark" />
-            <Routes />
-            <ToastHost />
+            <PrivacyBoundary>
+              <Routes />
+              <ToastHost />
+            </PrivacyBoundary>
           </SafeAreaProvider>
         </DataProvider>
       </AuthProvider>
@@ -40,7 +44,7 @@ export default function RootLayout() {
 
 const AUTH_ROUTES = ["login", "signup", "verify-email", "forgot-password"];
 
-/** The screen stack. Which screens exist depends on whether the person is logged in and unlocked. */
+/** Session changes remove screens; PIN locks only cover them so local drafts survive. */
 function Routes() {
   const { status, locked, askForPin } = useAuth();
   const data = useData();
@@ -50,13 +54,13 @@ function Routes() {
   const signedOut = status === "signedOut";
   const first = path[0];
   const onPinSetup = first === "settings" && path[1] === "pin";
+  const withoutFirm = availableWithoutFirm(path);
 
   // Safety net for screens that aren't listed below: send people to where they belong
   useEffect(() => {
     if (status === "loading") return;
     if (signedOut && !AUTH_ROUTES.includes(first ?? ""))
       router.replace("/login");
-    else if (signedIn && locked && first !== "lock") router.replace("/lock");
     else if (signedIn && !locked && askForPin && !onPinSetup)
       router.replace("/settings/pin?first=1");
     else if (
@@ -67,7 +71,7 @@ function Routes() {
       !data.loading &&
       !data.error &&
       !data.firmId &&
-      first !== "firms"
+      !withoutFirm
     )
       router.replace("/firms");
     else if (
@@ -84,23 +88,28 @@ function Routes() {
     signedOut,
     askForPin,
     onPinSetup,
+    withoutFirm,
     data.loading,
     data.error,
     data.firmId,
   ]);
 
   if (status === "loading") return null;
-  if (signedIn && !locked && data.loading)
+  if (signedIn && !locked && data.loading && !withoutFirm)
     return (
       <Screen>
         <Txt>Opening your firms...</Txt>
       </Screen>
     );
-  if (signedIn && !locked && data.error)
+  if (signedIn && !locked && data.error && !withoutFirm)
     return (
       <Screen>
         <Txt>{data.error.message}</Txt>
         <Button label="Retry" onPress={data.retry} />
+        <Button
+          label="Account and logout"
+          onPress={() => router.replace("/settings/account")}
+        />
       </Screen>
     );
   return (
@@ -111,7 +120,7 @@ function Routes() {
         contentStyle: { backgroundColor: colors.canvas },
       }}
     >
-      <Stack.Protected guard={signedIn && !locked}>
+      <Stack.Protected guard={signedIn}>
         <Stack.Screen name="(tabs)" />
         {/* The "+" button opens this as a see-through bottom sheet. */}
         <Stack.Screen
@@ -157,7 +166,7 @@ function Routes() {
         <Stack.Screen name="verify-email" />
         <Stack.Screen name="forgot-password" />
       </Stack.Protected>
-      <Stack.Protected guard={signedIn && locked}>
+      <Stack.Protected guard={signedIn}>
         <Stack.Screen name="lock" />
       </Stack.Protected>
     </Stack>

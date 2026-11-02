@@ -20,6 +20,7 @@ import { api } from "@/auth/api";
 import { useAuth } from "@/auth/AuthProvider";
 import { confirmAction } from "@/data/confirm";
 import { formatDateTime } from "@/data/format";
+import { useData } from "@/data/DataProvider";
 import { space } from "@/theme";
 
 const ROLE_LABEL = Object.fromEntries(
@@ -30,6 +31,7 @@ const ROLE_LABEL = Object.fromEntries(
 export default function AccountScreen() {
   const auth = useAuth();
   const queryClient = useQueryClient();
+  const { userId, services } = useData();
   const devices = useQuery({
     queryKey: ["me", "sessions"],
     queryFn: () => api<SessionInfo[]>("/v1/me/sessions"),
@@ -55,16 +57,29 @@ export default function AccountScreen() {
     enabled: signedIn,
   });
   const answer = useMutation({
-    mutationFn: (v: { id: string; accept: boolean }) =>
-      api(`/v1/me/invitations/${v.id}/${v.accept ? "accept" : "decline"}`, {
-        method: "POST",
-      }),
-    onSuccess: () =>
-      Promise.all([
+    mutationFn: async (v: { id: string; accept: boolean }) => {
+      if (v.accept)
+        return api<FirmSummary>(`/v1/me/invitations/${v.id}/accept`, {
+          method: "POST",
+        });
+      await api(`/v1/me/invitations/${v.id}/decline`, { method: "POST" });
+      return null;
+    },
+    onSuccess: async (firm) => {
+      await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["me", "invitations"] }),
         queryClient.invalidateQueries({ queryKey: ["me", "firms"] }),
-      ]),
-    onError: (e) => showError("Couldn't answer the invitation", e),
+        queryClient.invalidateQueries({ queryKey: ["firm-selection", userId] }),
+      ]);
+      if (firm) {
+        await services.firmService.switchTo(firm.id);
+        router.replace("/");
+      }
+    },
+    onError: (e) => {
+      void queryClient.invalidateQueries({ queryKey: ["me", "invitations"] });
+      showError("Couldn't answer the invitation", e);
+    },
   });
 
   const me = auth.me;
@@ -122,12 +137,14 @@ export default function AccountScreen() {
                 <Button
                   label="Decline"
                   size="sm"
+                  disabled={answer.isPending}
                   onPress={() => answer.mutate({ id: i.id, accept: false })}
                 />
                 <Button
                   label="Accept"
                   size="sm"
                   variant="primary"
+                  disabled={answer.isPending}
                   onPress={() => answer.mutate({ id: i.id, accept: true })}
                 />
               </View>

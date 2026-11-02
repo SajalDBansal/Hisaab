@@ -57,6 +57,8 @@ import {
   voucherTypeLabel,
 } from "@/data/labels";
 import { useVoucher } from "@/data/queries";
+import { useData } from "@/data/DataProvider";
+import { canManageVoucher } from "@/data/voucherAccess";
 import { colors, space } from "@/theme";
 import { formatDateTime } from "@/data/format";
 
@@ -65,6 +67,7 @@ export default function VoucherScreen() {
   // `also` is set when saving split a bill into GST goods and non-GST goods
   const { id, also } = useLocalSearchParams<{ id: string; also?: string }>();
   const voucher = useVoucher(id);
+  const { role } = useData();
   const other = useVoucher(also ?? "");
   const v = voucher.data?.voucher;
   const isInvoice = v?.type === "sale" || v?.type === "purchase";
@@ -92,7 +95,11 @@ export default function VoucherScreen() {
         />
       }
       footer={
-        v && isInvoice && v.status === "posted" && due > 0 ? (
+        v &&
+        isInvoice &&
+        canManageVoucher(role, v.type) &&
+        v.status === "posted" &&
+        due > 0 ? (
           <FooterBar>
             <View style={{ flex: 1 }}>
               <Money value={due} variant="heading" />
@@ -135,6 +142,11 @@ export default function VoucherScreen() {
 
 function VoucherBody({ d }: { d: VoucherDetail }) {
   const v = d.voucher;
+  const { role } = useData();
+  const canWrite = canManageVoucher(role, v.type);
+  const conversions = d.canConvertTo.filter((type) =>
+    canManageVoucher(role, type),
+  );
   const badge = voucherBadge(v);
   const isInvoice = v.type === "sale" || v.type === "purchase";
   const isNote = v.type === "credit-note" || v.type === "debit-note";
@@ -218,9 +230,9 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           </Txt>
         </Card>
       ) : null}
-      {isOrder && d.canConvertTo.length > 0 ? (
+      {isOrder && conversions.length > 0 ? (
         <View style={{ gap: space.sm }}>
-          {d.canConvertTo.map((t, i) => (
+          {conversions.map((t, i) => (
             <Button
               key={t}
               label={CONVERT_LABEL[t]}
@@ -228,15 +240,13 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
               variant={i === 0 ? "primary" : "secondary"}
               block
               onPress={() =>
-                router.push(
-                  `/order/fulfill?id=${v.id}&target=${t}` as Href,
-                )
+                router.push(`/order/fulfill?id=${v.id}&target=${t}` as Href)
               }
             />
           ))}
         </View>
       ) : null}
-      {v.status === "posted" ? (
+      {canWrite && v.status === "posted" ? (
         <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
           {isOrder && !v.convertedToId ? (
             <Button
@@ -557,7 +567,7 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         </Txt>
       ) : null}
 
-      <VoucherAttachments key={v.id} voucherId={v.id} />
+      <VoucherAttachments key={v.id} voucherId={v.id} canWrite={canWrite} />
       {isOrder ? null : <PostingTable rows={d.postings} />}
 
       <History entries={d.history} />

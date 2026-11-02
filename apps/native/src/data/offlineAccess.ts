@@ -1,9 +1,14 @@
-import { FirmListRow } from "@repo/contracts";
+import { FirmListRow, RecoveryEpoch } from "@repo/contracts";
+import { serverRecovery } from "./recoveryEpoch";
 import { z } from "zod";
 import { offlineKey } from "./offlineOperation";
 import type { OfflineStore } from "./offlineStore.types";
 
-const Grant = z.object({ verifiedAt: z.number(), rows: z.array(FirmListRow) });
+const Grant = z.object({
+  verifiedAt: z.number(),
+  rows: z.array(FirmListRow),
+  recoveryEpoch: RecoveryEpoch.optional(),
+});
 export const offlineAccessMaxAge = 24 * 60 * 60 * 1000;
 export const offlineLeaseActive = (expiresAt: number, now = Date.now()) =>
   now >= expiresAt - offlineAccessMaxAge && now < expiresAt;
@@ -17,6 +22,8 @@ export function createOfflineAccess(store: OfflineStore, now = Date.now) {
         "Connect once to verify this account's firms before using offline books.",
       );
     const grant = Grant.parse(JSON.parse(value));
+    // A successful newer server response revokes older offline memberships and balances.
+    serverRecovery.restore(grant.recoveryEpoch);
     if (
       now() < grant.verifiedAt ||
       now() - grant.verifiedAt >= offlineAccessMaxAge
@@ -47,6 +54,7 @@ export function createOfflineAccess(store: OfflineStore, now = Date.now) {
           JSON.stringify({
             verifiedAt: now(),
             rows: z.array(FirmListRow).parse(rows),
+            recoveryEpoch: serverRecovery.current(),
           }),
         );
       });

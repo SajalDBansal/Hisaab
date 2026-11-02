@@ -8,6 +8,7 @@ import {
   FooterBar,
   Header,
   KeyValue,
+  Notice,
   QueryView,
   Screen,
   TableRow,
@@ -25,15 +26,18 @@ const box = {
 };
 const inr = (p: number) => formatINR(p, { decimals: false });
 
-/** GSTR-1: every sale of the month, in the sections the GST portal asks for. */
+const summaryScope =
+  "Book summary of posted sales saved under Regular GST for the selected month. Includes nil-rated, exempt and non-GST items on those sales; excludes sales saved under Composition or No GST.";
+
+/** Monthly book summary of sales saved under Regular GST. */
 export default function Gstr1Screen() {
   const { month = "" } = useLocalSearchParams<{ month: string }>();
   const data = useGstr1(month);
 
   const share = async (g: Gstr1) => {
-    // Mock export: shares a text summary. The real app will download the portal JSON from the API.
     const text = [
-      `GSTR-1 · ${g.title}`,
+      `GSTR-1 book summary · ${g.title}`,
+      summaryScope,
       `Invoices: ${g.totals.invoices}`,
       `Taxable value: ${formatINR(g.totals.taxable)}`,
       `Tax: ${formatINR(g.totals.tax)}`,
@@ -48,7 +52,10 @@ export default function Gstr1Screen() {
   return (
     <Screen
       header={
-        <Header title="GSTR-1" subtitle={data.data?.title ?? "Sales details"} />
+        <Header
+          title="GSTR-1 summary"
+          subtitle={data.data?.title ?? "Sales book summary"}
+        />
       }
       onRefresh={() => data.refetch()}
       refreshing={data.isRefetching}
@@ -71,17 +78,20 @@ export default function Gstr1Screen() {
       }
     >
       <QueryView query={data}>
-        {(g) =>
-          g.totals.invoices === 0 ? (
-            <EmptyState
-              icon="file-text"
-              title="No sales this month"
-              message="File a nil GSTR-1 for this month."
-            />
-          ) : (
-            <Body g={g} />
-          )
-        }
+        {(g) => (
+          <>
+            <Notice tone="info" text={summaryScope} />
+            {g.totals.invoices === 0 ? (
+              <EmptyState
+                icon="file-text"
+                title="No matching sales recorded"
+                message={`There are no posted sales saved under Regular GST for ${g.title}.`}
+              />
+            ) : (
+              <Body g={g} />
+            )}
+          </>
+        )}
       </QueryView>
     </Screen>
   );

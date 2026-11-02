@@ -83,6 +83,14 @@ import { InvoiceAssociates } from "@/components/associates/InvoiceAssociates";
 import type { InvoiceAssociatesInput } from "@repo/contracts/src/associates";
 import { useApproveSaleCredit } from "@/data/settlementHooks";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
+import {
+  invoiceDrafts,
+  invoiceDraftItem,
+  invoiceDraftUnit,
+  invoiceDraftLine,
+  invoiceDraftCharges,
+  type LineDraft,
+} from "./invoiceDraft";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -156,32 +164,7 @@ const TEXT = {
   },
 } as const;
 
-/** One item row as typed by the user (text), converted to numbers for maths. */
-interface LineDraft {
-  stockLotId?: string;
-  key: number;
-  itemId: string;
-  qty: string;
-  rate: string;
-  discountPercent: string;
-  /** Quantity and rate are entered in the item's second unit (e.g. Box). */
-  inAlt: boolean;
-}
-
 type Paid = "none" | "partial" | "full";
-
-/** Line drafts from a saved bill, for editing it. */
-function draftsFrom(v: Voucher): LineDraft[] {
-  return (v.lines ?? []).map((l, i) => ({
-    key: i + 1,
-    stockLotId: l.stockLotId,
-    itemId: l.itemId,
-    qty: String(l.qty),
-    rate: (l.rate / 100).toFixed(2),
-    discountPercent: l.discountPercent ? String(l.discountPercent) : "",
-    inAlt: !!l.per,
-  }));
-}
 
 export function InvoiceForm({
   kind,
@@ -248,7 +231,7 @@ export function InvoiceForm({
     editing?.supplierInvoiceNo ?? "",
   );
   const [lines, setLines] = useState<LineDraft[]>(
-    prefill ? draftsFrom(prefill) : [],
+    prefill ? invoiceDrafts(prefill, !!editing) : [],
   );
   const editFreight = prefill?.charges?.find((c) => c.name === "Freight");
   const [freight, setFreight] = useState(
@@ -265,29 +248,23 @@ export function InvoiceForm({
   const partyDetail = useParty(partyId ?? "");
   const itemById = (id: string) =>
     items.data?.find((r) => r.item.id === id)?.item;
+  const itemFor = (line: LineDraft) =>
+    invoiceDraftItem(line.itemId, itemById(line.itemId), editing);
+  const savedParty = editing?.snapshot?.party;
+  const issuedParty =
+    savedParty && savedParty.id === partyId ? savedParty : party?.party;
+  const issuedFirm = editing?.snapshot?.firm ?? firm.data;
   const interState =
-    !!party && !!firm.data && party.party.stateCode !== firm.data.stateCode;
+    !!issuedParty &&
+    !!issuedFirm &&
+    issuedParty.stateCode !== issuedFirm.stateCode;
 
   // ---- Maths (pure functions from @repo/core) -----------------------------------
   const rawLines: InvoiceLine[] = lines.map((l) => {
-    const alt = itemById(l.itemId)?.altUnit;
-    const item = itemById(l.itemId);
     const lot = lotsFor(l.itemId).find((row) => row.id === l.stockLotId);
     const bookScope =
       side === "purchase" ? (withoutGst ? "nongst" : "gst") : lot?.bookScope;
-    const taxType =
-      bookScope === "nongst" ? "nongst" : item ? itemTaxType(item) : "taxable";
-    return {
-      stockLotId: l.stockLotId,
-      bookScope,
-      itemId: l.itemId,
-      qty: Number(l.qty) || 0,
-      rate: parseRupees(l.rate) ?? 0,
-      discountPercent: Number(l.discountPercent) || undefined,
-      gstRate: taxType === "taxable" ? (item?.gstRate ?? 0) : 0,
-      taxType,
-      per: l.inAlt && alt ? { unit: alt.name, factor: alt.factor } : undefined,
-    };
+    return invoiceDraftLine(l, itemFor(l), bookScope);
   });
   // Composition sales and firms without GST: no GST on the bill
   const invoiceLines = applyGstMode(rawLines, taxMode, side);
@@ -298,9 +275,7 @@ export function InvoiceForm({
       : invoiceLines.some((l) => l.bookScope !== "nongst"));
   const freightPaise = parseRupees(freight) ?? 0;
   const charges: ExtraCharge[] = applyGstMode(
-    freightPaise > 0
-      ? [{ name: "Freight", amount: freightPaise, gstRate: 18 as const }]
-      : [],
+    invoiceDraftCharges(freightPaise, prefill?.charges),
     carriesGst ? taxMode : "off",
     side,
   );
@@ -435,7 +410,7 @@ export function InvoiceForm({
    * The rate is converted so the line total stays the same: 12 Pcs × ₹195 ↔ 1 Box × ₹2,340.
    */
   const toggleAlt = (l: LineDraft, item: Item, inAlt: boolean) => {
-    const factor = item.altUnit?.factor ?? 1;
+    const factor = invoiceDraftUnit(l, item)?.factor ?? 1;
     const qty = Number(l.qty) || 0;
     const rate = parseRupees(l.rate) ?? 0;
     if (inAlt) {
@@ -745,7 +720,7 @@ export function InvoiceForm({
                 alignItems: "center",
               }}
             >
-              <Txt variant="small">State {party.party.stateCode}</Txt>
+              <Txt variant="small">State {issuedParty?.stateCode}</Txt>
               <Badge label={interState ? "IGST" : "CGST + SGST"} />
             </View>
           </View>
@@ -767,7 +742,8 @@ export function InvoiceForm({
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Items · {lines.length}</Txt>
         {lines.map((l, i) => {
-          const item = itemById(l.itemId);
+          const item = itemFor(l);
+          const alt = invoiceDraftUnit(l, item);
           const t = calcLine(invoiceLines[i], interState);
           return (
             <Card key={l.key} style={{ gap: space.sm }}>
@@ -787,10 +763,10 @@ export function InvoiceForm({
                   onPress={() => removeLine(l.key)}
                 />
               </View>
-              {item?.altUnit ? (
+              {item && alt ? (
                 <Checkbox
-                  label={`Enter quantity in ${item.altUnit.name}`}
-                  note={`1 ${item.altUnit.name} = ${item.altUnit.factor} ${item.unit}`}
+                  label={`Enter quantity in ${alt.unit}`}
+                  note={`1 ${alt.unit} = ${alt.factor} ${item.unit}`}
                   checked={l.inAlt}
                   onChange={(on) => toggleAlt(l, item, on)}
                 />
@@ -812,7 +788,7 @@ export function InvoiceForm({
               ) : null}
               <View style={{ flexDirection: "row", gap: space.sm }}>
                 <TextField
-                  label={`Qty (${l.inAlt && item?.altUnit ? item.altUnit.name : (item?.unit ?? "")})`}
+                  label={`Qty (${l.inAlt && alt ? alt.unit : (item?.unit ?? "")})`}
                   value={l.qty}
                   keyboardType="decimal-pad"
                   onChangeText={(qty) =>
@@ -820,33 +796,37 @@ export function InvoiceForm({
                   }
                 />
                 <AmountField
-                  label={
-                    l.inAlt && item?.altUnit
-                      ? `Rate ₹ / ${item.altUnit.name}`
-                      : "Rate ₹"
-                  }
+                  label={l.inAlt && alt ? `Rate ₹ / ${alt.unit}` : "Rate ₹"}
                   value={l.rate}
                   onChangeText={(rate) => updateLine(l.key, { rate })}
                 />
-                <TextField
-                  label="Disc %"
-                  value={l.discountPercent}
-                  keyboardType="decimal-pad"
-                  onChangeText={(d) =>
-                    updateLine(l.key, {
-                      discountPercent: d.replace(/[^0-9.]/g, ""),
-                    })
-                  }
-                />
+                {l.discountAmount !== undefined ? (
+                  <AmountField
+                    label="Discount ₹"
+                    value={l.discountAmount}
+                    onChangeText={(discountAmount) =>
+                      updateLine(l.key, { discountAmount })
+                    }
+                  />
+                ) : (
+                  <TextField
+                    label="Disc %"
+                    value={l.discountPercent}
+                    keyboardType="decimal-pad"
+                    onChangeText={(d) =>
+                      updateLine(l.key, {
+                        discountPercent: d.replace(/[^0-9.]/g, ""),
+                      })
+                    }
+                  />
+                )}
               </View>
-              {l.inAlt && item?.altUnit ? (
+              {l.inAlt && item && alt ? (
                 <Txt variant="caption" tone="body" num>
                   {lineQtyText(invoiceLines[i], item.unit).main} ={" "}
                   {lineQtyText(invoiceLines[i], item.unit).base} ·{" "}
                   {formatINR(
-                    Math.round(
-                      (parseRupees(l.rate) ?? 0) / item.altUnit.factor,
-                    ),
+                    Math.round((parseRupees(l.rate) ?? 0) / alt.factor),
                   )}{" "}
                   per {item.unit}
                 </Txt>
@@ -864,7 +844,7 @@ export function InvoiceForm({
                   {!carriesGst
                     ? `${formatINR(t.taxable)}`
                     : invoiceLines[i].taxType === "taxable"
-                      ? `Taxable ${formatINR(t.taxable)} · GST ${item?.gstRate}% ${formatINR(t.tax)}`
+                      ? `Taxable ${formatINR(t.taxable)} · GST ${invoiceLines[i].gstRate}% ${formatINR(t.tax)}`
                       : `${taxTypeLabel(invoiceLines[i].taxType!)} · no GST`}
                 </Txt>
                 <Money

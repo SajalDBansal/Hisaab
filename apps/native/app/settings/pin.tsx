@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import {
   Button,
@@ -12,7 +12,6 @@ import {
   Screen,
   TextField,
   Txt,
-  showError,
 } from "@/components";
 import { useAuth } from "@/auth/AuthProvider";
 import {
@@ -44,13 +43,31 @@ export default function PinScreen() {
   const [pin, setNewPin] = useState("");
   const [again, setAgain] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const load = async () => {
-    setHas(await hasPin());
-    setSettings(await getPinSettings());
-    setCanBiometric(await biometricsAvailable());
-  };
-  useEffect(() => void load(), []);
+  const load = useCallback(async () => {
+    setHas(null);
+    setProblem(null);
+    try {
+      const configured = await hasPin();
+      const saved = configured
+        ? await getPinSettings()
+        : { lockAfterMinutes: 1, useBiometrics: false };
+      const available = await biometricsAvailable();
+      setSettings(saved);
+      setCanBiometric(available);
+      setHas(configured);
+      return true;
+    } catch {
+      setProblem(
+        "The PIN settings could not be read. Restore secure storage access and retry.",
+      );
+      return false;
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
   useEffect(() => {
     if (first) auth.clearAskForPin();
   }, [auth, first]);
@@ -69,41 +86,89 @@ export default function PinScreen() {
     setter(t.replace(/\D/g, ""));
 
   const save = async () => {
+    if (has === null || busy) return;
     setProblem(null);
-    if (has && (await checkPin(current)).result !== "ok")
-      return setProblem("The current PIN isn't right.");
     if (!isValidPin(pin)) return setProblem("The PIN should be 4 to 6 digits.");
     if (pin !== again) return setProblem("The two PINs don't match.");
+    setBusy(true);
     try {
+      if (!(await verifyCurrent())) return;
       await setPin(pin);
       setCurrent("");
       setNewPin("");
       setAgain("");
-      await load();
-      if (first) router.replace("/");
-    } catch (e) {
-      showError("Couldn't save the PIN", e);
+      if ((await load()) && first) router.replace("/");
+    } catch {
+      setHas(null);
+      setProblem(
+        "The PIN could not be saved. Retry loading its saved state before trying again.",
+      );
+    } finally {
+      setBusy(false);
     }
   };
 
   const remove = async () => {
+    if (has === null || busy) return;
     setProblem(null);
-    if ((await checkPin(current)).result !== "ok")
-      return setProblem("Enter the current PIN to remove it.");
-    await removePin();
-    setCurrent("");
-    await load();
+    setBusy(true);
+    try {
+      if (!(await verifyCurrent())) return;
+      await removePin();
+      setCurrent("");
+      await load();
+    } catch {
+      setHas(null);
+      setProblem(
+        "The PIN could not be removed. Retry loading its saved state before trying again.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const change = async (next: PinSettings) => {
-    setSettings(next);
-    await savePinSettings(next);
+    if (has === null || busy) return;
+    setProblem(null);
+    setBusy(true);
+    try {
+      await savePinSettings(next);
+      setSettings(next);
+    } catch {
+      setHas(null);
+      setProblem(
+        "The lock settings could not be saved. Retry loading their saved state before trying again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyCurrent = async () => {
+    // Re-read before any change; an unavailable initial read must never mean no PIN.
+    if (!(await hasPin())) {
+      if (has)
+        throw new Error("The saved PIN changed. Reload its saved state.");
+      return true;
+    }
+    const result = await checkPin(current);
+    if (result.result === "ok") return true;
+    if (result.result === "too-many")
+      await auth.endSession("Too many wrong PINs. Please log in again.");
+    setProblem("The current PIN isn't right.");
+    return false;
   };
 
   return (
     <Screen header={<Header title="App lock" subtitle="PIN for this phone" />}>
       <Card style={{ gap: space.md }}>
-        <Txt variant="heading">{has ? "Change your PIN" : "Set a PIN"}</Txt>
+        <Txt variant="heading">
+          {has === null
+            ? "Checking app lock"
+            : has
+              ? "Change your PIN"
+              : "Set a PIN"}
+        </Txt>
         <Txt variant="small" tone="body">
           The PIN keeps other people out of the app on this phone. It stays on
           the phone and is never sent to our servers. Five wrong tries log you
@@ -137,15 +202,31 @@ export default function PinScreen() {
           onSubmitEditing={save}
         />
         {problem ? <Notice text={problem} /> : null}
+        {has === null && problem ? (
+          <Button
+            label="Retry loading PIN settings"
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              try {
+                await load();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        ) : null}
         <Button
           label={has ? "Change PIN" : "Save PIN"}
           variant="primary"
+          disabled={has === null || busy}
           onPress={save}
         />
-        {first && !has ? (
+        {first && has === false ? (
           <Button
             label="Not now"
             variant="ghost"
+            disabled={busy}
             onPress={() => router.replace("/")}
           />
         ) : null}
@@ -177,7 +258,12 @@ export default function PinScreen() {
           ) : null}
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <Button label="Lock now" onPress={auth.lockNow} />
-            <Button label="Remove PIN" variant="danger" onPress={remove} />
+            <Button
+              label="Remove PIN"
+              variant="danger"
+              disabled={busy}
+              onPress={remove}
+            />
           </View>
           <Txt variant="caption" tone="body">
             To remove the PIN, type the current PIN above first.

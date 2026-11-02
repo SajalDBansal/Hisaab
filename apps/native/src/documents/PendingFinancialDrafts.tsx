@@ -138,7 +138,7 @@ export function PendingFinancialDrafts({
                   body: record.draft.body,
                   role: record.draft.role,
                   legacy:
-                    record.draft.receiptProtocol !== "operations-v1" &&
+                    !record.draft.receiptProtocol &&
                     record.draft.firstAttemptAt !== undefined,
                 })
             : undefined,

@@ -1,4 +1,14 @@
 import { z } from "zod";
+import {
+  RECOVERY_EPOCH_HEADER,
+  RECOVERY_REQUIRED,
+  RecoveryEpoch,
+} from "@repo/contracts";
+import {
+  serverRecovery,
+  recoveryRequired,
+  recoveryMessage,
+} from "./recoveryEpoch";
 import { associatePayloadForRead } from "@repo/core/src/accounting/associates";
 import type { RequestOptions, Transport } from "./client";
 import type { OfflineStore } from "./offlineStore.types";
@@ -29,6 +39,7 @@ export const OutboxEntry = z.object({
     "committed",
     "cancelled",
     "superseded",
+    "retained",
   ]),
   firstAttemptAt: z.number().optional(),
   result: OperationResult.optional(),
@@ -37,12 +48,27 @@ export const OutboxEntry = z.object({
   sourceKey: z.string().optional(),
   attachmentDraft: z.boolean().optional(),
   pendingStorageKey: z.string().optional(),
+  recoveryEpoch: RecoveryEpoch.optional(),
+  recoveryReview: z
+    .object({ epoch: RecoveryEpoch, note: z.string(), at: z.number() })
+    .optional(),
+  recoveryLookup: z
+    .object({ epoch: RecoveryEpoch, result: OperationResult })
+    .optional(),
 });
 export type OutboxEntry = z.infer<typeof OutboxEntry>;
 const Journal = z.object({
   version: z.literal(1),
   scope: OfflineScope,
   entries: z.array(OutboxEntry),
+  recoveryEpoch: RecoveryEpoch.optional(),
+  quarantine: z
+    .object({
+      previous: RecoveryEpoch.optional(),
+      current: RecoveryEpoch,
+      detectedAt: z.number(),
+    })
+    .optional(),
 });
 const ReadCache = z.object({
   reads: z.record(
@@ -50,9 +76,10 @@ const ReadCache = z.object({
     z.object({ at: z.number(), response: z.unknown() }),
   ),
   downloadedAt: z.number().optional(),
+  recoveryEpoch: RecoveryEpoch.optional(),
 });
 const terminal = (entry: OutboxEntry) =>
-  ["committed", "cancelled", "superseded"].includes(entry.state);
+  ["committed", "cancelled", "superseded", "retained"].includes(entry.state);
 const errorText = (error: unknown) =>
   error instanceof Error
     ? error.message
@@ -90,6 +117,7 @@ export type OfflineStatus = {
   error: string;
   downloadedAt?: number;
   cachedAt?: number;
+  quarantine?: z.infer<typeof Journal>["quarantine"];
 };
 export type OfflineBooks = ReturnType<typeof createOfflineBooks>;
 export function createOfflineBooks(deps: {
@@ -102,9 +130,11 @@ export function createOfflineBooks(deps: {
   confirmed?(entry: OutboxEntry): Promise<void>;
   now?: () => number;
   beforeExecute?(entry: OutboxEntry): Promise<void>;
+  recoveryEpoch?: () => string | undefined;
 }) {
   const { scope, store, assertActive } = deps;
   const now = deps.now ?? Date.now;
+  const currentEpoch = deps.recoveryEpoch ?? serverRecovery.current;
   const journalKey = offlineKey(scope, "outbox"),
     cacheKey = offlineKey(scope, "reads");
   const listeners = new Set<() => void>();
@@ -131,7 +161,7 @@ export function createOfflineBooks(deps: {
   async function journal() {
     active();
     const saved = await store.get(journalKey);
-    const result = saved
+    const result: z.infer<typeof Journal> = saved
       ? Journal.parse(JSON.parse(saved))
       : { version: 1 as const, scope, entries: [] };
     if (JSON.stringify(result.scope) !== JSON.stringify(scope))
@@ -146,7 +176,10 @@ export function createOfflineBooks(deps: {
     await store.set(journalKey, JSON.stringify(value));
     try {
       active();
-      notify({ entries: immutable(value.entries) });
+      notify({
+        entries: immutable(value.entries),
+        quarantine: value.quarantine,
+      });
     } catch {
       /* Original scope stays retained, never displayed in the new scope. */
     }
@@ -155,9 +188,39 @@ export function createOfflineBooks(deps: {
     active();
     const value = await store.get(cacheKey);
     active();
-    return value
-      ? associatePayloadForRead(scope.role, ReadCache.parse(JSON.parse(value)))
-      : { reads: {} };
+    const parsed = value ? ReadCache.parse(JSON.parse(value)) : undefined;
+    if (
+      parsed &&
+      (!currentEpoch() || parsed.recoveryEpoch !== currentEpoch())
+    ) {
+      await store.remove(cacheKey);
+      notify({ cachedAt: undefined, downloadedAt: undefined });
+      return { reads: {}, recoveryEpoch: currentEpoch() };
+    }
+    return parsed
+      ? associatePayloadForRead(scope.role, parsed)
+      : { reads: {}, recoveryEpoch: currentEpoch() };
+  }
+  async function bindEpoch(value: z.infer<typeof Journal>) {
+    const epoch = currentEpoch();
+    if (!epoch) throw recoveryRequired();
+    if (!value.recoveryEpoch && !value.entries.length)
+      value.recoveryEpoch = epoch;
+    const unreviewed = value.entries.some(
+      (entry) =>
+        entry.recoveryEpoch !== epoch && entry.recoveryReview?.epoch !== epoch,
+    );
+    if (value.recoveryEpoch !== epoch || value.quarantine || unreviewed) {
+      value.quarantine = {
+        previous: value.recoveryEpoch,
+        current: epoch,
+        detectedAt: value.quarantine?.detectedAt ?? now(),
+      };
+      await save(value);
+      notify({ error: recoveryMessage });
+      throw recoveryRequired();
+    }
+    return epoch;
   }
   async function revoke() {
     revoked = true;
@@ -170,12 +233,18 @@ export function createOfflineBooks(deps: {
       cachedAt: undefined,
     });
   }
-  async function verify() {
+  async function verify(checkRecovery = true) {
     assertActive();
     try {
       await deps.verifyAccess();
       revoked = false;
       active();
+      if (checkRecovery)
+        await store.lock(journalKey, async () => {
+          const value = await journal();
+          await bindEpoch(value);
+          await save(value);
+        });
     } catch (error) {
       if ([401, 403].includes((error as { status?: number }).status ?? -1))
         await revoke();
@@ -191,6 +260,7 @@ export function createOfflineBooks(deps: {
       notify({
         entries: immutable(value.entries),
         downloadedAt: reads.downloadedAt,
+        quarantine: value.quarantine,
       });
     } catch (error) {
       notify({ error: errorText(error) });
@@ -205,11 +275,13 @@ export function createOfflineBooks(deps: {
   ) {
     return store.lock(journalKey, async () => {
       const value = await journal();
+      const recoveryEpoch = await bindEpoch(value);
       const normalized = immutable(validateOperation(request));
       if (normalized.role !== scope.role)
         throw new Error("The original role changed.");
       const found = value.entries.find((entry) => entry.key === key);
       if (found) {
+        if (found.recoveryEpoch !== recoveryEpoch) throw recoveryRequired();
         if (requestIdentity(found.request) !== requestIdentity(normalized))
           throw new Error(
             "The original request key cannot be reused for edited values.",
@@ -233,6 +305,7 @@ export function createOfflineBooks(deps: {
         request: normalized,
         createdAt: now(),
         state: "queued",
+        recoveryEpoch,
         ...(attachmentDraft ? { attachmentDraft: true } : {}),
         ...(pendingStorageKey ? { pendingStorageKey } : {}),
       });
@@ -243,6 +316,8 @@ export function createOfflineBooks(deps: {
   }
   const request = async (entry: OutboxEntry, suffix: string) => {
     active();
+    if (!entry.recoveryEpoch || entry.recoveryEpoch !== currentEpoch())
+      throw recoveryRequired();
     return associatePayloadForRead(
       scope.role,
       validatedResult(
@@ -251,7 +326,10 @@ export function createOfflineBooks(deps: {
           `/v1/operations/${encodeURIComponent(entry.key)}${suffix}`,
           {
             method: "POST",
-            headers: { "x-firm-id": scope.firmId },
+            headers: {
+              "x-firm-id": scope.firmId,
+              [RECOVERY_EPOCH_HEADER]: entry.recoveryEpoch,
+            },
             body: entry.request,
           },
         ),
@@ -271,6 +349,7 @@ export function createOfflineBooks(deps: {
   };
   async function finish(entry: OutboxEntry) {
     if (entry.state !== "committed" && entry.state !== "cancelled") return;
+    if (entry.recoveryEpoch !== currentEpoch()) return;
     active();
     try {
       await deps.confirmed?.(immutable(entry));
@@ -299,6 +378,8 @@ export function createOfflineBooks(deps: {
               await save(value);
               result = await request(entry, "");
             }
+            if (entry.recoveryEpoch !== currentEpoch())
+              throw recoveryRequired();
             accept(entry, result);
             await save(value);
             active();
@@ -307,6 +388,7 @@ export function createOfflineBooks(deps: {
           } catch (error) {
             if (entry.state !== "committed") {
               entry.state =
+                (error as { code?: string }).code === RECOVERY_REQUIRED ||
                 networkFailure(error) ||
                 ((error as { status?: number }).status ?? 500) >= 500
                   ? entry.firstAttemptAt
@@ -315,6 +397,8 @@ export function createOfflineBooks(deps: {
                   : "blocked";
               entry.error = errorText(error);
               await save(value);
+              if ((error as { code?: string }).code === RECOVERY_REQUIRED)
+                await bindEpoch(value);
             }
             if (
               [401, 403].includes((error as { status?: number }).status ?? -1)
@@ -394,6 +478,7 @@ export function createOfflineBooks(deps: {
       const value = await journal(),
         index = value.entries.findIndex((item) => item.key === key),
         old = value.entries[index];
+      const recoveryEpoch = await bindEpoch(value);
       if (!old || old.state !== "conflict" || old.result?.state !== "conflict")
         throw new Error(
           "Only a definitively rejected operation can be replaced. Resolve its original answer first.",
@@ -414,6 +499,7 @@ export function createOfflineBooks(deps: {
         request,
         createdAt: now(),
         state: "queued" as const,
+        recoveryEpoch,
       };
       old.state = "superseded";
       old.replacedBy = replacement.key;
@@ -427,6 +513,7 @@ export function createOfflineBooks(deps: {
     const dismissed = await store.lock(journalKey, async () => {
       const value = await journal(),
         entry = value.entries.find((item) => item.key === key);
+      await bindEpoch(value);
       if (entry?.state !== "conflict" || entry.result?.state !== "conflict")
         throw new Error("The original result is not a confirmed rejection.");
       entry.state = "cancelled";
@@ -462,17 +549,122 @@ export function createOfflineBooks(deps: {
     }
   }
   async function lookupOriginal(key: string, input: OperationInput) {
-    await verify();
+    await verify(false);
+    const epoch = currentEpoch();
+    if (!epoch) throw recoveryRequired();
     const result = await deps.transport(
       `/v1/operations/${encodeURIComponent(key)}/lookup`,
       {
         method: "POST",
-        headers: { "x-firm-id": scope.firmId },
+        headers: { "x-firm-id": scope.firmId, [RECOVERY_EPOCH_HEADER]: epoch },
         body: input,
       },
     );
     active();
-    return associatePayloadForRead(scope.role, validatedResult(input, result));
+    if (epoch !== currentEpoch()) throw recoveryRequired();
+    const answer = associatePayloadForRead(
+      scope.role,
+      validatedResult(input, result),
+    );
+    if (answer.state === "committed")
+      await verifyRecoveredRows(input, answer.response, epoch);
+    return answer;
+  }
+  async function verifyRecoveredRows(
+    input: OperationInput,
+    response: unknown,
+    epoch: string,
+  ) {
+    const rows = Array.isArray(response) ? response : [response];
+    for (const row of rows) {
+      const id = (row as { id?: string } | null)?.id;
+      if (!id)
+        throw new Error(
+          "The saved answer has no record identity. Keep it for manual reconciliation.",
+        );
+      const category = input.path.split("/")[1];
+      const path =
+        category === "accounts"
+          ? "/v1/accounts/masters"
+          : ["parties", "items", "ledgers"].includes(category)
+            ? `/v1/${category}/${encodeURIComponent(id)}`
+            : `/v1/vouchers/${encodeURIComponent(id)}`;
+      const live = await deps.transport(path, {
+        headers: { "x-firm-id": scope.firmId, [RECOVERY_EPOCH_HEADER]: epoch },
+      });
+      const candidates = Array.isArray(live)
+        ? live
+        : [live, ...Object.values((live ?? {}) as Record<string, unknown>)];
+      if (
+        !candidates.some(
+          (value) =>
+            value &&
+            typeof value === "object" &&
+            (value as { id?: string }).id === id,
+        )
+      )
+        throw new Error(
+          "The original answer has no matching restored record. Keep the request and files for manual reconciliation.",
+        );
+      if (epoch !== currentEpoch()) throw recoveryRequired();
+    }
+  }
+  async function inspectRecovery(key: string) {
+    const entry = (await store.lock(journalKey, journal)).entries.find(
+      (row) => row.key === key,
+    );
+    if (!entry) throw new Error("The retained request was not found.");
+    const result = await lookupOriginal(key, entry.request);
+    const epoch = currentEpoch()!;
+    await store.lock(journalKey, async () => {
+      const value = await journal(),
+        saved = value.entries.find((row) => row.key === key);
+      if (!saved || epoch !== currentEpoch()) throw recoveryRequired();
+      saved.recoveryLookup = { epoch, result };
+      await save(value);
+    });
+  }
+  async function reviewRecovery(key: string, note: string) {
+    if (note.trim().length < 10)
+      throw new Error(
+        "Record what you checked and how any missing entry will be reconciled (at least 10 characters).",
+      );
+    await verify(false);
+    await store.lock(journalKey, async () => {
+      const value = await journal(),
+        entry = value.entries.find((row) => row.key === key),
+        epoch = currentEpoch();
+      if (
+        !value.quarantine ||
+        !entry ||
+        !epoch ||
+        entry.recoveryLookup?.epoch !== epoch
+      )
+        throw new Error(
+          "Check this original answer against the restored server first.",
+        );
+      // Review never posts an absent request, changes its identity, or replaces a known local success.
+      if (!terminal(entry)) entry.state = "retained";
+      entry.recoveryReview = { epoch, note: note.trim(), at: now() };
+      await save(value);
+    });
+  }
+  async function finishRecovery() {
+    await verify(false);
+    await store.lock(journalKey, async () => {
+      const value = await journal(),
+        epoch = currentEpoch();
+      if (!epoch || !value.quarantine) throw recoveryRequired();
+      if (value.entries.some((entry) => entry.recoveryReview?.epoch !== epoch))
+        throw new Error(
+          "Review every retained request, including completed history, before resuming new work.",
+        );
+      value.recoveryEpoch = epoch;
+      value.quarantine = undefined;
+      await save(value);
+      notify({ error: "" });
+    });
+    await clearReads();
   }
   const transport: Transport = async (path, options = {}) => {
     active();
@@ -517,6 +709,12 @@ export function createOfflineBooks(deps: {
           : undefined,
       );
     }
+    if (!["GET", "HEAD"].includes(method))
+      await store.lock(journalKey, async () => {
+        const value = await journal();
+        await bindEpoch(value);
+        await save(value);
+      });
     try {
       const response = associatePayloadForRead(
         scope.role,
@@ -590,6 +788,9 @@ export function createOfflineBooks(deps: {
     capture,
     revoke,
     lookupOriginal,
+    inspectRecovery,
+    reviewRecovery,
+    finishRecovery,
     subscribe: (listener: () => void) => {
       listeners.add(listener);
       return () => {

@@ -118,6 +118,12 @@ export default function FirmsScreen() {
         )}
       </QueryView>
 
+      <Button
+        label="Account and invitations"
+        icon="user"
+        onPress={() => router.push("/settings/account")}
+      />
+
       {adding ? (
         <AddFirm onCancel={() => setAdding(false)} />
       ) : (

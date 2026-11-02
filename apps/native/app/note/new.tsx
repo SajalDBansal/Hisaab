@@ -6,6 +6,7 @@ import {
   calcInvoice,
   formatDate,
   formatINR,
+  returnAmounts,
   today,
   type ReturnableBill,
 } from "@repo/core";
@@ -28,6 +29,7 @@ import {
   showError,
 } from "@/components";
 import { useCreateNote, useInvoices, useReturnable } from "@/data/queries";
+import { quantityInput } from "@/data/quantityInput";
 import { colors, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 import { AttachmentPicker } from "@/documents/AttachmentPicker";
@@ -150,24 +152,37 @@ function NoteForm({
   const chosen = data.lines
     .map((l) => ({ ...l, take: Number(qty[l.index] || "0") }))
     .filter((l) => l.take > 0);
-  // Same maths as the server: the bill's own lines with the returned quantity
-  const noteLines = chosen.map((l) => ({
-    ...bill.lines![l.index],
-    qty: l.take,
-  }));
+  let amountProblem: string | null = null;
+  const noteLines = chosen.flatMap((l) => {
+    try {
+      return [
+        {
+          ...bill.lines![l.index],
+          qty: l.take,
+          returnAmounts: returnAmounts(l.amountBasis, l.take),
+        },
+      ];
+    } catch (error) {
+      amountProblem =
+        error instanceof Error ? error.message : "Check the return quantity.";
+      return [];
+    }
+  });
   const totals = calcInvoice({
     lines: noteLines,
     interState: !!bill.interState,
   });
   const reasonText = reason === "Other" ? otherReason.trim() : reason;
   const over = chosen.find((l) => l.take > l.returnable);
-  const problem = over
-    ? `Only ${over.returnable} ${over.unit} of ${over.itemName} left to return.`
-    : !chosen.length
-      ? "Enter how many came back for at least one item."
-      : !reasonText
-        ? "Pick a reason."
-        : null;
+  const problem =
+    amountProblem ??
+    (over
+      ? `Only ${over.returnable} ${over.unit} of ${over.itemName} left to return.`
+      : !chosen.length
+        ? "Enter how many came back for at least one item."
+        : !reasonText
+          ? "Pick a reason."
+          : null);
 
   const save = async () => {
     setShowErrors(true);
@@ -270,9 +285,9 @@ function NoteForm({
                   label={`Qty returned (${l.unit})`}
                   value={qty[l.index] ?? ""}
                   onChangeText={(t) =>
-                    setQty({ ...qty, [l.index]: t.replace(/\D/g, "") })
+                    setQty({ ...qty, [l.index]: quantityInput(t) })
                   }
-                  keyboardType="number-pad"
+                  keyboardType="decimal-pad"
                   placeholder="0"
                   error={
                     Number(qty[l.index] || "0") > l.returnable
@@ -329,7 +344,7 @@ function NoteForm({
         ) : null}
       </View>
 
-      {chosen.length ? (
+      {chosen.length && !amountProblem ? (
         <Card style={{ gap: 0 }}>
           <KeyValue
             label={totals.tax ? "Taxable value" : "Value"}
@@ -349,6 +364,8 @@ function NoteForm({
         </Card>
       ) : null}
       <Txt variant="caption" tone="body" style={{ color: colors.body }}>
+        Goods only; freight and other charges are not refunded. Original bill
+        rounding is shared by value between goods and charges.{" "}
         {!gst.regular
           ? isCredit
             ? "Stock comes back in and the customer's balance goes down."

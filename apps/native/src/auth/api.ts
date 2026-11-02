@@ -3,22 +3,11 @@ import { API_URL } from "./config";
 import { PLATFORM, deviceName } from "./device";
 import { secretsSupported } from "./storage";
 import { sessionStore } from "./session";
-
-/** A failed call: `code` is the machine-readable reason ("ACTIVE_ELSEWHERE"), `message` is for the person. */
-export class ApiFailure extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details: Record<string, unknown> = {},
-  ) {
-    super(message);
-  }
-  /** True when the phone couldn't reach the server at all. */
-  get offline() {
-    return this.status === 0;
-  }
-}
+import { ApiFailure } from "./apiFailure";
+import { parseApiBody, requestApi } from "./apiRequest";
+import { RECOVERY_EPOCH_HEADER } from "@repo/contracts";
+import { serverRecovery, recoveryRequired } from "../data/recoveryEpoch";
+export { ApiFailure } from "./apiFailure";
 
 // Cookies from several Set-Cookie headers, reduced to "name=value; name2=value2"
 function cookieFromHeader(
@@ -53,11 +42,14 @@ export async function api<T>(
   } = {},
 ): Promise<T> {
   const revision = sessionStore.revision;
+  const generation = serverRecovery.snapshot();
+  const method = options.method ?? (options.body ? "POST" : "GET");
   const headers: Record<string, string> = {
     // The server rejects a JSON content type with no body, so only say it when there is one
     ...(options.body ? { "content-type": "application/json" } : {}),
     "x-platform": PLATFORM,
     "x-device-name": deviceName(),
+    ...(generation.value ? { [RECOVERY_EPOCH_HEADER]: generation.value } : {}),
     ...options.headers,
   };
   let stored: string | null = null;
@@ -68,22 +60,31 @@ export async function api<T>(
     headers["expo-origin"] = "hisaab://";
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: options.method ?? (options.body ? "POST" : "GET"),
+  const { response, text } = await requestApi(
+    `${API_URL}${path}`,
+    {
+      method,
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       // On the web the browser keeps the cookie; on a phone we do it ourselves
       credentials: Platform.OS === "web" ? "include" : "omit",
-    });
-  } catch {
-    throw new ApiFailure(
-      0,
-      "OFFLINE",
-      "Can't reach the server. Check your internet and try again.",
-    );
-  }
+    },
+    undefined,
+    undefined,
+    (reply) => {
+      const epoch = serverRecovery.observe(
+        reply.headers.get(RECOVERY_EPOCH_HEADER),
+        generation,
+      );
+      if (
+        path.startsWith("/v1/") &&
+        !["GET", "HEAD"].includes(method) &&
+        headers[RECOVERY_EPOCH_HEADER] &&
+        headers[RECOVERY_EPOCH_HEADER] !== epoch
+      )
+        throw recoveryRequired();
+    },
+  );
 
   if (secretsSupported) {
     const next = cookieFromHeader(response.headers.get("set-cookie"), stored);
@@ -92,8 +93,7 @@ export async function api<T>(
     }
   }
 
-  const text = await response.text();
-  const data = text ? safeJson(text) : null;
+  const data = parseApiBody(text, response.headers.get("content-type"));
   if (!response.ok) {
     // Our routes reply { error: { code, message } }; Better Auth replies { code, message }
     const body = (data && typeof data === "object" ? data : {}) as Record<
@@ -114,14 +114,6 @@ export async function api<T>(
     );
   }
   return data as T;
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 // Plain-language versions of the codes the server can send

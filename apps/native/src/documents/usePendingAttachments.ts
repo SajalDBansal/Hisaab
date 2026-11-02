@@ -3,6 +3,8 @@ import { useFocusEffect } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { useAuth } from "@/auth/AuthProvider";
 import { sessionStore } from "@/auth/session";
+import { api } from "@/auth/api";
+import { recoverUpload } from "@/data/recoverUpload";
 import { useData } from "@/data/DataProvider";
 import { useAddDocument } from "@/data/queries";
 import {
@@ -180,6 +182,16 @@ export function usePendingAttachments() {
       await queue.cleanupCompleted(owner, references, assertActive);
       return "Confirmed local copies cleaned up.";
     });
+  const recover = (reference: AttachmentReference) =>
+    execute(async () => {
+      await queue.recover(
+        owner,
+        reference,
+        (record, epoch) => recoverUpload(record, api, epoch),
+        assertActive,
+      );
+      return "Restored reservation checked. The local file is kept; retry its existing upload or clean the confirmed copy.";
+    });
   return {
     items: enabled && state.identity === identity ? state.items : [],
     enabled,
@@ -191,6 +203,7 @@ export function usePendingAttachments() {
     retry,
     discard,
     cleanup,
+    recover,
     assertActive,
   };
 }

@@ -4,6 +4,7 @@ import {
   Voucher,
   CustomAccount,
   LedgerRow,
+  RecoveryEpoch,
   type VoucherType,
 } from "@repo/contracts";
 import { can, type Permission } from "@repo/core";
@@ -44,7 +45,8 @@ export const AttachmentDraft = z.object({
   body: z.record(z.string(), z.unknown()),
   createdAt: z.number().int().nonnegative(),
   ready: z.boolean(),
-  receiptProtocol: z.literal("operations-v1").optional(),
+  receiptProtocol: z.enum(["operations-v1", "durable-retries-v1"]).optional(),
+  recoveryEpoch: RecoveryEpoch.optional(),
   cancelled: z.boolean().optional(),
   firstAttemptAt: z.number().int().nonnegative().optional(),
   binding: z.literal("all-returned-vouchers"),
@@ -116,7 +118,7 @@ export const financialAttachmentTypes: Partial<
   "/inventory/adjustments": "journal",
 };
 
-// The server's shared key retention is seven days. Never replay an expired unknown save.
+// Older drafts used a seven-day cache. Keep their unknown saves blocked after expiry.
 export const financialAttachmentReplayMs = 6 * 24 * 60 * 60 * 1000;
 export function attachmentDraftProblem(
   draft: AttachmentDraft,
@@ -128,7 +130,7 @@ export function attachmentDraftProblem(
   if (!draft.ready)
     return "Attachment preparation was interrupted. No financial request was sent. Discard this draft and select the files again.";
   if (
-    draft.receiptProtocol !== "operations-v1" &&
+    !draft.receiptProtocol &&
     draft.firstAttemptAt !== undefined &&
     (now < draft.firstAttemptAt ||
       now - draft.firstAttemptAt >= financialAttachmentReplayMs)
