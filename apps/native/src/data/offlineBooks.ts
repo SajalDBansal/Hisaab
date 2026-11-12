@@ -14,6 +14,7 @@ import {
   recoveryMessage,
 } from "./recoveryEpoch";
 import { associatePayloadForRead } from "@repo/core/src/accounting/associates";
+import { costPayloadForRead, type Role } from "@repo/core";
 import type { RequestOptions, Transport } from "./client";
 import type { OfflineStore } from "./offlineStore.types";
 import {
@@ -136,6 +137,12 @@ export function createOfflineBooks(deps: {
   recoveryEpoch?: () => string | undefined;
 }) {
   const { scope, store, assertActive } = deps;
+  /** What this role may see of a cached or fresh answer: no commission policies or purchase costs. */
+  const readable = <T>(value: T): T =>
+    costPayloadForRead(
+      scope.role as Role,
+      associatePayloadForRead(scope.role, value),
+    );
   const now = deps.now ?? Date.now;
   const currentEpoch = deps.recoveryEpoch ?? serverRecovery.current;
   const journalKey = offlineKey(scope, "outbox"),
@@ -204,7 +211,7 @@ export function createOfflineBooks(deps: {
       return { reads: {}, recoveryEpoch: currentEpoch() };
     }
     return parsed
-      ? associatePayloadForRead(scope.role, parsed)
+      ? readable(parsed)
       : { reads: {}, recoveryEpoch: currentEpoch() };
   }
   async function bindEpoch(value: z.infer<typeof Journal>) {
@@ -940,8 +947,7 @@ export function createOfflineBooks(deps: {
         method === "GET" &&
         cacheable(path) &&
         (options.headers?.["x-firm-id"] ?? scope.firmId) === scope.firmId;
-      const response = associatePayloadForRead(
-        scope.role,
+      const response = readable(
         batched
           ? await batchRead!(path)
           : await deps.transport(path, withoutOfflineHints(options)),

@@ -43,6 +43,7 @@ import {
   allocateStock,
   type BookScope,
   financialYear,
+  canSeeCosts,
 } from "@repo/core";
 import {
   AmountField,
@@ -217,6 +218,8 @@ export function InvoiceForm({
   const items = useItems();
   const ledgers = useLedgers();
   const { role } = useData();
+  // Sales staff bill at sale prices; purchase costs stay hidden from them.
+  const showCosts = canSeeCosts(role);
   // Selected stock determines the book category and whether two invoices are needed.
   const createSale = useCreateSales();
   const createPurchase = useCreatePurchase();
@@ -860,7 +863,7 @@ export function InvoiceForm({
                       (row) => row.id === l.stockLotId,
                     );
                     if (lot)
-                      return `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""} | Cost ${formatINR(Math.round(lot.unitCost))}`;
+                      return `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""}${showCosts ? ` | Cost ${formatINR(Math.round(lot.unitCost))}` : ""}`;
                     const used = parts.flatMap((part) => {
                       const from = lotsFor(l.itemId).find(
                         (row) => row.id === part.stockLotId,
@@ -1113,7 +1116,9 @@ export function InvoiceForm({
               id: lot.id,
               title: `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`,
               subtitle: `${lot.date === "0001-01-01" ? "Opening" : formatDate(lot.date)} | ${lot.qty} ${itemById(lot.itemId)?.unit ?? ""} available`,
-              right: <Money value={Math.round(lot.unitCost)} variant="small" />,
+              right: showCosts ? (
+                <Money value={Math.round(lot.unitCost)} variant="small" />
+              ) : undefined,
             })),
         ]}
       />

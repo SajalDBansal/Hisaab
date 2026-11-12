@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
 import {
   altQtyText,
+  canSeeCosts,
   formatINR,
   itemTaxType,
   taxTypeLabel,
@@ -23,6 +24,7 @@ import {
   TaxScopeFilter,
   Txt,
 } from "@/components";
+import { useData } from "@/data/DataProvider";
 import { useItems, useStockLots } from "@/data/queries";
 import { useReportScope } from "@/data/reportScope";
 import { colors, radius, space } from "@/theme";
@@ -120,6 +122,9 @@ function ItemList({
   setGroup: (g: string | null) => void;
 }) {
   const gst = useGstMode();
+  // Stock is valued at purchase cost, which sales staff don't see.
+  const { role } = useData();
+  const showCosts = canSeeCosts(role);
   const groups = useMemo(
     () => [...new Set(rows.map((r) => r.item.group))].sort(),
     [rows],
@@ -176,12 +181,18 @@ function ItemList({
           borderRadius: radius.card,
         }}
       >
+        {showCosts ? (
+          <Summary
+            label="Stock value"
+            value={formatINR(totalValue, { decimals: false })}
+            flex={1.4}
+          />
+        ) : null}
         <Summary
-          label="Stock value"
-          value={formatINR(totalValue, { decimals: false })}
-          flex={1.4}
+          label="Items"
+          value={String(scopedRows.length)}
+          divider={showCosts}
         />
-        <Summary label="Items" value={String(scopedRows.length)} divider />
         <Summary
           label="Low stock"
           value={String(lowCount)}
@@ -258,10 +269,12 @@ function ItemList({
                     {r.qty} {r.item.unit}
                   </Txt>
                   <Txt variant="caption" tone="body" num>
-                    {altQtyText(r.item, r.qty)
-                      ? `${altQtyText(r.item, r.qty)} · `
-                      : ""}
-                    {formatINR(r.value)}
+                    {[
+                      altQtyText(r.item, r.qty),
+                      showCosts ? formatINR(r.value) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </Txt>
                 </View>
               }

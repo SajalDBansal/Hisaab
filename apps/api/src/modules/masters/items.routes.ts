@@ -101,7 +101,9 @@ export async function itemRoutes(app: FastifyInstance, options: { db: Db }) {
     async (req, reply) =>
       reply
         .code(201)
-        .send(await itemsService.create(db, req.firm.id, req.body)),
+        .send(
+          await itemsService.create(db, req.firm.id, req.body, req.firm.role),
+        ),
   );
 
   typed.put(
@@ -117,6 +119,7 @@ export async function itemRoutes(app: FastifyInstance, options: { db: Db }) {
         req.params.id,
         expectedVersion(req.headers["if-match"]),
         req.body,
+        req.firm.role,
       ),
   );
 

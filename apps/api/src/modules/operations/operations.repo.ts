@@ -60,6 +60,7 @@ async function apply(
           id,
           expectedVersion,
           c.ItemInput.parse(body),
+          actor.role,
         );
       case "ledgers":
         return ledgersService.update(
@@ -148,7 +149,12 @@ async function apply(
         actor.role,
       );
     case "/items":
-      return itemsService.create(db, firmId, c.ItemInput.parse(body));
+      return itemsService.create(
+        db,
+        firmId,
+        c.ItemInput.parse(body),
+        actor.role,
+      );
   }
   throw new AppError(
     "UNSUPPORTED_OPERATION",
