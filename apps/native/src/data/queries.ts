@@ -513,6 +513,27 @@ export function useUpdateMember() {
   });
 }
 
+/** Hands the firm to another member; the caller's own role changes too. */
+export function useTransferOwnership() {
+  const client = useQueryClient();
+  const { userId } = useData();
+  return useMutation({
+    mutationFn: (
+      services,
+      input: {
+        memberId: string;
+        previousOwnerRole: Exclude<TeamMember["role"], "owner">;
+        confirmName: string;
+      },
+    ) => services.settingsService.transferOwnership(input),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ["firm-selection", userId] }),
+        client.invalidateQueries({ queryKey: ["books", userId] }),
+      ]),
+  });
+}
+
 export function useInviteMember() {
   const refreshAll = useRefreshAll();
   return useMutation({

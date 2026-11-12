@@ -159,6 +159,17 @@ export const Member = z.object({
 });
 export const MemberRoleInput = z.object({ role: AssignableRole });
 
+/**
+ * The owner hands the firm to another member. The owner's own new role is chosen
+ * (accountant by default); the firm name is typed to confirm.
+ */
+export const TransferOwnershipInput = z.object({
+  memberId: Id,
+  previousOwnerRole: AssignableRole.default("accountant"),
+  confirmName: z.string().trim().min(1, "Type the firm name to confirm."),
+});
+export type TransferOwnershipInput = z.infer<typeof TransferOwnershipInput>;
+
 export const InviteInput = z.object({
   email: Email,
   role: AssignableRole,

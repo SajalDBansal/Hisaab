@@ -34,11 +34,19 @@ export default function TeamScreen() {
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const me = team.data?.members.find((m) => m.id === team.data?.currentUserId);
   const canManage = !!me && can(me.role, "team");
+  const isOwner = me?.role === "owner";
 
-  const setRole = async (role: Role) => {
+  const setRole = async (role: Role | "transfer") => {
     if (!editing) return;
     const member = editing;
     setEditing(null);
+    if (role === "transfer") {
+      router.push({
+        pathname: "/settings/transfer",
+        params: { memberId: member.id },
+      });
+      return;
+    }
     try {
       await updateMember.mutateAsync({ id: member.id, patch: { role } });
     } catch (e) {
@@ -177,16 +185,27 @@ export default function TeamScreen() {
         visible={!!editing}
         title={editing ? `Role for ${editing.name}` : "Role"}
         onClose={() => setEditing(null)}
-        onSelect={(role) => setRole(role as Role)}
-        options={ROLES.filter((r) => r.role !== "owner").map((r) => ({
-          id: r.role,
-          title: r.label,
-          subtitle: r.note,
-          right:
-            editing?.role === r.role ? (
-              <Icon name="check" size={18} />
-            ) : undefined,
-        }))}
+        onSelect={(role) => setRole(role as Role | "transfer")}
+        options={[
+          ...ROLES.filter((r) => r.role !== "owner").map((r) => ({
+            id: r.role,
+            title: r.label,
+            subtitle: r.note,
+            right:
+              editing?.role === r.role ? (
+                <Icon name="check" size={18} />
+              ) : undefined,
+          })),
+          ...(isOwner
+            ? [
+                {
+                  id: "transfer",
+                  title: "Make owner",
+                  subtitle: "Hand over the firm. You pick your own new role.",
+                },
+              ]
+            : []),
+        ]}
       />
     </Screen>
   );

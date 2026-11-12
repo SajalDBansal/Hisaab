@@ -152,6 +152,7 @@ function Routes() {
           "settings/firm",
           "settings/invoice",
           "settings/invite",
+          "settings/transfer",
         ].map((name) => (
           <Stack.Screen
             key={name}

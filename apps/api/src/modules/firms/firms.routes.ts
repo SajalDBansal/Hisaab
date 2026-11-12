@@ -8,6 +8,7 @@ import {
   Member,
   MemberParams,
   MemberRoleInput,
+  TransferOwnershipInput,
   MyInvitation,
   NewFirmInput,
   IdParams,
@@ -17,6 +18,7 @@ import { and, asc, eq, gt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 import type { Auth } from "../../auth/auth";
 import { insertFirm } from "../../db/seedFirm";
@@ -312,6 +314,103 @@ export async function firmRoutes(
           headers: asCaller(req),
         }),
       );
+      return { ok: true as const };
+    },
+  );
+
+  // ---- Handing the firm to another member -----------------------------------
+
+  /**
+   * The owner makes another member the owner and takes the chosen role, in one
+   * transaction under the firm's write lock, so the firm always has exactly one
+   * owner. Saves still in flight under the old roles are refused afterwards,
+   * because every save rechecks its role. The change is kept in the firm's
+   * control history.
+   */
+  typed.post(
+    "/firms/current/transfer-ownership",
+    {
+      preHandler: app.inFirm("team"),
+      schema: {
+        body: TransferOwnershipInput,
+        response: { 200: z.object({ ok: z.literal(true) }) },
+      },
+    },
+    async (req) => {
+      const firmId = req.firm.id;
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${firmId}, 0))`,
+        );
+        const [firm] = await tx
+          .select({ name: schema.organization.name })
+          .from(schema.organization)
+          .where(eq(schema.organization.id, firmId));
+        const members = await tx
+          .select({
+            id: schema.member.id,
+            userId: schema.member.userId,
+            role: schema.member.role,
+          })
+          .from(schema.member)
+          .where(eq(schema.member.organizationId, firmId))
+          .for("update");
+        const caller = members.find((m) => m.userId === req.user.id);
+        if (caller?.role !== "owner")
+          throw new AppError(
+            "OWNER_ONLY",
+            "Only the owner can hand over the firm.",
+            403,
+          );
+        const target = members.find((m) => m.id === req.body.memberId);
+        if (!target)
+          throw new AppError(
+            "NOT_FOUND",
+            "That team member was not found.",
+            404,
+          );
+        if (target.id === caller.id)
+          throw new AppError(
+            "INVALID_INPUT",
+            "Pick another team member to hand the firm to.",
+            400,
+            { memberId: "Pick another team member." },
+          );
+        const typed = req.body.confirmName.trim().toLowerCase();
+        if (!firm || typed !== firm.name.trim().toLowerCase())
+          throw new AppError(
+            "INVALID_INPUT",
+            "Type the firm name exactly to confirm.",
+            400,
+            { confirmName: "Type the firm name exactly to confirm." },
+          );
+        const [newOwner] = await tx
+          .select({ name: schema.user.name })
+          .from(schema.user)
+          .where(eq(schema.user.id, target.userId));
+        await tx
+          .update(schema.member)
+          .set({ role: "owner" })
+          .where(eq(schema.member.id, target.id));
+        await tx
+          .update(schema.member)
+          .set({ role: req.body.previousOwnerRole })
+          .where(eq(schema.member.id, caller.id));
+        await tx.insert(schema.bookControlEvents).values({
+          id: uuidv7(),
+          firmId,
+          action: "transfer-ownership",
+          reason: `Ownership handed to ${newOwner?.name ?? "another member"}`,
+          userId: req.user.id,
+          userName: req.user.name,
+          before: { owner: caller.userId, newOwnerRole: target.role },
+          after: {
+            owner: target.userId,
+            previousOwnerRole: req.body.previousOwnerRole,
+          },
+        });
+      });
+      await app.bumpFirmVersion(firmId);
       return { ok: true as const };
     },
   );

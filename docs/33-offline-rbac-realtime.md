@@ -87,12 +87,12 @@ outsider at the same time, plus firm isolation (14/14 pass). The A01 test covers
 supplier writes over direct HTTP, operations and sync. The batch test checks that
 another account gets 403.
 
-Findings, needing owner decisions:
+Findings and what was decided:
 
-| # | Finding | Recommendation |
+| # | Finding | Outcome |
 | --- | --- | --- |
-| R1 | `GET /v1/items` and `/v1/items/stock-lots` are open to any member and include **purchase price, opening cost and lot cost**, so sales staff see buying costs (the sale form's lot picker shows "Cost ₹…"). The item detail route is correctly limited. | If sales staff shouldn't see costs: blank cost fields for roles without `purchase` or `reports`. FIFO selection still works on quantities. |
-| R2 | No ownership transfer exists, because the owner can't be changed. | Add an explicit, confirmed transfer flow if the firm may change hands. |
+| R1 | `GET /v1/items` and `/v1/items/stock-lots` were open to any member and included **purchase price, opening cost and lot cost**, so sales staff saw buying costs (the sale form's lot picker showed "Cost ₹…"). | **Done (12 Nov 2026).** Roles without `purchase` or `reports` (sales) get every cost blanked by `costPayloadForRead`. It runs on every firm reply, inside batched reads and on the offline copy. Sales staff can't set a purchase price, opening stock or opening lots, and their item edits keep the stored cost. The app hides stock value, lot costs and cost fields for them. Sales still save their real FIFO cost. Tests: `packages/core/tests/cost-visibility.test.ts`, `apps/api/tests/cost-visibility.test.ts`. |
+| R2 | There was no ownership transfer, because the owner couldn't be changed. | **Done (12 Nov 2026).** `POST /v1/firms/current/transfer-ownership` takes `{ memberId, previousOwnerRole, confirmName }`. It runs in one transaction under the firm's write lock, so the firm always has exactly one owner. The owner chooses their own new role and types the firm name to confirm. The change is written to the firm's control history. In the app: Team → member → **Make owner**. Test: `apps/api/tests/ownership-transfer.test.ts`. |
 | R3 | Offline access lasts up to 24 hours after the last online check, so a revocation isn't seen while a device stays offline (documented). | Keep the limit; the WebSocket layer below closes the window for online devices. |
 
 ## 3. WebSocket Layer (design)

@@ -170,6 +170,13 @@ export function readServices({ request, pages }: Client) {
         );
         return { ...target, ...patch };
       },
+      transferOwnership: async (input) => {
+        await request(
+          "/firms/current/transfer-ownership",
+          z.object({ ok: z.boolean() }),
+          { body: input },
+        );
+      },
       invite: async (input) => {
         const invitation = await request(
           "/firms/current/invitations",
