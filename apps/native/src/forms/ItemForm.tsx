@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { BookScopeField, useBookScope } from "@/components/BookScopeField";
 import { Switch, View } from "react-native";
 import {
+  canSeeCosts,
   checkItem,
   formatINR,
   itemWarnings,
@@ -37,6 +38,7 @@ import {
 } from "@/components";
 import { toRupeeText } from "@/data/labels";
 import { setPicked } from "@/data/picked";
+import { useData } from "@/data/DataProvider";
 import { useItems, useSaveItem, useUnits } from "@/data/queries";
 import { AddUnitSheet } from "./AddUnitSheet";
 import { useGstMode } from "@/data/gstMode";
@@ -170,6 +172,8 @@ export function ItemForm({
     (!contract.success ? contract.error.issues[0]?.message : undefined);
   const warnings = itemWarnings(input);
   const margin = marginPercent(input.purchasePrice, input.salePrice);
+  // Sales staff never see or set purchase costs; the server keeps them unchanged.
+  const showCosts = canSeeCosts(useData().role);
 
   const submit = async () => {
     setShowErrors(true);
@@ -470,12 +474,14 @@ export function ItemForm({
           {gst.regular ? " (before GST)" : ""}
         </Txt>
         <View style={{ flexDirection: "row", gap: space.md }}>
-          <AmountField
-            label="Purchase ₹"
-            value={purchaseText}
-            onChangeText={setPurchaseText}
-            error={err("purchasePrice")}
-          />
+          {showCosts ? (
+            <AmountField
+              label="Purchase ₹"
+              value={purchaseText}
+              onChangeText={setPurchaseText}
+              error={err("purchasePrice")}
+            />
+          ) : null}
           <AmountField
             label="Sale ₹"
             value={saleText}
@@ -493,7 +499,7 @@ export function ItemForm({
           <View
             style={{ flex: 1, justifyContent: "flex-end", paddingBottom: 12 }}
           >
-            {margin !== null ? (
+            {showCosts && margin !== null ? (
               <Txt variant="small" tone={margin < 0 ? "give" : "body"} num>
                 {formatINR(input.salePrice - input.purchasePrice)} per {unit} ·{" "}
                 {margin}%
@@ -505,14 +511,19 @@ export function ItemForm({
 
       <Card style={{ gap: space.md }}>
         <Txt variant="bodyStrong">Stock</Txt>
-        {!used && !item?.openingLots ? (
+        {!showCosts ? (
+          <Txt variant="caption" tone="body">
+            Opening stock and its cost are entered by the owner or accountant.
+          </Txt>
+        ) : null}
+        {showCosts && !used && !item?.openingLots ? (
           <Checkbox
             label="Separate opening stock lots"
             checked={separateLots}
             onChange={setSeparateLots}
           />
         ) : null}
-        {separateLots ? (
+        {!showCosts ? null : separateLots ? (
           <OpeningLotsEditor
             rows={openingLots}
             onChange={setOpeningLots}
@@ -535,15 +546,17 @@ export function ItemForm({
           </>
         )}
         <View style={{ flexDirection: "row", gap: space.md }}>
-          <TextField
-            label={`Opening stock (${unit})`}
-            editable={!used && !separateLots}
-            value={separateLots ? String(input.openingStock) : opening}
-            onChangeText={(t) => setOpening(digitsOnly(t))}
-            keyboardType="number-pad"
-            placeholder="0"
-            error={err("openingStock")}
-          />
+          {showCosts ? (
+            <TextField
+              label={`Opening stock (${unit})`}
+              editable={!used && !separateLots}
+              value={separateLots ? String(input.openingStock) : opening}
+              onChangeText={(t) => setOpening(digitsOnly(t))}
+              keyboardType="number-pad"
+              placeholder="0"
+              error={err("openingStock")}
+            />
+          ) : null}
           <TextField
             label={`Warn below (${unit})`}
             value={reorder}

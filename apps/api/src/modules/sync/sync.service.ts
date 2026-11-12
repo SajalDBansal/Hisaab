@@ -342,7 +342,12 @@ async function applyMutation(
   }
   if (mutation.entity === "item") {
     if (mutation.operation === "create") {
-      const record = await itemsService.create(db, ctx.firmId, mutation.data);
+      const record = await itemsService.create(
+        db,
+        ctx.firmId,
+        mutation.data,
+        ctx.role,
+      );
       return appliedOf(mutation, record.id, record);
     }
     if (mutation.operation === "update") {
@@ -352,6 +357,7 @@ async function applyMutation(
         mutation.id,
         mutation.baseVersion,
         mutation.data,
+        ctx.role,
       );
       return appliedOf(mutation, mutation.id, record);
     }

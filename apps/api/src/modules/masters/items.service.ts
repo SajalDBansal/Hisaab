@@ -1,5 +1,12 @@
 import type { ItemInput, ItemRow } from "@repo/contracts";
-import { checkItem, cleanItem, gstModeOf, type Item } from "@repo/core";
+import {
+  canSeeCosts,
+  checkItem,
+  cleanItem,
+  gstModeOf,
+  type Item,
+  type Role,
+} from "@repo/core";
 import { eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -15,6 +22,41 @@ import {
 } from "@repo/backend/modules/masters/shared";
 
 type GstRate = ItemRow["gstRate"];
+
+/**
+ * A role that can't see purchase costs (sales staff) can't set or change them
+ * either: an edit keeps the item's costs and opening stock, and a new item starts
+ * without a purchase price or opening stock for the owner or accountant to add.
+ */
+function costsForRole(
+  role: Role,
+  input: ItemInput,
+  current?: ItemRecord,
+): ItemInput {
+  if (canSeeCosts(role)) return input;
+  if (!current) {
+    if (input.openingStock || input.openingLots?.length)
+      throw new AppError(
+        "FORBIDDEN",
+        "Opening stock and its cost are entered by the owner or accountant.",
+        403,
+      );
+    return {
+      ...input,
+      purchasePrice: 0,
+      openingCost: undefined,
+      openingLots: undefined,
+    };
+  }
+  return {
+    ...input,
+    purchasePrice: current.purchasePrice,
+    openingStock: current.openingStock,
+    openingCost: current.openingCost ?? undefined,
+    openingLots: current.openingLots ?? undefined,
+    openingBookScope: current.openingBookScope ?? undefined,
+  };
+}
 
 export const toItemRow = (r: ItemRecord): ItemRow => {
   const stock = Number(r.stock);
@@ -122,9 +164,9 @@ const duplicate = () =>
   );
 
 export const itemsService = {
-  async create(db: Db, firmId: string, input: ItemInput) {
+  async create(db: Db, firmId: string, input: ItemInput, role: Role) {
     return withFirmWrite(db, firmId, async (tx) => {
-      const item = await validated(tx, firmId, input);
+      const item = await validated(tx, firmId, costsForRole(role, input));
       const id = uuidv7();
       try {
         const [profile] = await tx
@@ -159,6 +201,7 @@ export const itemsService = {
     id: string,
     version: number,
     input: ItemInput,
+    role: Role,
   ) {
     // Share the voucher lock so opening stock cannot change during a sale.
     return db.transaction(async (db) => {
@@ -167,7 +210,12 @@ export const itemsService = {
       );
       const current = await itemsRepo.get(db, firmId, id);
       if (!current) throw notFound("item");
-      const item = await validated(db, firmId, input, current);
+      const item = await validated(
+        db,
+        firmId,
+        costsForRole(role, input, current),
+        current,
+      );
       if (
         item.openingStock !== current.openingStock ||
         (item.openingLots !== undefined && JSON.stringify(item.openingLots) !== JSON.stringify(current.openingLots ?? [])) ||

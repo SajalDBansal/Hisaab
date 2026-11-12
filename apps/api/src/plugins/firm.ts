@@ -1,5 +1,6 @@
 import {
   can,
+  costPayloadForRead,
   PERMISSIONS,
   roleInfo,
   type Permission,
@@ -38,8 +39,14 @@ const WHAT: Record<Permission, string> = Object.fromEntries(
 export function registerFirmContext(app: FastifyInstance, db: Db) {
   app.decorateRequest("firm");
   // Includes reads, writes and historical replay answers; never mutate stored snapshots.
+  // Commission policies and purchase costs are hidden from roles that may not see them.
   app.addHook("preSerialization", async (req, _reply, payload) =>
-    req.firm ? associatePayloadForRead(req.firm.role, payload) : payload,
+    req.firm
+      ? costPayloadForRead(
+          req.firm.role,
+          associatePayloadForRead(req.firm.role, payload),
+        )
+      : payload,
   );
 
   const firmContext = async (req: FastifyRequest) => {
