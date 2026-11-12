@@ -44,6 +44,7 @@ export { gstService } from "./services/gstService";
 export {
   settingsService,
   type InvoiceSettingsView,
+  type TeamPresence,
 } from "./services/settingsService";
 export { documentService, type DocumentRow } from "./services/documentService";
 export { unitService, type UnitRow } from "./services/unitService";

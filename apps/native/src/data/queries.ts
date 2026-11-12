@@ -316,6 +316,14 @@ export const useTeam = () =>
     queryKey: keys.team,
     queryFn: (services) => services.settingsService.team(),
   });
+/** Live notices refresh this at once; the interval covers a closed connection. */
+export const usePresence = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["presence"],
+    queryFn: (services) => services.settingsService.presence(),
+    enabled,
+    refetchInterval: 60_000,
+  });
 
 export const useBookControls = () =>
   useQuery({

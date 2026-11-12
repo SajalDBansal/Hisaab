@@ -93,41 +93,87 @@ Findings and what was decided:
 | --- | --- | --- |
 | R1 | `GET /v1/items` and `/v1/items/stock-lots` were open to any member and included **purchase price, opening cost and lot cost**, so sales staff saw buying costs (the sale form's lot picker showed "Cost ₹…"). | **Done (12 Nov 2026).** Roles without `purchase` or `reports` (sales) get every cost blanked by `costPayloadForRead`. It runs on every firm reply, inside batched reads and on the offline copy. Sales staff can't set a purchase price, opening stock or opening lots, and their item edits keep the stored cost. The app hides stock value, lot costs and cost fields for them. Sales still save their real FIFO cost. Tests: `packages/core/tests/cost-visibility.test.ts`, `apps/api/tests/cost-visibility.test.ts`. |
 | R2 | There was no ownership transfer, because the owner couldn't be changed. | **Done (12 Nov 2026).** `POST /v1/firms/current/transfer-ownership` takes `{ memberId, previousOwnerRole, confirmName }`. It runs in one transaction under the firm's write lock, so the firm always has exactly one owner. The owner chooses their own new role and types the firm name to confirm. The change is written to the firm's control history. In the app: Team → member → **Make owner**. Test: `apps/api/tests/ownership-transfer.test.ts`. |
-| R3 | Offline access lasts up to 24 hours after the last online check, so a revocation isn't seen while a device stays offline (documented). | Keep the limit; the WebSocket layer below closes the window for online devices. |
+| R3 | Offline access lasts up to 24 hours after the last online check, so a revocation isn't seen while a device stays offline (documented). | Keep the limit. Live updates (section 3) close the window for devices that are online. |
 
-## 3. WebSocket Layer (design)
+## 3. Live Updates (WebSocket). **Built 12 Nov 2026**
 
-### Goals
+### What it does
 
-1. Owners see who is online, on which device, and when each person was last active.
-2. Every open screen updates when data changes, consistently and without
-   reloading.
+1. **Screens update by themselves.** When anyone saves, every open screen of that
+   firm refetches within about a quarter of a second, on every device. In the
+   end-to-end check, sales staff added a customer and the owner's open Parties
+   screen showed it 226–261 ms later, without a reload.
+2. **The owner sees who is online.** The Team screen shows "Online on Chrome on
+   Windows" (or the phone's name), or "Active 5 min ago" for people who aren't.
+3. **Access changes act at once.** A role change, removal or ownership hand-over
+   closes that person's connection. Their app reloads the firm list and
+   reconnects with the new role. Logging out, or a device takeover, closes that
+   session's connection.
 
-### Design
+It never carries book data and never saves anything. Every message only says
+"something changed", and the app refetches through the normal REST routes. Role
+checks, cost hiding and the offline copy therefore all stay in one place.
 
-| Concern | Design |
+### Two services, both stateless
+
+```text
+ app / browser ──REST──► API (apps/api) ──commit──► PostgreSQL ──NOTIFY hisaab_live──┐
+       │                    │  POST /v1/live/ticket                                  │
+       │                    └─ signs a one-time pass (HMAC, 60 s)                    ▼
+       └──── wss://api…/live ──► Caddy ──► realtime (apps/realtime) ◄─ LISTEN ───────┘
+                                              │
+                                              └─ Redis: who is online, used passes
+```
+
+| Concern | How |
 | --- | --- |
-| Transport | `@fastify/websocket` on the existing API process at `wss://api…/v1/live`. Caddy proxies WebSockets as is. |
-| Authentication | The upgrade request carries the same session cookie (browsers send it; React Native passes it in the WebSocket `headers` option). Check it with Better Auth, check `Origin` against `TRUSTED_ORIGINS`, and close with 4401 if invalid. |
-| Firm scope | The client sends `{type:"subscribe", firmId}`. The server checks membership and role exactly like `inFirm`, and rechecks on every membership change and every 5 minutes. |
-| Change source | A trigger on the existing per-firm `change_log` (already serialized per firm and written in the same transaction as each change) calls `pg_notify('hisaab_changes', {firm, seq, entity, id})`. PostgreSQL delivers notifications **only on commit**, so rolled-back work never announces itself. One dedicated LISTEN connection per API process fans out to that firm's sockets. If several API processes are ever run, each one LISTENs. |
-| Message content | **Invalidations, not data**: `{type:"changed", seq, entities:[{entity:"voucher", id}]}`. The client invalidates the matching React Query keys and refetches through the normal REST routes, so role filtering, redaction and offline caching stay in one place. |
-| Gaps | The client tracks the last `seq`. On reconnect it sends `{type:"resume", since}`; the server replays from `change_log` or replies `resync`, and the client then invalidates all book queries. No missed update can leave a screen stale. |
-| Presence | An in-memory map of firm → user → connections (platform, device, connected at, last seen), broadcast only to members with `team` (owners). Heartbeats every 25 s; a socket missing two is dropped. Last activity is also written to `session.lastActiveAt`, as today. |
-| Sessions | When a login takes over a device's slot, or the user logs out or loses access, the server closes that user's sockets with a reason (4403 or 4409). That also ends the offline grace window for online devices (R3). |
-| Limits | At most 5 sockets per user and 64 KB per message. Client messages are validated with zod, a socket flooding messages is rate-limited, and connections back off with jitter (1 s up to 60 s). |
-| Offline | When the socket connects, the app runs the retained-entry check. Incoming change events refetch only the affected paths, which also refreshes the offline cache incrementally between full downloads. |
-| What it never does | Carry writes (REST stays the only write path), send financial records to roles that can't read them, or act as the source of truth. A missed message is repaired by `resume` or `resync`. |
+| Separate services | `apps/realtime` has its own process, image (`hisaab-realtime`) and Compose service. It shares only PostgreSQL, Redis and `packages/backend/src/lib/live*.ts` with the API. It holds no session, email or storage secrets. |
+| Stateless | Neither service keeps anything another instance needs. Events arrive through PostgreSQL `LISTEN/NOTIFY`, so every realtime instance hears every event. Who is online is stored in Redis entries that expire after 75 s unless a heartbeat refreshes them. Used passes are kept in Redis too, and access is checked against the database. A realtime instance holds only its open sockets. On restart it closes them with code 1012 and clients reconnect to any instance. To scale, add replicas. |
+| Change notices | After every successful firm write, the API bumps the firm's data version (the ETag key). It now also sends `pg_notify('hisaab_live', {t:"changed", f, v})`. POSTs that only read are marked `readOnly` and send nothing: batched reads, report export, document search and the pass itself. Before this change they bumped the version too, which needlessly invalidated everyone's cached reads. |
+| Access notices | Migration `0030_live_notices` adds database triggers. Inserting, deleting or changing the role of a `member` row sends a notice, and so does deleting a `session` row. Because the trigger fires inside the database, every code path is covered, including Better Auth's own logout and device takeover. PostgreSQL delivers NOTIFY only on commit, so rolled-back work never announces itself. |
+| Authentication | 1. The app asks the API for a pass (`POST /v1/live/ticket`, any member). The pass names the user, the session and the open firm. It lasts 60 s and works once.<br>2. The app opens the socket and sends `{type:"hello", ticket, platform, device}` within 5 s.<br>3. The realtime service checks the signature and marks the pass used in Redis. It then checks in the database that the session is live and the person is still a member.<br>4. It replies `ready` with the firm's current version.<br>Web pages must come from `TRUSTED_ORIGINS`; apps send no Origin. |
+| Fan-out | `changed` and `presence` notices are merged per firm for 200 ms, and `presence` goes only to roles that manage the team. `access` goes to every socket of that person; their socket in that firm is rechecked and closed with 4403 if the role changed. `session` closes that session's sockets with 4401. Every socket is also rechecked every 5 minutes. |
+| Gaps | The app remembers the last version and refetches on any `ready` that carries a different one. A missed notice therefore can't leave a screen stale. If the realtime service loses its LISTEN connection, it sends `resync` to everyone after reconnecting. |
+| Presence | `GET /v1/firms/current/presence` (team permission) combines the members, their sessions' `last_active_at` and the Redis entries. It refetches on each `presence` notice, and every 60 s as a fallback. |
+| Limits | 16 KB messages. Only one client message is accepted: the hello. Each person may have 5 connections across all instances (counted in Redis, close code 4429). The server sends a ping and an app-level `beat` every 25 s and drops a socket that misses a pong. The app treats 2.5 beats of silence as a lost connection. |
+| App | `useLiveUpdates` in the DataProvider keeps one connection per signed-in firm. It reconnects with back-off and jitter: 1 s up to 60 s, or 1–5 s after a server restart. It disconnects in the background and reconnects when the app returns or the browser comes back online. Notices are debounced 300 ms before refetching, and ETags keep unchanged reads cheap. |
+| Without it | If `LIVE_TICKET_SECRET` and `LIVE_PUBLIC_URL` are not set in the API, the pass route answers `{enabled:false}` and the app checks again in 10 minutes. Everything else works as before. |
 
-### Build order
+### Files
 
-1. Add the `change_log` NOTIFY trigger in a migration, plus the LISTEN fan-out with tests (commit-only delivery, firm isolation).
-2. Add the `/v1/live` socket: authentication, subscribe, resume/resync, heartbeats, limits.
-3. Client hook: connect when online, invalidate queries on `changed`, back off on reconnect.
-4. Presence for owners (team screen: online now, device, last seen).
-5. Close sockets on logout, takeover and membership change; update the offline grant.
+- Shared:
+  - `packages/contracts/src/live.ts`: messages, close codes and presence.
+  - `packages/backend/src/lib/live.ts`: events and passes.
+  - `packages/backend/src/lib/live-presence.ts`: presence in Redis.
+- API: `apps/api/src/modules/live/live.routes.ts`, `apps/api/src/plugins/cache.ts`
+  and migration `0030_live_notices.sql`.
+- Realtime: `apps/realtime/src/{server,hub,bus}.ts` and `config/env.ts`.
+- App: `apps/native/src/data/liveConnection.ts` and `useLiveUpdates.ts`. The
+  Team screen shows presence.
+- Deployment:
+  - `deployment/Dockerfile.realtime` and `realtime.env.example`.
+  - The `realtime` service in both Compose files and `/live` in the Caddyfile.
+  - The publish matrix and the deploy script (guide 26).
 
-Acceptance: two browsers on one firm show a new sale on the other screen within
-1 s. A rolled-back write sends nothing. Another firm's sockets get nothing. Sales
-staff never receive supplier invalidations they can't read. A dropped connection
-catches up through `resume`.
+### Tests
+
+- `apps/realtime/tests/live.test.ts` runs against PostgreSQL and Redis. It covers:
+  - bad, reused and foreign passes, and connections from other sites;
+  - commit-only delivery, firm isolation and merging of quick notices;
+  - presence notices reaching owners only;
+  - role change, removal and logout closing the right socket;
+  - the per-person limit and the hand-back on restart.
+- `apps/api/tests/live.test.ts` covers the pass contents, no notices for reads or
+  batched reads, one notice per committed write, the role-change trigger and
+  owner-only presence.
+- `apps/native/checks/live-connection.test.js` covers the hello, passing notices
+  on, access changes, retries, the disabled state and stop.
+- End to end, with the two services as separate processes and two browsers:
+  9/9 checks.
+
+### Before production
+
+Generate one random value and set it as `LIVE_TICKET_SECRET` in both `api.env`
+and the new `realtime.env`. Also set
+`LIVE_PUBLIC_URL=wss://api.hisaab.sajaldbansal.com/live` in `api.env` (guide 26).
+The deploy script now requires `realtime.env`.

@@ -410,7 +410,6 @@ export async function firmRoutes(
           },
         });
       });
-      await app.bumpFirmVersion(firmId);
       return { ok: true as const };
     },
   );

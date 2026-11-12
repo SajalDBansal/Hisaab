@@ -321,8 +321,9 @@ single-owner scale.
 ### Offline and Access Control. **Done 12 Nov 2026**
 Offline is view-only. Downloads are batched into a few requests (doc 17).
 Sales staff no longer see purchase costs (R1). The owner can hand over the firm
-(R2). See doc 33. The WebSocket layer is designed there and waits for owner
-approval.
+(R2). Live updates run as a separate, stateless realtime service. Screens refresh
+when anyone saves, the owner sees who is online, and access changes take effect
+at once. See doc 33.
 
 ### Owner Decisions (2 Nov 2026)
 - No-GSTIN suppliers: block GST on new purchases (done in Phase 1).

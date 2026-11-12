@@ -75,6 +75,39 @@ services:
       start_period: 30s
       retries: 3
 
+  realtime:
+    <<: *service
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.realtime
+    image: hisaab-realtime:local
+    pull_policy: never
+    init: true
+    # Reads DATABASE_URL, REDIS_URL and LIVE_TICKET_SECRET from the same file.
+    env_file:
+      - path: ./local.api.env
+        format: raw
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: "3020"
+      TRUSTED_ORIGINS: http://localhost:8081,http://localhost:3002
+    ports:
+      - "127.0.0.1:3020:3020"
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3020/ready',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
   website:
     <<: *service
     build:

@@ -10,3 +10,14 @@ export function formatDateTime(iso: string): string {
   const time = `${h % 12 || 12}:${pad(d.getMinutes())} ${h < 12 ? "am" : "pm"}`;
   return `${formatDate(local)}, ${time}`;
 }
+
+/** "5 min ago", "3 hours ago", "2 days ago". */
+export function timeAgo(iso: string): string {
+  const minutes = Math.max(
+    1,
+    Math.round((Date.now() - new Date(iso).getTime()) / 60_000),
+  );
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} hours ago`;
+  return `${Math.round(minutes / 60 / 24)} days ago`;
+}

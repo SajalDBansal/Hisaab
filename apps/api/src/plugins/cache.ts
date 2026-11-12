@@ -3,6 +3,7 @@ import type {
   FastifyReply,
   FastifyRequest as Request,
 } from "fastify";
+import { firmVersionKey as key, type LiveEvent } from "@repo/backend/lib/live";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { createHash } from "node:crypto";
 
@@ -10,15 +11,16 @@ declare module "fastify" {
   interface FastifyRequest {
     firmDataVersion?: string;
   }
+  interface FastifyContextConfig {
+    /** A POST that only reads (batched reads, search, exports): no new data version. */
+    readOnly?: boolean;
+  }
   interface FastifyInstance {
     firmVersion: (firmId: string) => Promise<string>;
+    /** After a committed write: new version, and a live notice to the firm. */
     bumpFirmVersion: (firmId: string) => Promise<void>;
     checkFreshFirmRead: (req: Request, reply: FastifyReply) => Promise<void>;
   }
-}
-
-function key(firmId: string) {
-  return `firm:${firmId}:ver`;
 }
 
 function etag(req: Request, version: string, payload: string | Buffer) {
@@ -36,6 +38,7 @@ function matchesEtag(header: string | undefined, tag: string) {
 export function registerCacheHelpers(
   app: FastifyInstance,
   redis?: RedisClient,
+  publish?: (event: LiveEvent) => Promise<void>,
 ) {
   const localVersions = new Map<string, number>();
   const localVersion = (firmId: string) =>
@@ -54,16 +57,25 @@ export function registerCacheHelpers(
     }
   });
 
+  const nextVersion = async (firmId: string) => {
+    if (redis) {
+      try {
+        return String(await redis.incr(key(firmId)));
+      } catch {
+        /* Fall back to this process, as reads do. */
+      }
+    }
+    bumpLocalVersion(firmId);
+    return localVersion(firmId);
+  };
+
   app.decorate("bumpFirmVersion", async (firmId: string) => {
-    if (!redis) {
-      bumpLocalVersion(firmId);
-      return;
-    }
-    try {
-      await redis.incr(key(firmId));
-    } catch {
-      bumpLocalVersion(firmId);
-    }
+    const version = await nextVersion(firmId);
+    // Open screens refetch on this notice; a lost one is repaired on reconnect.
+    await publish?.({ t: "changed", f: firmId, v: version }).catch(
+      (error: unknown) =>
+        app.log.warn({ err: error }, "Live change notice was not sent"),
+    );
   });
 
   app.decorate("checkFreshFirmRead", async (req, reply) => {
@@ -111,7 +123,8 @@ export function registerCacheHelpers(
       req.method === "HEAD" ||
       req.method === "OPTIONS" ||
       !req.firm ||
-      reply.statusCode >= 400
+      reply.statusCode >= 400 ||
+      req.routeOptions.config.readOnly
     )
       return;
     await app.bumpFirmVersion(req.firm.id);

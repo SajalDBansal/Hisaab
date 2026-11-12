@@ -27,6 +27,8 @@ import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { syncRoutes } from "./modules/sync/sync.routes";
 import { readRoutes } from "./modules/reads/reads.routes";
+import { liveRoutes } from "./modules/live/live.routes";
+import { publishLive } from "@repo/backend/lib/live";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
 import { meRoutes } from "./modules/me/me.routes";
@@ -78,6 +80,8 @@ export type BuildAppOptions = {
         | "TRUSTED_PROXY_CIDRS"
         | "DOCUMENT_STORAGE_MAX_BYTES"
         | "DOCUMENT_STORAGE_MAX_FILES"
+        | "LIVE_TICKET_SECRET"
+        | "LIVE_PUBLIC_URL"
         | "APP_MODE"
         | "RECOVERY_EPOCH"
       >
@@ -161,7 +165,7 @@ export async function buildApp({
   }
   registerJobs(app, jobs);
   app.addHook("onClose", async () => pdfStorage?.close());
-  registerCacheHelpers(app, redis);
+  registerCacheHelpers(app, redis, (event) => publishLive(db, event));
   if (env.NODE_ENV !== "production") await registerSwagger(app);
   const auth = createAuth({ env, db, email, log: app.log });
   await registerAuth(app, auth, db);
@@ -215,6 +219,15 @@ export async function buildApp({
   await app.register(notificationRoutes, { db, prefix: "/v1" });
   await app.register(syncRoutes, { db, prefix: "/v1" });
   await app.register(readRoutes, { prefix: "/v1" });
+  await app.register(liveRoutes, {
+    db,
+    redis,
+    live:
+      env.LIVE_TICKET_SECRET && env.LIVE_PUBLIC_URL
+        ? { secret: env.LIVE_TICKET_SECRET, url: env.LIVE_PUBLIC_URL }
+        : undefined,
+    prefix: "/v1",
+  });
 
   return app;
 }

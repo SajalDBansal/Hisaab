@@ -1,5 +1,5 @@
 # Requires Docker Compose >= 2.30 for literal (raw) runtime env-file values.
-# Build/pull all four images with the same release tag. No builds run on the host.
+# Build/pull all five images with the same release tag. No builds run on the host.
 name: hisaab
 
 x-service: &service
@@ -136,6 +136,44 @@ services:
       interval: 30s
       timeout: 5s
       start_period: 45s
+      retries: 3
+
+  # Live updates. Stateless: open sockets are its only state, so it can be
+  # restarted or scaled at will; clients reconnect to any instance.
+  realtime:
+    <<: *service
+    image: ${DOCKERHUB_USERNAME:?Set DOCKERHUB_USERNAME}/hisaab-realtime:${IMAGE_TAG:?Set IMAGE_TAG}
+    init: true
+    env_file:
+      - path: ./realtime.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3020"
+      SENTRY_RELEASE: ${IMAGE_TAG:?Set IMAGE_TAG}
+      DATABASE_URL: postgres://hisaab:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the private .env file}@postgres:5432/hisaab
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in the private .env file}@redis:6379/0
+    networks: [default, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 256m
+    # Long enough to tell every client to reconnect elsewhere.
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3020/ready',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
       retries: 3
 
   website:

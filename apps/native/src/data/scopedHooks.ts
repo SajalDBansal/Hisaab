@@ -12,6 +12,7 @@ export function useServiceQuery<T>(options: {
   queryFn: (services: Services) => Promise<T>;
   enabled?: boolean;
   staleTime?: number;
+  refetchInterval?: number;
 }) {
   const data = useData();
   const auth = useAuth();

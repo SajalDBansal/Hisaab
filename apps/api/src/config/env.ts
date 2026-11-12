@@ -86,6 +86,18 @@ const EnvSchema = z.object({
     .max(Number.MAX_SAFE_INTEGER)
     .default(10_000),
 
+  // Live updates: the separate live service and the API share this secret to
+  // sign one-time passes. Leave both unset to run without live updates.
+  LIVE_TICKET_SECRET: z
+    .string()
+    .min(32, "LIVE_TICKET_SECRET must be at least 32 characters")
+    .optional(),
+  // Public address of the live service, e.g. wss://live.hisaab.in/live
+  LIVE_PUBLIC_URL: z
+    .string()
+    .regex(/^wss?:\/\/\S+$/, "LIVE_PUBLIC_URL must start with wss:// or ws://")
+    .optional(),
+
   // Optional Sentry exporter. Leave blank locally; set in staging/production.
   SENTRY_DSN: z.string().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
@@ -137,6 +149,10 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     !env.R2_BUCKET
   )
     throw new Error("R2_BUCKET (or S3_BUCKET) is required in production.");
+  if (!env.LIVE_TICKET_SECRET !== !env.LIVE_PUBLIC_URL)
+    throw new Error(
+      "Set both LIVE_TICKET_SECRET and LIVE_PUBLIC_URL, or neither.",
+    );
   if (env.NODE_ENV === "production") validateProduction(env);
   return env;
 }
@@ -167,6 +183,13 @@ function validateProduction(env: Env) {
     throw new Error(
       "TRUSTED_ORIGINS must contain exact HTTPS origins or hisaab:// in production.",
     );
+  if (env.LIVE_PUBLIC_URL && !env.LIVE_PUBLIC_URL.startsWith("wss://"))
+    throw new Error("LIVE_PUBLIC_URL must use wss:// in production.");
+  if (
+    env.LIVE_TICKET_SECRET &&
+    /change-me|replace-me|example-secret/i.test(env.LIVE_TICKET_SECRET)
+  )
+    throw new Error("Replace the example LIVE_TICKET_SECRET.");
   if (/change-me|replace-me|example-secret/i.test(env.BETTER_AUTH_SECRET))
     throw new Error(
       "Replace the example BETTER_AUTH_SECRET before production.",
