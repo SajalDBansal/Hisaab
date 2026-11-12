@@ -31,6 +31,9 @@ export function masterServices(client: Client) {
           maxOverdueDays: party.maxOverdueDays,
         })),
       get: (id) => request(`/parties/${id}`, c.PartyDetail),
+      items: (id) => request(`/parties/${id}/items`, c.PartyItems),
+      itemRates: (id, itemId) =>
+        request(`/parties/${id}/items/${itemId}`, z.array(c.TradeRateEntry)),
       create: (input) => request("/parties", c.PartyRow, { body: input }),
       update: (id, input, version?: number) =>
         request(`/parties/${id}`, c.PartyRow, {
@@ -53,6 +56,7 @@ export function masterServices(client: Client) {
           lowStock: item.lowStock,
         })),
       get: (id) => request(`/items/${id}`, c.ItemDetail),
+      parties: (id) => request(`/items/${id}/parties`, c.ItemParties),
       create: (input) => request("/items", c.ItemRow, { body: input }),
       update: (id, input, version?: number) =>
         request(`/items/${id}`, c.ItemRow, {

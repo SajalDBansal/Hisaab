@@ -1,7 +1,13 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import { formatDate, formatINR, type PartyDetail, count } from "@repo/core";
+import {
+  canSeeCosts,
+  formatDate,
+  formatINR,
+  type PartyDetail,
+  count,
+} from "@repo/core";
 import { isOpeningBillId } from "@repo/core/src/accounting/openingImport";
 import {
   Avatar,
@@ -29,6 +35,7 @@ import { confirmAction } from "@/data/confirm";
 import { callPhone, openWhatsApp, useSendReminder } from "@/data/share";
 import { colors, radius, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
+import { useData } from "@/data/DataProvider";
 
 export default function PartyScreen() {
   const sendReminder = useSendReminder();
@@ -109,8 +116,11 @@ function PartyBody({ d }: { d: PartyDetail }) {
   const sendReminder = useSendReminder();
   const allocate = useAllocatePayments();
   const gst = useGstMode();
+  const { role } = useData();
   const [tab, setTab] = useState<"bills" | "transactions">("bills");
   const p = d.party;
+  // A supplier's rates are purchase costs, hidden from sales staff.
+  const showProducts = p.type === "customer" || canSeeCosts(role);
   const balanceTone = d.balance > 0 ? "get" : d.balance < 0 ? "give" : "body";
   const usedPct =
     p.creditLimit > 0 ? Math.min(d.balance / p.creditLimit, 1) : 0;
@@ -199,6 +209,18 @@ function PartyBody({ d }: { d: PartyDetail }) {
           />
         ) : null}
       </Card>
+
+      {showProducts ? (
+        <Button
+          label={
+            p.type === "customer"
+              ? "Products they buy and our rates"
+              : "Products they supply, rates and stock"
+          }
+          icon="package"
+          onPress={() => router.push(`/party/products/${p.id}`)}
+        />
+      ) : null}
 
       {d.unallocated > 0 && d.openBills.length > 0 ? (
         <View style={{ gap: space.sm }}>

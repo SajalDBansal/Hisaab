@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import { View } from "react-native";
 import {
   formatDate,
@@ -19,9 +20,11 @@ import {
   ListRow,
   QueryView,
   Screen,
+  Segmented,
   Txt,
 } from "@/components";
-import { useItem, useStockLots } from "@/data/queries";
+import { useItem, useItemParties, useStockLots } from "@/data/queries";
+import { TradeRateList } from "@/lists/TradeRateList";
 import { space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
@@ -113,6 +116,8 @@ function ItemBody({ d }: { d: ItemDetail }) {
           </Txt>
         </Card>
       </View>
+
+      <ItemPartiesSection itemId={item.id} unit={item.unit} />
 
       <View>
         <Txt variant="heading">Stock lots</Txt>
@@ -207,5 +212,67 @@ function ItemBody({ d }: { d: ItemDetail }) {
         )}
       </View>
     </>
+  );
+}
+
+/** Who supplies this product (rate, stock left from each) and who buys it. */
+function ItemPartiesSection({
+  itemId,
+  unit,
+}: {
+  itemId: string;
+  unit: string;
+}) {
+  const parties = useItemParties(itemId);
+  const [tab, setTab] = useState<"supplier" | "customer">("supplier");
+  return (
+    <View style={{ gap: space.md }}>
+      <Txt variant="heading">Suppliers and customers</Txt>
+      <QueryView query={parties}>
+        {({ suppliers, customers, openingStock }) => {
+          // Sales staff don't see purchase rates: customers only.
+          const shown = suppliers ? tab : "customer";
+          return (
+            <>
+              {suppliers && customers ? (
+                <Segmented
+                  options={[
+                    {
+                      value: "supplier",
+                      label: `Suppliers · ${suppliers.length}`,
+                    },
+                    {
+                      value: "customer",
+                      label: `Customers · ${customers.length}`,
+                    },
+                  ]}
+                  value={tab}
+                  onChange={setTab}
+                />
+              ) : null}
+              {shown === "supplier" && openingStock && openingStock.qty > 0 ? (
+                <Txt variant="caption" tone="body">
+                  {`Opening stock, no supplier: ${openingStock.qty} ${unit} on hand.`}
+                </Txt>
+              ) : null}
+              <TradeRateList
+                key={shown}
+                rows={(shown === "supplier" ? suppliers : customers) ?? []}
+                type={shown}
+                view="item"
+                emptyTitle={
+                  shown === "supplier" ? "No purchases yet" : "No sales yet"
+                }
+                emptyMessage={
+                  shown === "supplier"
+                    ? "Suppliers appear here after the first purchase bill with this product."
+                    : "Customers appear here after the first sale invoice with this product."
+                }
+              />
+            </>
+          );
+        }}
+      </QueryView>
+    </View>
   );
 }

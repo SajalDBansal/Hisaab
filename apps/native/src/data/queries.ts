@@ -154,6 +154,20 @@ export const useParty = (id: string) =>
     queryFn: (services) => services.partyService.get(id),
     enabled: !!id,
   });
+/** Products a party supplies or buys, with the latest rates. */
+export const usePartyItems = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: ["partyItems", id],
+    queryFn: (services) => services.partyService.items(id),
+    enabled: !!id && enabled,
+  });
+/** Every bill behind one party's rate for one product, newest first. */
+export const usePartyItemRates = (id: string, itemId: string) =>
+  useQuery({
+    queryKey: ["partyItemRates", id, itemId],
+    queryFn: (services) => services.partyService.itemRates(id, itemId),
+    enabled: !!id && !!itemId,
+  });
 export const useItems = () =>
   useQuery({
     queryKey: keys.items,
@@ -163,6 +177,13 @@ export const useItem = (id: string) =>
   useQuery({
     queryKey: keys.item(id),
     queryFn: (services) => services.itemService.get(id),
+    enabled: !!id,
+  });
+/** Who supplies a product (rate, stock left) and who buys it. */
+export const useItemParties = (id: string) =>
+  useQuery({
+    queryKey: ["itemParties", id],
+    queryFn: (services) => services.itemService.parties(id),
     enabled: !!id,
   });
 export const useLedgers = () =>
