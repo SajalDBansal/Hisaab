@@ -1,4 +1,4 @@
-import { can, financialYear, today } from "@repo/core";
+import { can, canSeeCosts, financialYear, today } from "@repo/core";
 import type { Services } from "./services";
 import type { OfflineBooks } from "./offlineBooks";
 import { finalAccountsPeriod, REPORT_PERIODS } from "./reportPeriods";
@@ -52,8 +52,15 @@ export async function downloadOfflineBooks(
     // 2. Each record's detail and every report, all at once.
     const reads: Promise<unknown>[] = [
       ...parties.map((row) => services.partyService.get(row.party.id)),
+      // Products and rates per party; a supplier's rates are purchase costs.
+      ...parties
+        .filter((row) => row.party.type === "customer" || canSeeCosts(role))
+        .map((row) => services.partyService.items(row.party.id)),
       ...(can(role, "purchase") || can(role, "reports")
-        ? items.map((row) => services.itemService.get(row.item.id))
+        ? items.flatMap((row) => [
+            services.itemService.get(row.item.id),
+            services.itemService.parties(row.item.id),
+          ])
         : []),
       ...vouchers.map((entry) => services.voucherService.get(entry.id)),
       ...vouchers

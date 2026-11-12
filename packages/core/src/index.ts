@@ -6,6 +6,7 @@ export * from "./dates";
 export * from "./reporting";
 export * from "./accounting";
 export * from "./accounting/stockLots";
+export * from "./accounting/tradeRates";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";
@@ -24,6 +25,7 @@ export {
   itemService,
   type ItemListRow,
   type ItemDetail,
+  type ItemParties,
 } from "./services/itemService";
 export {
   ledgerService,

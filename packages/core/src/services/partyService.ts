@@ -10,6 +10,12 @@ import {
   type Bill,
 } from "../accounting/bills";
 import { newestFirst } from "../accounting/reports";
+import {
+  tradeRateHistory,
+  tradeRates,
+  type TradeRate,
+  type TradeRateEntry,
+} from "../accounting/tradeRates";
 import { today } from "../dates";
 import { createParty, updateParty, allocatePartyPayments } from "../mock/db";
 import type { Party, PartyInput, PartyType, Paise, Voucher } from "../types";
@@ -87,6 +93,24 @@ export const partyService = {
       overLimitBy,
       transactions,
     });
+  },
+
+  /** Real API: http.get(`/parties/${id}/items`): products and latest rates. */
+  async items(id: string): Promise<{ rows: TradeRate[] }> {
+    await delay();
+    const db = getDb();
+    const party = db.parties.find((p) => p.id === id);
+    if (!party) throw new Error("Party not found");
+    return clone({ rows: tradeRates(db, { type: party.type, partyId: id }) });
+  },
+
+  /** Real API: http.get(`/parties/${id}/items/${itemId}`): every rate, newest first. */
+  async itemRates(id: string, itemId: string): Promise<TradeRateEntry[]> {
+    await delay();
+    const db = getDb();
+    const party = db.parties.find((p) => p.id === id);
+    if (!party) throw new Error("Party not found");
+    return clone(tradeRateHistory(db, party, itemId));
   },
 
   /** Real API: http.post<Party>("/parties", input) */

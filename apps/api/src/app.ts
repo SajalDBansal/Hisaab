@@ -31,6 +31,7 @@ import { liveRoutes } from "./modules/live/live.routes";
 import { publishLive } from "@repo/backend/lib/live";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
+import { tradeRateRoutes } from "./modules/masters/tradeRates.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
 import { registerCacheHelpers } from "./plugins/cache";
@@ -177,6 +178,7 @@ export async function buildApp({
   await app.register(firmRoutes, { db, auth, prefix: "/v1" });
   await app.register(partyRoutes, { db, prefix: "/v1" });
   await app.register(itemRoutes, { db, prefix: "/v1" });
+  await app.register(tradeRateRoutes, { db, prefix: "/v1" });
   await app.register(ledgerRoutes, { db, prefix: "/v1" });
   await app.register(voucherRoutes, { db, pdfStorage, prefix: "/v1" });
   await app.register(accountRoutes, { db, prefix: "/v1" });
