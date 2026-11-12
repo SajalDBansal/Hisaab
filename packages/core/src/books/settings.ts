@@ -102,6 +102,30 @@ export function updateMember(
   return member;
 }
 
+/** The owner hands the firm to another active member and takes `previousOwnerRole`. */
+export function transferOwnership(
+  db: Db,
+  input: {
+    memberId: ID;
+    previousOwnerRole: Exclude<TeamMember["role"], "owner">;
+    confirmName: string;
+  },
+): void {
+  const caller = db.team.find((m) => m.id === db.currentUserId);
+  if (caller?.role !== "owner")
+    throw new Error("Only the owner can hand over the firm.");
+  const target = db.team.find((m) => m.id === input.memberId && m.active);
+  if (!target) throw new Error("That team member was not found.");
+  if (target.id === caller.id)
+    throw new Error("Pick another team member to hand the firm to.");
+  if (
+    input.confirmName.trim().toLowerCase() !== db.firm.name.trim().toLowerCase()
+  )
+    throw new Error("Type the firm name exactly to confirm.");
+  target.role = "owner";
+  caller.role = input.previousOwnerRole;
+}
+
 export function inviteMember(
   db: Db,
   input: { email: string; role: Exclude<TeamMember["role"], "owner"> },

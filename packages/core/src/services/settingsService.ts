@@ -4,6 +4,7 @@ import {
   updateFirm,
   updateInvoiceSettings,
   updateMember,
+  transferOwnership,
 } from "../mock/db";
 import { clone, delay, getDb } from "./client";
 
@@ -51,6 +52,16 @@ export const settingsService = {
   ): Promise<TeamMember> {
     await delay();
     return clone(updateMember(getDb(), id, patch));
+  },
+
+  /** Real API: http.post("/firms/current/transfer-ownership", input) */
+  async transferOwnership(input: {
+    memberId: string;
+    previousOwnerRole: Exclude<TeamMember["role"], "owner">;
+    confirmName: string;
+  }): Promise<void> {
+    await delay();
+    transferOwnership(getDb(), input);
   },
 
   /** Invitations are addressed to the person's verified sign-in email. */

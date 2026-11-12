@@ -318,6 +318,12 @@ single-owner scale.
 22. **O6, O7:** restore drill and capacity measurement.
 23. **O8, O9:** write the release record and close the advisory triage.
 
+### Offline and Access Control. **Done 12 Nov 2026**
+Offline is view-only. Downloads are batched into a few requests (doc 17).
+Sales staff no longer see purchase costs (R1). The owner can hand over the firm
+(R2). See doc 33. The WebSocket layer is designed there and waits for owner
+approval.
+
 ### Owner Decisions (2 Nov 2026)
 - No-GSTIN suppliers: block GST on new purchases (done in Phase 1).
 - Costing: automatic FIFO with multi-lot lines and manual override (H14).

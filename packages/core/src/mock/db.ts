@@ -26,6 +26,7 @@ export {
   updateFirm,
   updateInvoiceSettings,
   updateMember,
+  transferOwnership,
   inviteMember,
   addDocument,
   removeDocument,
