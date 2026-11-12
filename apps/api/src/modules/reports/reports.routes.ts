@@ -28,6 +28,7 @@ export async function reportRoutes(app: FastifyInstance, options: { db: Db }) {
     "/reports/export",
     {
       preHandler: read,
+      config: { readOnly: true },
       schema: { body: ReportRequest, response: { 200: ReportDocument } },
     },
     async (req, reply) => {

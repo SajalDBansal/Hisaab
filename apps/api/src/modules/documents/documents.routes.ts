@@ -68,6 +68,7 @@ export async function documentRoutes(
     "/documents/search",
     {
       preHandler: app.inFirm(),
+      config: { readOnly: true },
       schema: {
         body: DocumentFilters,
         response: { 200: z.array(StoredDocument) },

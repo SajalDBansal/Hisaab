@@ -41,6 +41,7 @@ import {
   clearPreviousBookAccess,
   membershipScope,
 } from "./accessScope";
+import { useLiveUpdates } from "./useLiveUpdates";
 
 interface DataState {
   userId: string;
@@ -185,6 +186,14 @@ function UserData({
     },
     [userId, endSession, cache],
   );
+  useLiveUpdates({
+    enabled: REQUIRE_LOGIN && enabled && !!role,
+    userId,
+    firmId,
+    role,
+    transport: onlineTransport,
+    cache,
+  });
   const offline = useMemo(() => {
     if (!REQUIRE_LOGIN || !enabled || !firmId || !role) return null;
     const assertActive = () => {

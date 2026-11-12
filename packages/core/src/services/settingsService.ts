@@ -13,6 +13,19 @@ export interface InvoiceSettingsView extends InvoiceSettings {
   bankName: string;
 }
 
+/** Who is online now, as the owner sees it on the team screen. */
+export interface TeamPresence {
+  members: {
+    memberId: string;
+    userId: string;
+    name: string;
+    role: TeamMember["role"];
+    online: boolean;
+    devices: { platform: "app" | "web"; device: string; since: string }[];
+    lastActiveAt: string | null;
+  }[];
+}
+
 export const settingsService = {
   /** Real API: http.patch<Firm>("/firms/current", patch) */
   async updateFirm(patch: FirmUpdate): Promise<Firm> {
@@ -52,6 +65,41 @@ export const settingsService = {
   ): Promise<TeamMember> {
     await delay();
     return clone(updateMember(getDb(), id, patch));
+  },
+
+  /** Real API: http.get<TeamPresence>("/firms/current/presence") */
+  async presence(): Promise<TeamPresence> {
+    await delay();
+    const db = getDb();
+    const now = new Date().toISOString();
+    return clone({
+      members: db.team
+        .filter((m) => m.active)
+        .map((m) => {
+          const me = m.id === db.currentUserId;
+          return {
+            memberId: m.id,
+            userId: m.id,
+            name: m.name,
+            role: m.role,
+            online: me,
+            devices: me
+              ? [
+                  {
+                    platform: "app" as const,
+                    device: "This device",
+                    since: now,
+                  },
+                ]
+              : [],
+            lastActiveAt: me
+              ? now
+              : m.lastActive
+                ? `${m.lastActive}T09:00:00.000Z`
+                : null,
+          };
+        }),
+    });
   },
 
   /** Real API: http.post("/firms/current/transfer-ownership", input) */

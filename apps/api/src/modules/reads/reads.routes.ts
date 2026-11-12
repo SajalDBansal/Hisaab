@@ -33,6 +33,7 @@ export async function readRoutes(app: FastifyInstance) {
     "/reads/batch",
     {
       preHandler: app.inFirm(),
+      config: { readOnly: true },
       schema: { body: BatchReadInput, response: { 200: BatchReadResult } },
     },
     async (req) => {

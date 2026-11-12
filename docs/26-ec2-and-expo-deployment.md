@@ -253,7 +253,7 @@ before deploying.
 
 `deployment/` is the repository's configuration folder. After installation, the
 configuration and runtime env files sit directly in the EC2 directory `/opt/hisaab`.
-Compose's relative paths resolve there, beside `.env`, `api.env` and `worker.env`.
+Compose's relative paths resolve there, beside `.env`, `api.env`, `worker.env` and `realtime.env`.
 Staged rollouts retain `--project-directory /opt/hisaab` so they use the same host
 env files and mounts.
 
@@ -267,6 +267,7 @@ After a successful deployment, the small host directory contains:
   .env                   # image namespace/tag AND private database passwords
   api.env                # private server settings
   worker.env             # private worker settings
+  realtime.env           # live-update service: ticket secret and web origins only
   .deploy.lock
   .candidate-RUN-ATTEMPT/ # staged config and a protected copy of .env
   .previous-RUN-ATTEMPT/  # prior config and protected .env
@@ -278,8 +279,9 @@ before removing it or restarting writers. Keep the latest previous config;
 remove older candidate/previous copies deliberately after acceptance.
 
 Use [`deployment/api.env.example`](../deployment/api.env.example) and
-[`deployment/worker.env.example`](../deployment/worker.env.example) as the
-production templates for `api.env` and `worker.env` in `/opt/hisaab`. Replace every
+[`deployment/worker.env.example`](../deployment/worker.env.example) and
+[`deployment/realtime.env.example`](../deployment/realtime.env.example) as the
+production templates for `api.env`, `worker.env` and `realtime.env` in `/opt/hisaab`. Replace every
 placeholder with the approved settings below. Also use
 [`deployment/.env.example`](../deployment/.env.example) for the image tag and
 database passwords. Keep candidate/previous directories private because their
@@ -295,7 +297,8 @@ umask 077
 nano .env
 nano api.env
 nano worker.env
-chmod 600 .env api.env worker.env
+nano realtime.env
+chmod 600 .env api.env worker.env realtime.env
 ```
 
 Create `.env` before the first workflow or manual deployment. It contains the
@@ -368,6 +371,19 @@ shown for understanding only; do not duplicate them in `api.env`/`worker.env`:
 ```text
 DATABASE_URL=postgres://hisaab:<POSTGRES_PASSWORD>@postgres:5432/hisaab
 REDIS_URL=redis://:<REDIS_PASSWORD>@redis:6379/0
+```
+
+`realtime.env` holds only what the live-update service needs. It has no session,
+email or storage secrets. `LIVE_TICKET_SECRET` must be the same random value as
+in `api.env` (`openssl rand -base64 32`). The API also needs
+`LIVE_PUBLIC_URL=wss://api.hisaab.sajaldbansal.com/live`; Caddy routes `/live` on
+the API domain to the realtime service. Without the two `LIVE_` lines in
+`api.env`, the app runs as before, without live updates.
+
+```dotenv
+LOG_LEVEL=info
+LIVE_TICKET_SECRET=<same value as api.env>
+TRUSTED_ORIGINS=https://app.hisaab.sajaldbansal.com
 ```
 
 `worker.env` shares the private bucket but has no authentication or email secrets:
@@ -626,6 +642,7 @@ test ! -e .deploy-in-progress
 test -s .env
 test -s api.env
 test -s worker.env
+test -s realtime.env
 export DOCKERHUB_USERNAME=YOUR_DOCKERHUB_USERNAME
 export IMAGE_TAG=FULL_NEW_PUBLISHED_COMMIT_SHA
 stage=/opt/hisaab/.candidate-manual
@@ -649,7 +666,7 @@ check_retention() {
   fi
   releases=$({
     printf '%s\n' "$IMAGE_TAG"
-    for service in api worker website app; do
+    for service in api worker realtime website app; do
       timeout 15s docker image ls --format '{{.Tag}}' "$DOCKERHUB_USERNAME/hisaab-$service" || return 1
     done
   } | awk '/^[0-9a-f]{40}$/' | sort -u | wc -l)
@@ -709,7 +726,7 @@ timeout --kill-after=10s 330s "${compose[@]}" run --rm --no-deps --name "$migrat
 install -m 644 "$stage/compose.prod.yml" compose.prod.yml
 install -m 644 "$stage/Caddyfile" Caddyfile
 install -m 644 "$stage/chromium-seccomp.json" chromium-seccomp.json
-timeout --kill-after=15s 240s "${compose[@]}" up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 api worker website app caddy
+timeout --kill-after=15s 240s "${compose[@]}" up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 api worker realtime website app caddy
 timeout 30s "${compose[@]}" exec -T worker node dist/healthcheck.js
 for url in https://api.hisaab.sajaldbansal.com/ready https://hisaab.sajaldbansal.com https://app.hisaab.sajaldbansal.com; do
   timeout 60s curl --fail --silent --show-error --output /dev/null --connect-timeout 5 --max-time 10 --retry 5 --retry-all-errors --retry-max-time 45 "$url"

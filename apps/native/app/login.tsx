@@ -6,22 +6,13 @@ import { Button, Card, Notice, TextField, Txt } from "@/components";
 import { ApiFailure } from "@/auth/api";
 import { AuthScreen } from "@/auth/AuthScreen";
 import { useAuth } from "@/auth/AuthProvider";
+import { timeAgo } from "@/data/format";
 import { space } from "@/theme";
 
 interface Elsewhere {
   deviceName: string | null;
   lastActiveAt: string;
 }
-
-const ago = (iso: string) => {
-  const minutes = Math.max(
-    1,
-    Math.round((Date.now() - new Date(iso).getTime()) / 60_000),
-  );
-  if (minutes < 60) return `${minutes} min ago`;
-  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} hours ago`;
-  return `${Math.round(minutes / 60 / 24)} days ago`;
-};
 
 export default function LoginScreen() {
   const auth = useAuth();
@@ -79,7 +70,7 @@ export default function LoginScreen() {
         <Card style={{ gap: space.md }}>
           <Txt variant="heading">Already logged in on another device</Txt>
           <Txt variant="body" tone="body">
-            {`You're logged in on ${elsewhere.deviceName ?? "another device"} (active ${ago(elsewhere.lastActiveAt)}). Log in here and log out there?`}
+            {`You're logged in on ${elsewhere.deviceName ?? "another device"} (active ${timeAgo(elsewhere.lastActiveAt)}). Log in here and log out there?`}
           </Txt>
           <View style={{ flexDirection: "row", gap: space.sm }}>
             <Button label="Cancel" onPress={() => setElsewhere(null)} />

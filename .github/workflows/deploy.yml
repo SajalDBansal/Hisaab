@@ -44,6 +44,14 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U hardening -d hardening_finance"
           --health-interval 5s --health-timeout 5s --health-retries 12
+      # Disposable Redis for the live service tests (presence, one-time passes).
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,7 +67,7 @@ jobs:
       - run: bun run lint
       - name: Unit tests
         run: |
-          for workspace in packages/core apps/native apps/worker; do
+          for workspace in packages/core apps/native apps/worker apps/realtime; do
             (cd "$workspace" && bun test)
           done
       - name: Database-backed API tests
@@ -79,6 +87,8 @@ jobs:
           export HISAAB_DATA_TEST_URL="$FIXTURES/hardening_data"
           bun test
           bun test checks/finance-acceptance.test.ts
+          cd ../realtime
+          LIVE_TEST_DATABASE_URL="$FIXTURES/hardening_data"             LIVE_TEST_REDIS_URL=redis://127.0.0.1:6379/0 bun test
       - run: bun run build
       - run: bun run --cwd apps/native export:web
       - name: Configuration to review before production approval
@@ -100,7 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, worker, website, app]
+        service: [api, worker, realtime, website, app]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -217,6 +227,7 @@ jobs:
           fi
           test -s api.env
           test -s worker.env
+          test -s realtime.env
           test -s .env
           stage="/opt/hisaab/.candidate-$run_id"
           # Preserve database passwords; replace only the two release settings.
@@ -239,7 +250,7 @@ jobs:
             fi
             releases=$({
               printf '%s\n' "$IMAGE_TAG"
-              for service in api worker website app; do
+              for service in api worker realtime website app; do
                 timeout 15s docker image ls --format '{{.Tag}}' "$DOCKERHUB_USERNAME/hisaab-$service" || return 1
               done
             } | awk '/^[0-9a-f]{40}$/' | sort -u | wc -l)
@@ -318,7 +329,7 @@ jobs:
           install -m 644 "$stage/Caddyfile" Caddyfile
           install -m 644 "$stage/chromium-seccomp.json" chromium-seccomp.json
           # Recreate application services only. Database upgrades are deliberate.
-          timeout --kill-after=15s 240s "${compose[@]}" up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 api worker website app caddy
+          timeout --kill-after=15s 240s "${compose[@]}" up -d --no-build --no-deps --force-recreate --wait --wait-timeout 180 api worker realtime website app caddy
           timeout 30s "${compose[@]}" exec -T worker node dist/healthcheck.js
           for url in https://api.hisaab.sajaldbansal.com/ready https://hisaab.sajaldbansal.com https://app.hisaab.sajaldbansal.com; do
             timeout 60s curl --fail --silent --show-error --output /dev/null \

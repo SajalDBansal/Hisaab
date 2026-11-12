@@ -23,7 +23,8 @@ import {
   Txt,
   showError,
 } from "@/components";
-import { useTeam, useUpdateMember } from "@/data/queries";
+import { usePresence, useTeam, useUpdateMember } from "@/data/queries";
+import { timeAgo } from "@/data/format";
 import { confirmAction } from "@/data/confirm";
 import { colors, radius, space } from "@/theme";
 
@@ -35,6 +36,18 @@ export default function TeamScreen() {
   const me = team.data?.members.find((m) => m.id === team.data?.currentUserId);
   const canManage = !!me && can(me.role, "team");
   const isOwner = me?.role === "owner";
+  const presence = usePresence(canManage);
+  const status = (m: TeamMember) => {
+    if (!m.active) return "Invite sent";
+    const seen = presence.data?.members.find((p) => p.memberId === m.id);
+    if (seen?.online)
+      return `Online on ${seen.devices.map((d) => d.device).join(", ")}`;
+    return seen?.lastActiveAt
+      ? `Active ${timeAgo(seen.lastActiveAt)}`
+      : "Active";
+  };
+  const isOnline = (m: TeamMember) =>
+    !!presence.data?.members.find((p) => p.memberId === m.id)?.online;
 
   const setRole = async (role: Role | "transfer") => {
     if (!editing) return;
@@ -83,10 +96,7 @@ export default function TeamScreen() {
                 key={m.id}
                 left={<Avatar name={m.name} />}
                 title={m.id === currentUserId ? `${m.name} (you)` : m.name}
-                subtitle={[
-                  m.email || m.phone,
-                  m.active ? "Active" : "Invite sent",
-                ]
+                subtitle={[m.email || m.phone, status(m)]
                   .filter(Boolean)
                   .join(" · ")}
                 onPress={
@@ -101,6 +111,7 @@ export default function TeamScreen() {
                       tone={m.role === "owner" ? "ink" : "neutral"}
                     />
                     {!m.active ? <Badge label="Invited" tone="dashed" /> : null}
+                    {isOnline(m) ? <Badge label="Online" tone="ok" /> : null}
                     {canManage && m.role !== "owner" ? (
                       <Button
                         label={m.active ? "Remove" : "Cancel invite"}

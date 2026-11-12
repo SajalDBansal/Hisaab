@@ -79,7 +79,7 @@ define the latest repairs and backup/migration work.
 | 30    | [PostgreSQL backup and EC2 migration](30-postgres-r2-backup-and-ec2-migration.md) | Daily latest-only R2 backup setup, controlled restores and moving to another EC2/account |
 | 31    | [Implementation and verification](31-implementation-and-verification.md) | Current A01-A16/B01-B06 repair status, integrated acceptance evidence and owner actions |
 | 32    | [Production polish audit and work plan](32-production-polish-audit-and-work-plan.md) | Independent re-verification, H01-H18 findings (release, GST/TDS, costing, scale) and the ordered plan to production |
-| 33    | [Offline viewing, access control and real-time design](33-offline-rbac-realtime.md) | View-only offline flow and batched downloads, the RBAC model with findings, and the WebSocket layer design |
+| 33    | [Offline viewing, access control and real-time design](33-offline-rbac-realtime.md) | View-only offline flow and batched downloads, the RBAC model with findings, and the live-update (WebSocket) service |
 
 ## How to Use These Guides
 

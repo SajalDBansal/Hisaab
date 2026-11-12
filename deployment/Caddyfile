@@ -9,10 +9,19 @@ app.hisaab.sajaldbansal.com {
 }
 
 api.hisaab.sajaldbansal.com {
-	# Operators scrape metrics through the private container network.
-	@metrics path /metrics /metrics/*
-	respond @metrics 404
-	reverse_proxy api:3000
+	# Live updates: WebSockets go to the separate, stateless realtime service.
+	handle /live {
+		reverse_proxy realtime:3020 {
+			# A config reload doesn't drop every open socket at once.
+			stream_close_delay 5m
+		}
+	}
+	handle {
+		# Operators scrape metrics through the private container network.
+		@metrics path /metrics /metrics/*
+		respond @metrics 404
+		reverse_proxy api:3000
+	}
 }
 
 # Container-only health listener; no host binding is published for this port.

@@ -170,6 +170,7 @@ export function readServices({ request, pages }: Client) {
         );
         return { ...target, ...patch };
       },
+      presence: () => request("/firms/current/presence", c.FirmPresence),
       transferOwnership: async (input) => {
         await request(
           "/firms/current/transfer-ownership",
