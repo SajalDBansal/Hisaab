@@ -23,6 +23,7 @@ import {
 } from "./pin";
 import { sessionStore } from "./session";
 import { createAppPrivacy } from "./appPrivacy";
+import { replicaStore } from "@/replica/replicaStore";
 
 type Status = "loading" | "signedOut" | "signedIn";
 
@@ -136,6 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           await clearLogin();
           await removePin();
+          // The books on this phone leave with the login.
+          await replicaStore.clear().catch(() => undefined);
           resetView(reason);
         } catch {
           if (pinSupported) {

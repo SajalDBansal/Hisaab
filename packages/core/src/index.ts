@@ -7,6 +7,7 @@ export * from "./reporting";
 export * from "./accounting";
 export * from "./accounting/stockLots";
 export * from "./paging";
+export * from "./replica";
 export * from "./listPages";
 export * from "./accounting/tradeRates";
 export * from "./accounting/bookScope";
@@ -16,7 +17,7 @@ export * from "./states";
 export * from "./units";
 
 // Data services — the only way apps should read or write data.
-export { API_BASE_URL, resetDb } from "./services/client";
+export { API_BASE_URL, resetDb, setReplicaBooks } from "./services/client";
 export { firmService, type FirmWithYear } from "./services/firmService";
 export {
   partyService,

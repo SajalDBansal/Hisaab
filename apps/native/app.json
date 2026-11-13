@@ -56,6 +56,12 @@
         {
           "faceIDPermission": "Use Face ID to unlock Hisaab."
         }
+      ],
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true
+        }
       ]
     ]
   }

@@ -33,6 +33,7 @@ import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
 import { tradeRateRoutes } from "./modules/masters/tradeRates.routes";
 import { listRoutes } from "./modules/lists/lists.routes";
+import { replicaRoutes } from "./modules/replica/replica.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
 import { registerCacheHelpers } from "./plugins/cache";
@@ -183,6 +184,7 @@ export async function buildApp({
   await app.register(itemRoutes, { db, prefix: "/v1" });
   await app.register(tradeRateRoutes, { db, prefix: "/v1" });
   await app.register(listRoutes, { db, prefix: "/v1" });
+  await app.register(replicaRoutes, { db, prefix: "/v1" });
   await app.register(ledgerRoutes, { db, prefix: "/v1" });
   await app.register(voucherRoutes, { db, pdfStorage, prefix: "/v1" });
   await app.register(accountRoutes, { db, prefix: "/v1" });

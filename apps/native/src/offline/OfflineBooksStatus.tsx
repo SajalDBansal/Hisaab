@@ -1,12 +1,35 @@
 import { router, usePathname } from "expo-router";
 import { Button } from "@/components/Button";
 import { useOfflineBooks } from "@/data/useOfflineBooks";
+import { useData } from "@/data/DataProvider";
 import { space } from "@/theme";
 
 export function OfflineBooksStatus() {
   const { books, entries, online, cachedAt, error, quarantine } =
     useOfflineBooks();
   const path = usePathname();
+  const { replica, offlineMode } = useData();
+  if (offlineMode)
+    return (
+      <Button
+        icon="wifi-off"
+        size="sm"
+        style={{ alignSelf: "center", margin: space.sm }}
+        label="Offline - view only"
+        onPress={() => router.push("/settings/offline-books")}
+      />
+    );
+  // A new phone: the firm's books are being saved here for the first time.
+  if (replica?.phase === "downloading")
+    return (
+      <Button
+        icon="download"
+        size="sm"
+        style={{ alignSelf: "center", margin: space.sm }}
+        label={`Downloading your firm's books… ${Math.round(replica.progress * 100)}%`}
+        onPress={() => router.push("/settings/offline-books")}
+      />
+    );
   const pending = entries.filter(
     (entry) =>
       !["committed", "cancelled", "superseded", "retained"].includes(

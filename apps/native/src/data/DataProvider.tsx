@@ -1,5 +1,5 @@
 import { FirmDetail, FirmListRow } from "@repo/contracts";
-import type { Role } from "@repo/core";
+import { can, setReplicaBooks, type ReplicaState, type Role } from "@repo/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import {
@@ -42,6 +42,9 @@ import {
   membershipScope,
 } from "./accessScope";
 import { useLiveUpdates } from "./useLiveUpdates";
+import { useReplica } from "@/replica/useReplica";
+import { localServices } from "@/replica/localServices";
+import { replicaStore } from "@/replica/replicaStore";
 
 interface DataState {
   userId: string;
@@ -50,6 +53,10 @@ interface DataState {
   accessKey: string;
   services: Services;
   offline: OfflineBooks | null;
+  /** The books kept on this phone (roles that read the whole books). */
+  replica: ReplicaState | null;
+  /** No connection: screens read the books on the phone; saving is refused. */
+  offlineMode: boolean;
   loading: boolean;
   error: Error | null;
   retry(): void;
@@ -110,6 +117,8 @@ function UserData({
   useEffect(
     () =>
       serverRecovery.subscribe(() => {
+        // Restored server books: the phone downloads them again.
+        void replicaStore.clear().catch(() => undefined);
         cache.removeQueries({ queryKey: ["books", userId] });
         void cache.invalidateQueries({ queryKey: ["firm-selection", userId] });
       }),
@@ -170,11 +179,17 @@ function UserData({
     if (firms.error instanceof ApiFailure && firms.error.status === 401)
       void endSession(firms.error.message);
   }, [firms.error, endSession]);
+  // Set when a request finds no network; cleared by the next answer.
+  const [connectionLost, setConnectionLost] = useState(false);
   const onlineTransport = useMemo<Transport>(
     () => async (path, options) => {
       try {
-        return await api(path, options);
+        const answer = await api(path, options);
+        setConnectionLost(false);
+        return answer;
       } catch (error) {
+        if (error instanceof ApiFailure && error.offline)
+          setConnectionLost(true);
         if (error instanceof ApiFailure && error.status === 401)
           await endSession(error.message);
         if (error instanceof ApiFailure && error.status === 403)
@@ -186,6 +201,12 @@ function UserData({
     },
     [userId, endSession, cache],
   );
+  const replica = useReplica({
+    enabled: REQUIRE_LOGIN && enabled && !!role && can(role, "reports"),
+    userId,
+    firmId,
+    transport: onlineTransport,
+  });
   useLiveUpdates({
     enabled: REQUIRE_LOGIN && enabled && !!role,
     userId,
@@ -193,7 +214,50 @@ function UserData({
     role,
     transport: onlineTransport,
     cache,
+    // Every change on the server reaches the phone's books at once.
+    onChanged: replica.sync,
   });
+  // Offline, while the access grant lasts, screens read the phone's books.
+  const offlineMode =
+    connectionLost &&
+    !!replica.state?.ready &&
+    offlineLeaseActive(leaseUntil.current);
+  useEffect(() => {
+    setReplicaBooks(offlineMode ? replica.books() : null);
+    void cache.invalidateQueries({ queryKey: ["books", userId] });
+    return () => setReplicaBooks(null);
+    // The books change only through syncs, which need a connection.
+  }, [offlineMode, cache, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Browsers say at once when the network goes; phones find out on the next request.
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.addEventListener !== "function"
+    )
+      return;
+    const lost = () => setConnectionLost(true);
+    window.addEventListener("offline", lost);
+    return () => window.removeEventListener("offline", lost);
+  }, []);
+  // While cut off, ask the server now and then; the first answer ends offline mode.
+  useEffect(() => {
+    if (!connectionLost) return;
+    const probe = () =>
+      void api("/v1/me").then(
+        () => setConnectionLost(false),
+        () => undefined,
+      );
+    const timer = setInterval(probe, 5_000);
+    const unsubscribe = subscribeOfflineReconnect(probe);
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") probe();
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+      appState.remove();
+    };
+  }, [connectionLost]);
   const offline = useMemo(() => {
     if (!REQUIRE_LOGIN || !enabled || !firmId || !role) return null;
     const assertActive = () => {
@@ -325,7 +389,10 @@ function UserData({
 
   const services = useMemo<Services>(() => {
     if (!REQUIRE_LOGIN) return demoServices;
-    const remote = remoteServices(transport, firmId, uploadDocumentFile);
+    const remote =
+      offlineMode && role
+        ? localServices(role)
+        : remoteServices(transport, firmId, uploadDocumentFile);
     const switchTo = async (id: string) => {
       // Verify access before changing the visible firm or persisting the selection.
       FirmDetail.parse(
@@ -366,7 +433,7 @@ function UserData({
         },
       },
     };
-  }, [transport, firmId, userId, cache]);
+  }, [transport, firmId, userId, cache, offlineMode, role]);
 
   return (
     <DataContext.Provider
@@ -377,6 +444,8 @@ function UserData({
         accessKey,
         services,
         offline,
+        replica: replica.state,
+        offlineMode,
         loading: REQUIRE_LOGIN && enabled && firms.isPending,
         error: REQUIRE_LOGIN ? firms.error : null,
         retry: () => {
