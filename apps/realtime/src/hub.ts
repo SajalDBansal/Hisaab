@@ -28,7 +28,7 @@ import type { RedisClient } from "@repo/backend/lib/redis";
 export const LIVE_PATH = "/live";
 const HELLO_MS = 5_000;
 /** Writes in quick succession reach each screen as one notice. */
-const COALESCE_MS = 200;
+const COALESCE_MS = 50;
 const TICKET_USED_MS = 120_000;
 
 type Log = {

@@ -12,6 +12,7 @@ import {
   Icon,
   ListRow,
   Money,
+  LoadingList,
   PagedView,
   QueryView,
   Screen,
@@ -46,7 +47,15 @@ const TOOLS: { label: string; icon: IconName; href: Href }[] = [
 /** Cash and bank accounts, plus every money-in and money-out voucher. */
 export default function BankingScreen() {
   const { role } = useData();
-  if (!role) return null;
+  // The role arrives with the firm list; until then show the screen loading.
+  if (!role)
+    return (
+      <Screen
+        header={<Header title="Banking" subtitle="Cash, bank and payments" />}
+      >
+        <LoadingList />
+      </Screen>
+    );
   if (!can(role, "reports")) return <Redirect href="/sales" />;
   return <BankingBooks canWrite={can(role, "payments")} />;
 }

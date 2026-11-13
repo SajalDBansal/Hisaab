@@ -36,6 +36,7 @@ import { listRoutes } from "./modules/lists/lists.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
 import { registerCacheHelpers } from "./plugins/cache";
+import { registerBooksCache } from "./plugins/books-cache";
 import { registerFirmContext } from "./plugins/firm";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
@@ -168,6 +169,7 @@ export async function buildApp({
   registerJobs(app, jobs);
   app.addHook("onClose", async () => pdfStorage?.close());
   registerCacheHelpers(app, redis, (event) => publishLive(db, event));
+  registerBooksCache(app);
   if (env.NODE_ENV !== "production") await registerSwagger(app);
   const auth = createAuth({ env, db, email, log: app.log });
   await registerAuth(app, auth, db);

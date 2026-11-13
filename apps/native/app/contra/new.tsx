@@ -22,6 +22,7 @@ import {
   Header,
   Icon,
   PostingTable,
+  LoadingList,
   QueryView,
   Screen,
   TextField,
@@ -37,7 +38,13 @@ import { useData } from "@/data/DataProvider";
 /** Contra: move money between cash and bank, or between two banks. */
 export default function NewContraScreen() {
   const { role } = useData();
-  if (!role) return null;
+  // The role arrives with the firm list; until then show the screen loading.
+  if (!role)
+    return (
+      <Screen header={<Header close title="Contra" />}>
+        <LoadingList />
+      </Screen>
+    );
   if (!can(role, "payments")) return <Redirect href="/sales" />;
   return <ContraLedgers />;
 }

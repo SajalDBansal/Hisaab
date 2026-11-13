@@ -46,6 +46,31 @@ export function withSharedReportBooks<T>(work: () => Promise<T>): Promise<T> {
   return sharedBooks.run(new Map(), work);
 }
 
+/**
+ * Runs `work` with a given store of books, shared with other reads that use
+ * the same store. The API keeps one store per firm data version, so reads
+ * between two saves load the books once. Writes never run inside a store.
+ */
+export function withReportBooksStore<T>(
+  store: Map<string, Promise<MockDb>>,
+  work: () => T,
+): T {
+  return sharedBooks.run(store, work);
+}
+
+/** In tests, shared books are frozen so a reader that changes them fails loudly. */
+function frozenInTests(books: MockDb): MockDb {
+  if (process.env.NODE_ENV !== "test") return books;
+  const freeze = (value: unknown) => {
+    if (value && typeof value === "object" && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      for (const child of Object.values(value)) freeze(child);
+    }
+  };
+  freeze(books);
+  return books;
+}
+
 /** Reads a firm's full book into the same shape used by the shared core logic. */
 export async function loadReportBooks(
   db: Pick<Db, "select">,
@@ -57,7 +82,7 @@ export async function loadReportBooks(
   const key = `${firmId}:${options.includeDeleted ? "all" : "live"}`;
   let books = shared.get(key);
   if (!books) {
-    books = readReportBooks(db, firmId, options);
+    books = readReportBooks(db, firmId, options).then(frozenInTests);
     shared.set(key, books);
     // A failed read is not reused by later reads in the batch.
     books.catch(() => shared.delete(key));
