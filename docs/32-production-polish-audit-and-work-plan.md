@@ -325,6 +325,11 @@ Sales staff no longer see purchase costs (R1). The owner can hand over the firm
 when anyone saves, the owner sees who is online, and access changes take effect
 at once. See doc 33.
 
+### Paged Lists and Performance. **Done 13 Nov 2026**
+Every list loads a page at a time with totals from the server; reads share the
+books per data version; tabs and offline viewing fixed on the web. Measured
+times and remaining limits are in doc 35.
+
 ### Owner Decisions (2 Nov 2026)
 - No-GSTIN suppliers: block GST on new purchases (done in Phase 1).
 - Costing: automatic FIFO with multi-lot lines and manual override (H14).
