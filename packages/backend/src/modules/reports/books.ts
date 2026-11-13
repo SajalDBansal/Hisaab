@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { MockDb } from "@repo/core";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
 import { listAccounts } from "../accounts/accountMasters";
@@ -90,11 +91,43 @@ export async function loadReportBooks(
   return books;
 }
 
+/**
+ * Part of a book: always the small tables (firm, settings, accounts, ledgers,
+ * units, openings); parties, items and vouchers only as listed. The replica
+ * the app keeps on the phone is built from these, with the same mapping as
+ * the server's own books.
+ */
+export type BookPart = {
+  parties?: string[] | "all";
+  items?: string[] | "all";
+  vouchers?: string[] | "all";
+};
+
+export function loadBookPart(
+  db: Pick<Db, "select">,
+  firmId: string,
+  part: BookPart,
+): Promise<MockDb> {
+  return readReportBooks(db, firmId, { part });
+}
+
+/** Rows of one table: every row, the listed ids, or none. */
+function partFilter(
+  column: AnyPgColumn,
+  want: string[] | "all" | undefined,
+  part: BookPart | undefined,
+) {
+  if (!part || want === "all") return undefined;
+  return inArray(column, want?.length ? want : [NO_ROW]);
+}
+const NO_ROW = "00000000-0000-0000-0000-000000000000";
+
 async function readReportBooks(
   db: Pick<Db, "select">,
   firmId: string,
-  options: { includeDeleted?: boolean },
+  options: { includeDeleted?: boolean; part?: BookPart },
 ): Promise<MockDb> {
+  const { part } = options;
   // A transaction owns one PostgreSQL connection; query it sequentially.
   const [firmRow] = await db
     .select({ name: organization.name, profile: firmProfile })
@@ -116,6 +149,7 @@ async function readReportBooks(
       and(
         eq(parties.firmId, firmId),
         options.includeDeleted ? undefined : isNull(parties.deletedAt),
+        partFilter(parties.id, part?.parties, part),
       ),
     );
   const itemRows = await db
@@ -125,6 +159,7 @@ async function readReportBooks(
       and(
         eq(items.firmId, firmId),
         options.includeDeleted ? undefined : isNull(items.deletedAt),
+        partFilter(items.id, part?.items, part),
       ),
     );
   const ledgerRows = await db
@@ -143,7 +178,12 @@ async function readReportBooks(
   const voucherRows = await db
     .select()
     .from(vouchers)
-    .where(eq(vouchers.firmId, firmId))
+    .where(
+      and(
+        eq(vouchers.firmId, firmId),
+        partFilter(vouchers.id, part?.vouchers, part),
+      ),
+    )
     .orderBy(asc(vouchers.date), asc(vouchers.createdAt), asc(vouchers.id));
   const openingRows = await db
     .select()
@@ -153,7 +193,12 @@ async function readReportBooks(
     .select()
     .from(units)
     .where(eq(units.firmId, firmId));
-  const loadedVouchers = await hydrateVouchers(db, voucherRows, firmId);
+  // A part reads children by voucher id; the whole book reads them by firm.
+  const loadedVouchers = await hydrateVouchers(
+    db,
+    voucherRows,
+    part && part.vouchers !== "all" ? undefined : firmId,
+  );
   const partyOpeningBills = await loadOpeningBills(
     db,
     firmId,

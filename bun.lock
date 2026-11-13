@@ -79,6 +79,7 @@
         "expo-secure-store": "~58.0.2",
         "expo-sharing": "~58.0.20",
         "expo-splash-screen": "~58.0.12",
+        "expo-sqlite": "~58.0.17",
         "expo-status-bar": "~58.0.4",
         "expo-symbols": "~58.0.4",
         "expo-system-ui": "~58.0.6",
@@ -1195,6 +1196,8 @@
 
     "avvio": ["avvio@9.3.0", "", { "dependencies": { "@fastify/error": "^4.0.0", "fastq": "^1.17.1" } }, "sha512-g2tQ7LE7oOSqDfwEm3M+ZCMTJc7KiZCdJ4UwyZJb5ckTKyYu50OYmvv0mCFXPuYXoM4zkSt8zM9XQ9KCvxA74A=="],
 
+    "await-lock": ["await-lock@2.2.2", "", {}, "sha512-aDczADvlvTGajTDjcjpJMqRkOF6Qdz3YbPZm/PyW6tKPkx2hlYBzxMhEywM/tU72HrVZjgl5VCdRuMlA7pZ8Gw=="],
+
     "axe-core": ["axe-core@4.14.0", "", {}, "sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ=="],
 
     "axobject-query": ["axobject-query@4.1.0", "", {}, "sha512-qIj0G9wZbMGNLjLmg1PT6v2mE9AH2zlnADJD/2tC6E00hgmhUOfEB6greHPAfLRSufHqROIUTkw6E+M3lH0PTQ=="],
@@ -1526,6 +1529,8 @@
     "expo-sharing": ["expo-sharing@58.0.21", "", { "dependencies": { "@expo/config-plugins": "^58.0.11", "@expo/config-types": "^58.0.3", "@expo/plist": "^0.10.1" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-YLtDPH0bCU+VUt3rgWRZHTVPIv9aKBRpQjwke+Pw6rvhDwYbolg5VnGnNNI0z4ONWCeQ73HvFX1ZTY6dCfnx1A=="],
 
     "expo-splash-screen": ["expo-splash-screen@58.0.12", "", { "dependencies": { "@expo/config-plugins": "~58.0.11", "@expo/image-utils": "^0.12.6", "xml2js": "0.6.0" }, "peerDependencies": { "expo": "*" } }, "sha512-8TceS1bu1R0IuLP9VPa6cPeVytR/V/+NqhA4rOqwqDr5MIu6u4hryIxxLYWKwWXGLOzoPC6paaBiqnMsr+nLuw=="],
+
+    "expo-sqlite": ["expo-sqlite@58.0.17", "", { "dependencies": { "await-lock": "^2.2.2" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-nzIS8doaxGYPBu+jJD1aa1wsF5vsafLEr3ji4wwR1MWd66KV3u4lKotJPylxJkP08DZWn2uUnTXyMw9t7BdGUA=="],
 
     "expo-status-bar": ["expo-status-bar@58.0.4", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-e6JJHziSSNb1v1VSzmDrAPf6GFoPRdVOIDrTCcK3bHfbJEAZGZ3YZXfqlorZtUFDT0z6NcjaZf0mPWifJZcqew=="],
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type { QueryClient } from "@tanstack/react-query";
 import { PLATFORM, deviceName } from "@/auth/device";
@@ -15,14 +15,19 @@ export function useLiveUpdates(options: {
   role: string | null;
   transport: Transport;
   cache: QueryClient;
+  /** Something changed, or may have: bring the books on the phone up to date. */
+  onChanged?: () => void;
 }) {
   const { enabled, userId, firmId, role, transport, cache } = options;
+  const onChanged = useRef(options.onChanged);
+  onChanged.current = options.onChanged;
   useEffect(() => {
     if (!enabled || !firmId) return;
     let seenVersion: string | undefined;
     let pending: ReturnType<typeof setTimeout> | undefined;
     // Several notices in a row cost one refetch; ETags make unchanged reads cheap.
     const refetchBooks = () => {
+      onChanged.current?.();
       clearTimeout(pending);
       pending = setTimeout(() => {
         void cache.invalidateQueries({ queryKey: ["books", userId, firmId] });

@@ -32,3 +32,4 @@ export * from "./reads";
 export * from "./live";
 export * from "./tradeRates";
 export * from "./listPages";
+export * from "./replica";

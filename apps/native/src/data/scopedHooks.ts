@@ -23,6 +23,9 @@ export function useServiceQuery<T>(options: {
 }) {
   const data = useData();
   const auth = useAuth();
+  // Read at call time: a refetch right after going offline uses the offline services.
+  const current = useRef(data);
+  current.current = data;
   const account = options.queryKey[0] === "firms";
   return useQuery({
     ...options,
@@ -39,7 +42,10 @@ export function useServiceQuery<T>(options: {
       (account || !!data.firmId) &&
       options.enabled !== false,
     queryFn: async () =>
-      associatePayloadForRead(data.role, await options.queryFn(data.services)),
+      associatePayloadForRead(
+        current.current.role,
+        await options.queryFn(current.current.services),
+      ),
   });
 }
 
@@ -58,6 +64,9 @@ export function useServicePages<T, S>(options: {
 }) {
   const data = useData();
   const auth = useAuth();
+  // Read at call time: a refetch right after going offline uses the offline services.
+  const current = useRef(data);
+  current.current = data;
   const query = useInfiniteQuery({
     networkMode: "always",
     queryKey: scopedKey(
@@ -76,8 +85,8 @@ export function useServicePages<T, S>(options: {
     placeholderData: keepPreviousData,
     queryFn: async ({ pageParam }) =>
       associatePayloadForRead(
-        data.role,
-        await options.queryFn(data.services, pageParam),
+        current.current.role,
+        await options.queryFn(current.current.services, pageParam),
       ),
   });
   const pages = query.data?.pages ?? [];

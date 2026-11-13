@@ -9,6 +9,7 @@ import { downloadOfflineBooks } from "@/data/offlineWarmup";
 import { offlineDefinition } from "@/data/offlineOperation";
 import type { OfflineBooks, OutboxEntry } from "@/data/offlineBooks";
 import { colors, space } from "@/theme";
+import type { ReplicaState } from "@repo/core";
 
 const date = (value?: number) =>
   value ? new Date(value).toLocaleString() : "Not downloaded";
@@ -277,7 +278,7 @@ function Entry({
 }
 
 export default function OfflineBooksScreen() {
-  const { services, firmId, role } = useData();
+  const { services, firmId, role, replica } = useData();
   const {
     books,
     entries,
@@ -324,6 +325,7 @@ export default function OfflineBooksScreen() {
           <Txt variant="small" selectable>
             {firmId} - {role}
           </Txt>
+          {replica ? <PhoneBooks replica={replica} /> : null}
           <Txt variant="small">
             Last completed download: {date(downloadedAt)}
           </Txt>
@@ -424,5 +426,29 @@ export default function OfflineBooksScreen() {
         </>
       )}
     </Screen>
+  );
+}
+
+/** The whole books kept on this phone, synced by themselves (no download needed). */
+function PhoneBooks({ replica }: { replica: ReplicaState }) {
+  const status =
+    replica.phase === "downloading"
+      ? `Downloading your firm's books… ${Math.round(replica.progress * 100)}%`
+      : replica.phase === "syncing"
+        ? "Bringing the books up to date…"
+        : replica.ready
+          ? `Up to date: ${replica.rows} entries, last synced ${date(replica.syncedAt ? Date.parse(replica.syncedAt) : undefined)}`
+          : replica.error
+            ? `Not downloaded yet: ${replica.error}`
+            : "Not downloaded yet.";
+  return (
+    <>
+      <Txt variant="bodyStrong">Books on this phone</Txt>
+      <Txt variant="small">{status}</Txt>
+      <Txt variant="small" tone="body">
+        Every change saved online is copied here within moments, so the whole
+        firm is readable without a connection. Saving always needs a connection.
+      </Txt>
+    </>
   );
 }
