@@ -26,7 +26,7 @@ export function useLiveUpdates(options: {
       clearTimeout(pending);
       pending = setTimeout(() => {
         void cache.invalidateQueries({ queryKey: ["books", userId, firmId] });
-      }, 300);
+      }, 100);
     };
     const live = createLiveConnection({
       platform: PLATFORM,

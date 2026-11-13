@@ -98,6 +98,28 @@ const readKey = (path: string) => {
 /** Reads kept for offline viewing: the same list the server batches. */
 const cacheable = (path: string) => OFFLINE_READABLE_PATH.test(path);
 
+/** A bill's frozen print copy: firm, party, items and settings as issued. */
+const isPrintCopy = (value: unknown) =>
+  !!value &&
+  typeof value === "object" &&
+  "source" in value &&
+  "settings" in value &&
+  "items" in value;
+
+/**
+ * The offline copy leaves out bills' print copies. Only editing and printing
+ * use them, and both need a connection; they are most of a bill's size.
+ */
+function offlineCopy(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(offlineCopy);
+  if (!value || typeof value !== "object") return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value))
+    if (!(key === "snapshot" && isPrintCopy(child)))
+      copy[key] = offlineCopy(child);
+  return copy;
+}
+
 /** Outbox hints are local metadata, never HTTP headers on online-only requests. */
 function withoutOfflineHints(options: RequestOptions): RequestOptions {
   if (!options.headers) return options;
@@ -958,12 +980,18 @@ export function createOfflineBooks(deps: {
       active();
       notify({ online: true });
       if (method === "GET" && cacheable(path) && capturing) {
-        captured.set(readKey(path), { at: now(), response: validated });
+        captured.set(readKey(path), {
+          at: now(),
+          response: offlineCopy(validated),
+        });
       } else if (method === "GET" && cacheable(path)) {
         try {
           await store.lock(cacheKey, async () => {
             const value = await cached();
-            value.reads[readKey(path)] = { at: now(), response: validated };
+            value.reads[readKey(path)] = {
+              at: now(),
+              response: offlineCopy(validated),
+            };
             const encoded = JSON.stringify(value);
             if (new TextEncoder().encode(encoded).byteLength > 25 * 1024 * 1024)
               throw new Error(

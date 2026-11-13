@@ -44,6 +44,16 @@ import { readBooks, vouchersService } from "../vouchers/vouchers.service";
 
 const ALL = 1_000_000;
 
+/** Lists show no printed details; the frozen print copy stays on the detail. */
+const listed = <V extends { snapshot?: unknown }>(voucher: V) => {
+  const { snapshot: _print, ...rest } = voucher;
+  return rest;
+};
+const listedRow = <R extends { voucher: { snapshot?: unknown } }>(row: R) => ({
+  ...row,
+  voucher: listed(row.voucher),
+});
+
 /**
  * The list screens, a page at a time, with totals over every matching row.
  * The rows behind each list are cached per firm data version, so scrolling
@@ -152,7 +162,8 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
       const rows = await rowsOf(req, `invoices:${req.query.type}`, () =>
         vouchersService.invoices(db, req.firm.id, req.query.type),
       );
-      return invoicePage(rows, req.query);
+      const page = invoicePage(rows, req.query);
+      return { ...page, items: page.items.map(listedRow) };
     },
   );
 
@@ -167,7 +178,8 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
       const rows = await rowsOf(req, `orders:${req.query.type}`, () =>
         vouchersService.orders(db, req.firm.id, req.query.type),
       );
-      return orderPage(rows, req.query);
+      const page = orderPage(rows, req.query);
+      return { ...page, items: page.items.map(listedRow) };
     },
   );
 
@@ -189,7 +201,10 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
         defaultScope: gstModeOf(books.firm) === "off" ? "nongst" : "gst",
         parties: books.parties,
       });
-      return { ...page, items: page.items.map(apiVoucher) };
+      return {
+        ...page,
+        items: page.items.map((v) => listed(apiVoucher(v))),
+      };
     },
   );
 }

@@ -109,7 +109,10 @@ export const partyService = {
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-    ).slice(0, 20); // the latest few; the tab pages through voucherService.page
+    )
+      // The latest few, without print copies; the tab pages through voucherService.page.
+      .slice(0, 20)
+      .map(({ snapshot: _print, ...voucher }) => voucher);
     return clone({
       ...row,
       unallocated: unallocatedMoney(party, vouchers),

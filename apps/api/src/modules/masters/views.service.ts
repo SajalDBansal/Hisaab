@@ -102,8 +102,10 @@ export async function readParty(
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-      // The latest few; the Transactions tab pages through /vouchers/page.
-    ).slice(0, PARTY_RECENT_ENTRIES),
+      // The latest few, without print copies; the tab pages through /vouchers/page.
+    )
+      .slice(0, PARTY_RECENT_ENTRIES)
+      .map(({ snapshot: _print, ...voucher }) => voucher),
   };
 }
 

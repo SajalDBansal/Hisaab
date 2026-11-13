@@ -30,9 +30,12 @@ export default function TabsLayout() {
 
 type TabBarProps = Parameters<
   NonNullable<ComponentProps<typeof Tabs>["tabBar"]>
->[0] & { navigation?: { navigate: (name: string) => void } };
+>[0];
 
-function TabBar({ state, navigation }: TabBarProps) {
+/** The tab bar navigates by path: the bar's own navigation prop is not always passed. */
+const tabHref = (name: string) => (name === "index" ? "/" : `/${name}`) as "/";
+
+function TabBar({ state }: TabBarProps) {
   const insets = useSafeAreaInsets();
   return (
     <View
@@ -65,7 +68,7 @@ function TabBar({ state, navigation }: TabBarProps) {
             key={route.key}
             accessibilityRole="tab"
             accessibilityState={{ selected: focused }}
-            onPress={() => navigation?.navigate(route.name)}
+            onPress={() => router.navigate(tabHref(route.name))}
             style={styles.tab}
           >
             <Icon

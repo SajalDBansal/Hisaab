@@ -13,7 +13,9 @@ import type { OfflineBooks } from "./offlineBooks";
 import { finalAccountsPeriod, REPORT_PERIODS } from "./reportPeriods";
 
 /**
- * Every page of one list view, asked exactly as the screen asks for it. With a
+ * Every page of one list view, asked exactly as the screen asks for it.
+ * Other filter combinations stay online-only, to keep the offline copy
+ * within its size limit. With a
  * total, the later pages go out together; otherwise follow the cursor chain.
  */
 async function everyPage(
@@ -90,14 +92,9 @@ export async function downloadOfflineBooks(
             services.itemService.parties(row.item.id),
           ])
         : []),
+      // Returnable lines only feed the new-return form, which needs a
+      // connection anyway; offline is view-only.
       ...vouchers.map((entry) => services.voucherService.get(entry.id)),
-      ...vouchers
-        .filter(
-          (entry) =>
-            (entry.type === "sale" && can(role, "sales")) ||
-            (entry.type === "purchase" && can(role, "purchase")),
-        )
-        .map((entry) => services.voucherService.returnable(entry.id)),
     ];
     if (can(role, "reports"))
       for (const tax of ["all", "gst", "nongst"] as const) {
@@ -127,10 +124,14 @@ export async function downloadOfflineBooks(
     const noFilters = { search: "", overdue: false, withBalance: false };
     for (const type of ["customer", "supplier", undefined] as const)
       if (type === "customer" || can(role, "reports"))
-        for (const sort of ["balance", "name"] as const)
-          list((cursor) =>
-            services.partyService.page({ ...noFilters, type, sort, cursor }),
-          );
+        list((cursor) =>
+          services.partyService.page({
+            ...noFilters,
+            type,
+            sort: "balance",
+            cursor,
+          }),
+        );
     for (const scope of SCOPES)
       list((cursor) =>
         services.itemService.page({
@@ -143,7 +144,8 @@ export async function downloadOfflineBooks(
       );
     for (const kind of ["sale", "purchase"] as const)
       if (can(role, kind === "sale" ? "sales" : "purchase"))
-        for (const month of [...lastMonths(today(), 3), "all"])
+        // This month (the screen's default) and every month.
+        for (const month of [lastMonths(today(), 1)[0], "all"])
           list((cursor) =>
             services.voucherService.invoicePage(kind, {
               month,
@@ -162,22 +164,22 @@ export async function downloadOfflineBooks(
           list((cursor) =>
             services.voucherService.orderPage(type, { status, cursor }),
           );
-    for (const scope of SCOPES) {
-      list((cursor) =>
-        services.voucherService.page({ types: undefined, scope, cursor }),
-      );
+    // The day book holds every entry: one copy, for all books, keeps the
+    // offline copy small. Journals are few, so every book is kept.
+    list((cursor) =>
+      services.voucherService.page({ types: undefined, scope: "all", cursor }),
+    );
+    for (const scope of SCOPES)
       list((cursor) =>
         services.voucherService.page({ types: "journal", scope, cursor }),
       );
-    }
-    for (const direction of [undefined, "in", "out"] as const)
-      list((cursor) =>
-        services.voucherService.page({
-          types: "receipt,payment,expense,contra",
-          direction,
-          cursor,
-        }),
-      );
+    list((cursor) =>
+      services.voucherService.page({
+        types: "receipt,payment,expense,contra",
+        direction: undefined,
+        cursor,
+      }),
+    );
     for (const row of parties)
       list((cursor) =>
         services.voucherService.page({ partyId: row.party.id, cursor }),
@@ -189,12 +191,11 @@ export async function downloadOfflineBooks(
         );
     if (can(role, "payments") || can(role, "reports"))
       for (const ledger of await services.ledgerService.listCashAndBank())
-        for (const tax of SCOPES)
-          list((cursor) =>
-            services.ledgerService.statementPage(ledger.ledger.id, tax, {
-              cursor,
-            }),
-          );
+        list((cursor) =>
+          services.ledgerService.statementPage(ledger.ledger.id, "all", {
+            cursor,
+          }),
+        );
 
     // 4. Other book screens. A read this role may not see is skipped, not fatal.
     const lastYear = Number(financialYear(today()).start.slice(0, 4)) - 1;
