@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Id, IsoDate, Paise } from "./common";
 import { CUSTOM_ACCOUNT_GROUPS } from "@repo/core";
-import { ReportVoucher } from "./reports";
+import { ReportVoucher, StatementPaging } from "./reports";
 
 export const AccountParams = z.object({ key: z.string().min(1) });
 
@@ -110,6 +110,7 @@ const StatementMovement = z.object({
 });
 
 export const AccountStatement = AccountInfo.extend({
+  ...StatementPaging,
   opening: Paise,
   totalDebit: Paise,
   totalCredit: Paise,

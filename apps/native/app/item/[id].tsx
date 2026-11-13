@@ -18,6 +18,7 @@ import {
   IconButton,
   KeyValue,
   ListRow,
+  PagedView,
   QueryView,
   Screen,
   Segmented,
@@ -25,12 +26,14 @@ import {
 } from "@/components";
 import { useItem, useItemParties, useStockLots } from "@/data/queries";
 import { TradeRateList } from "@/lists/TradeRateList";
+import { useItemMovementPages } from "@/data/pagedQueries";
 import { space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
 export default function ItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const item = useItem(id);
+  const movements = useItemMovementPages(id);
   return (
     <Screen
       header={
@@ -45,15 +48,27 @@ export default function ItemScreen() {
           }
         />
       }
-      onRefresh={() => item.refetch()}
+      onRefresh={() => {
+        item.refetch();
+        movements.query.refetch();
+      }}
       refreshing={item.isRefetching}
+      onEndReached={movements.loadMore}
     >
-      <QueryView query={item}>{(d) => <ItemBody d={d} />}</QueryView>
+      <QueryView query={item}>
+        {(d) => <ItemBody d={d} movements={movements} />}
+      </QueryView>
     </Screen>
   );
 }
 
-function ItemBody({ d }: { d: ItemDetail }) {
+function ItemBody({
+  d,
+  movements,
+}: {
+  d: ItemDetail;
+  movements: ReturnType<typeof useItemMovementPages>;
+}) {
   const stock = useStockLots();
   const gst = useGstMode();
   const { item } = d;
@@ -184,32 +199,36 @@ function ItemBody({ d }: { d: ItemDetail }) {
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
           Stock movements
         </Txt>
-        {d.movements.length === 0 ? (
-          <Txt variant="small" tone="body">
-            No movements yet.
-          </Txt>
-        ) : (
-          d.movements.slice(0, 20).map((m, i, list) => (
-            <ListRow
-              key={`${m.voucherId}-${i}`}
-              title={m.number}
-              subtitle={`${m.type === "sale" ? "Sale" : "Purchase"} · ${formatDate(m.date)}${m.entered ? ` · billed as ${m.entered}` : ""}`}
-              onPress={() => router.push(`/voucher/${m.voucherId}`)}
-              right={
-                <Txt
-                  variant="bodyStrong"
-                  num
-                  tone={m.qty > 0 ? "get" : "give"}
-                  style={{ fontWeight: "600" }}
-                >
-                  {m.qty > 0 ? "+" : "−"}
-                  {Math.abs(m.qty)} {item.unit}
-                </Txt>
-              }
-              last={i === list.length - 1}
-            />
-          ))
-        )}
+        <PagedView list={movements} noun="movements">
+          {({ items: list }) =>
+            list.length === 0 ? (
+              <Txt variant="small" tone="body">
+                No movements yet.
+              </Txt>
+            ) : (
+              list.map((m, i) => (
+                <ListRow
+                  key={`${m.voucherId}-${i}`}
+                  title={m.number}
+                  subtitle={`${m.type === "sale" ? "Sale" : "Purchase"} · ${formatDate(m.date)}${m.entered ? ` · billed as ${m.entered}` : ""}`}
+                  onPress={() => router.push(`/voucher/${m.voucherId}`)}
+                  right={
+                    <Txt
+                      variant="bodyStrong"
+                      num
+                      tone={m.qty > 0 ? "get" : "give"}
+                      style={{ fontWeight: "600" }}
+                    >
+                      {m.qty > 0 ? "+" : "−"}
+                      {Math.abs(m.qty)} {item.unit}
+                    </Txt>
+                  }
+                  last={i === list.length - 1}
+                />
+              ))
+            )
+          }
+        </PagedView>
       </View>
     </>
   );

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { TextInput, View } from "react-native";
 import {
   altQtyText,
@@ -8,6 +8,8 @@ import {
   itemTaxType,
   taxTypeLabel,
   type ItemListRow,
+  type ItemPageSummary,
+  type TaxScope,
 } from "@repo/core";
 import {
   Avatar,
@@ -18,14 +20,15 @@ import {
   EmptyState,
   Icon,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TabTitle,
   TaxScopeFilter,
   Txt,
 } from "@/components";
 import { useData } from "@/data/DataProvider";
-import { useItems, useStockLots } from "@/data/queries";
+import { useItemPages } from "@/data/pagedQueries";
+import { useDebounced } from "@/data/useDebounced";
 import { useReportScope } from "@/data/reportScope";
 import { colors, radius, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
@@ -37,8 +40,14 @@ export default function ItemsScreen() {
   const [lowOnly, setLowOnly] = useState(params.filter === "low");
   const [group, setGroup] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const items = useItems();
-  const stock = useStockLots();
+  const [scope, setScope] = useReportScope();
+  const query = useDebounced(search);
+  const items = useItemPages({
+    search: query,
+    group: group ?? undefined,
+    low: lowOnly,
+    scope,
+  });
 
   useEffect(() => {
     if (params.filter === "low") setLowOnly(true);
@@ -59,8 +68,9 @@ export default function ItemsScreen() {
           }
         />
       }
-      onRefresh={() => Promise.all([items.refetch(), stock.refetch()])}
-      refreshing={items.isRefetching || stock.isRefetching}
+      onRefresh={() => items.query.refetch()}
+      refreshing={items.query.isRefetching && !items.query.isFetchingNextPage}
+      onEndReached={items.loadMore}
       contentStyle={{ gap: space.lg, paddingTop: space.xs }}
     >
       <View style={{ flexDirection: "row", gap: space.sm }}>
@@ -90,32 +100,38 @@ export default function ItemsScreen() {
         </View>
       </View>
 
-      <QueryView query={items}>
-        {(rows) => (
+      <PagedView list={items} noun="items">
+        {({ items: rows, summary }) => (
           <ItemList
             rows={rows}
-            search={search}
+            summary={summary}
+            scope={scope}
+            setScope={setScope}
             lowOnly={lowOnly}
             setLowOnly={setLowOnly}
             group={group}
             setGroup={setGroup}
           />
         )}
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }
 
 function ItemList({
-  rows,
-  search,
+  rows: visible,
+  summary,
+  scope,
+  setScope,
   lowOnly,
   setLowOnly,
   group,
   setGroup,
 }: {
   rows: ItemListRow[];
-  search: string;
+  summary: ItemPageSummary;
+  scope: TaxScope;
+  setScope: (scope: TaxScope) => void;
   lowOnly: boolean;
   setLowOnly: (v: boolean) => void;
   group: string | null;
@@ -125,51 +141,9 @@ function ItemList({
   // Stock is valued at purchase cost, which sales staff don't see.
   const { role } = useData();
   const showCosts = canSeeCosts(role);
-  const groups = useMemo(
-    () => [...new Set(rows.map((r) => r.item.group))].sort(),
-    [rows],
-  );
-  const [scope, setScope] = useReportScope();
-  const stock = useStockLots();
-  const scopedRows = useMemo(
-    () =>
-      rows
-        .map((row) => {
-          const lots = (stock.data ?? []).filter(
-            (lot) =>
-              lot.itemId === row.item.id &&
-              (scope === "all" || lot.bookScope === scope),
-          );
-          const qty =
-            Math.round(lots.reduce((sum, lot) => sum + lot.qty, 0) * 1000) /
-            1000;
-          return {
-            ...row,
-            qty,
-            value: lots.reduce((sum, lot) => sum + lot.value, 0),
-            lowStock: qty < row.item.reorderLevel,
-          };
-        })
-        .filter((row) => scope === "all" || row.qty !== 0),
-    [rows, stock.data, scope],
-  );
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return scopedRows
-      .filter(
-        (r) =>
-          !q ||
-          `${r.item.name} ${r.item.code} ${r.item.hsn}`
-            .toLowerCase()
-            .includes(q),
-      )
-      .filter((r) => !lowOnly || r.lowStock)
-      .filter((r) => !group || r.item.group === group);
-  }, [scopedRows, search, lowOnly, group]);
-
-  const totalValue = scopedRows.reduce((s, r) => s + r.value, 0);
-  const lowCount = scopedRows.filter((r) => r.lowStock).length;
-  if (!stock.data) return <QueryView query={stock}>{() => null}</QueryView>;
+  const groups = summary.groups;
+  const totalValue = summary.value;
+  const lowCount = summary.lowCount;
 
   return (
     <>
@@ -190,7 +164,7 @@ function ItemList({
         ) : null}
         <Summary
           label="Items"
-          value={String(scopedRows.length)}
+          value={String(summary.count)}
           divider={showCosts}
         />
         <Summary

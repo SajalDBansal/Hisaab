@@ -895,7 +895,7 @@ export function toVoucher(v: CoreVoucher, version: number): Voucher {
   return { ...rest, version };
 }
 
-async function readBooks(db: Db, firmId: string) {
+export async function readBooks(db: Db, firmId: string) {
   const [books, versionRows] = await Promise.all([
     loadReportBooks(db, firmId),
     db

@@ -9,6 +9,7 @@ export { Money, Balance } from "./Money";
 export { Avatar, ListRow, KeyValue, SectionHeader } from "./ListRow";
 export { Screen, Header, TabTitle, FooterBar, FirmBar } from "./Screen";
 export { LoadingList, EmptyState, ErrorState, QueryView } from "./States";
+export { PagedView } from "./Paged";
 export { TextField, AmountField, SelectField } from "./Field";
 export { PickerSheet, type PickerOption } from "./PickerSheet";
 export { PairedBarChart, LineChart } from "./Charts";

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as c from "@repo/contracts";
-import type { Client } from "./client";
+import { type Client, pageQuery } from "./client";
 import type { Services } from "./services";
 import type { DocumentFile } from "@repo/core";
 import { assertRecoveryEpoch } from "./recoveryEpoch";
@@ -153,6 +153,12 @@ export function documentServices(
       request("/documents/search", z.array(c.StoredDocument), {
         body: filters,
       }),
+    page: (filters, query) =>
+      request(
+        `/documents/search/page${pageQuery(query)}`,
+        c.listPage(c.StoredDocument, z.null()),
+        { body: filters },
+      ),
     folders: () => request("/documents/folders", z.array(z.string())),
     download: (id) =>
       request(`/documents/${id}/download-url`, c.DownloadTicket),

@@ -6,13 +6,13 @@ import { useData } from "@/data/DataProvider";
 import {
   Avatar,
   Badge,
-  Button,
   Card,
   EmptyState,
   Header,
   Icon,
   ListRow,
   Money,
+  PagedView,
   QueryView,
   Screen,
   Segmented,
@@ -25,11 +25,11 @@ import {
   voucherTypeIcon,
   voucherTypeLabel,
 } from "@/data/labels";
-import { useLedgers, useVouchers } from "@/data/queries";
+import { useLedgers } from "@/data/queries";
+import { useVoucherPages } from "@/data/pagedQueries";
 import { colors, radius, space } from "@/theme";
 
 type Direction = "all" | "in" | "out";
-const PAGE = 20;
 
 const TOOLS: { label: string; icon: IconName; href: Href }[] = [
   { label: "Receive", icon: "arrow-down-left", href: "/receipt/new" },
@@ -53,20 +53,24 @@ export default function BankingScreen() {
 
 function BankingBooks({ canWrite }: { canWrite: boolean }) {
   const ledgers = useLedgers();
-  const vouchers = useVouchers({
-    types: ["receipt", "payment", "expense", "contra"],
-  });
   const [direction, setDirection] = useState<Direction>("all");
-  const [shown, setShown] = useState(PAGE);
+  const vouchers = useVoucherPages({
+    types: "receipt,payment,expense,contra",
+    direction: direction === "all" ? undefined : direction,
+  });
 
   return (
     <Screen
       header={<Header title="Banking" subtitle="Cash, bank and payments" />}
       onRefresh={() => {
         ledgers.refetch();
-        vouchers.refetch();
+        vouchers.query.refetch();
       }}
-      refreshing={ledgers.isRefetching || vouchers.isRefetching}
+      refreshing={
+        ledgers.isRefetching ||
+        (vouchers.query.isRefetching && !vouchers.query.isFetchingNextPage)
+      }
+      onEndReached={vouchers.loadMore}
     >
       <QueryView query={ledgers}>
         {(list) => {
@@ -153,44 +157,26 @@ function BankingBooks({ canWrite }: { canWrite: boolean }) {
         <Txt variant="heading">Payments</Txt>
         <Segmented
           value={direction}
-          onChange={(d) => {
-            setDirection(d);
-            setShown(PAGE);
-          }}
+          onChange={setDirection}
           options={[
             { value: "all", label: "All" },
             { value: "in", label: "Money in" },
             { value: "out", label: "Money out" },
           ]}
         />
-        <QueryView query={vouchers}>
-          {(list) => {
-            const filtered = list.filter(
-              (v) =>
-                direction === "all" ||
-                (direction === "in"
-                  ? v.type === "receipt"
-                  : v.type === "payment" || v.type === "expense"),
-            );
-            if (filtered.length === 0)
-              return <EmptyState icon="credit-card" title="No payments yet" />;
-            return (
-              <>
-                <View>
-                  {filtered.slice(0, shown).map((v, i, rows) => (
-                    <MoneyRow key={v.id} v={v} last={i === rows.length - 1} />
-                  ))}
-                </View>
-                {filtered.length > shown ? (
-                  <Button
-                    label={`Show ${Math.min(PAGE, filtered.length - shown)} more`}
-                    onPress={() => setShown(shown + PAGE)}
-                  />
-                ) : null}
-              </>
-            );
-          }}
-        </QueryView>
+        <PagedView list={vouchers} noun="entries">
+          {({ items }) =>
+            items.length === 0 ? (
+              <EmptyState icon="credit-card" title="No payments yet" />
+            ) : (
+              <View>
+                {items.map((v, i, rows) => (
+                  <MoneyRow key={v.id} v={v} last={i === rows.length - 1} />
+                ))}
+              </View>
+            )
+          }
+        </PagedView>
       </View>
     </Screen>
   );

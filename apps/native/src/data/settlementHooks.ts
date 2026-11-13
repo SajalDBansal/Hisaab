@@ -8,7 +8,11 @@ import type {
 } from "@repo/contracts/src/settlements";
 import type { Services } from "./services";
 import { useData } from "./DataProvider";
-import { useServiceMutation, useServiceQuery } from "./scopedHooks";
+import {
+  useServiceMutation,
+  useServicePages,
+  useServiceQuery,
+} from "./scopedHooks";
 import type { SettlementService } from "./settlementServices";
 
 function service(s: Services & { settlementService?: SettlementService }) {
@@ -31,6 +35,15 @@ function useRefresh() {
   const query = useQueryClient();
   const { userId } = useData();
   return () => query.invalidateQueries({ queryKey: ["books", userId] });
+}
+/** The register screen, a page at a time as the user scrolls. */
+export function useSettlementPages() {
+  const access = useSettlementAccess();
+  return useServicePages({
+    queryKey: ["settlementPages"],
+    queryFn: (s, cursor) => service(s).listPage(cursor),
+    enabled: access.read && access.connected,
+  });
 }
 export function useSettlements() {
   const access = useSettlementAccess();

@@ -1,3 +1,4 @@
+import { pageRows, type PageQuery } from "../paging";
 import {
   isLowStock,
   itemProfit,
@@ -8,7 +9,17 @@ import {
 import { createItem, updateItem } from "../mock/db";
 import type { Item, ItemInput, Paise } from "../types";
 import { clone, delay, getDb } from "./client";
-import { inventoryValue, stockLots } from "../accounting/stockLots";
+import {
+  inventoryValue,
+  stockLots,
+  stockLotsFor,
+} from "../accounting/stockLots";
+import {
+  itemPage,
+  type ItemPageQuery,
+  type ItemPageSummary,
+  type PagedList,
+} from "../listPages";
 import {
   openingStockLeft,
   tradeRates,
@@ -42,6 +53,14 @@ export const itemService = {
     const db = getDb();
     return clone(db.items.flatMap((i) => stockLots(i, db.vouchers, date)));
   },
+  /** One page of the Items screen. Real API: http.get(`/items/page?…`) */
+  async page(
+    query: ItemPageQuery,
+  ): Promise<PagedList<ItemListRow, ItemPageSummary>> {
+    await delay();
+    const { items, vouchers } = getDb();
+    return clone(itemPage(items, stockLotsFor(items, vouchers), query));
+  },
   /** Real API: http.get<ItemListRow[]>("/items") */
   async list(): Promise<ItemListRow[]> {
     await delay();
@@ -59,6 +78,16 @@ export const itemService = {
     );
   },
 
+  /** One page of an item's movements, newest first. Real API: `/items/${id}/movements?cursor` */
+  async movementPage(id: string, query: PageQuery) {
+    await delay();
+    const { vouchers } = getDb();
+    return clone({
+      ...pageRows(stockMovements(id, vouchers).reverse(), query),
+      summary: null,
+    });
+  },
+
   /** Real API: http.get<ItemDetail>(`/items/${id}`) */
   async get(id: string): Promise<ItemDetail> {
     await delay();
@@ -71,7 +100,7 @@ export const itemService = {
       qty,
       value: inventoryValue(item, vouchers),
       lowStock: isLowStock(item, qty),
-      movements: stockMovements(id, vouchers).reverse(),
+      movements: stockMovements(id, vouchers).reverse().slice(0, 20),
       profit: itemProfit(item, vouchers),
     });
   },

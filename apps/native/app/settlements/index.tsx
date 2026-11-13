@@ -5,21 +5,25 @@ import {
   EmptyState,
   Header,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   Txt,
 } from "@/components";
-import { useSettlementAccess, useSettlements } from "@/data/settlementHooks";
+import {
+  useSettlementAccess,
+  useSettlementPages,
+} from "@/data/settlementHooks";
 
 export default function Settlements() {
   const { loanId } = useLocalSearchParams<{ loanId?: string }>();
   const access = useSettlementAccess(),
-    query = useSettlements();
+    query = useSettlementPages();
   return (
     <Screen
       header={<Header title="Settlements" />}
-      onRefresh={() => void query.refetch()}
-      refreshing={query.isRefetching}
+      onRefresh={() => void query.query.refetch()}
+      refreshing={query.query.isRefetching && !query.query.isFetchingNextPage}
+      onEndReached={query.loadMore}
     >
       {!access.read ? (
         <EmptyState title="Settlement access denied" />
@@ -48,8 +52,8 @@ export default function Settlements() {
               />
             </>
           ) : null}
-          <QueryView query={query}>
-            {(allRows) => {
+          <PagedView list={query} noun="settlements">
+            {({ items: allRows }) => {
               const rows = allRows.filter(
                 (row) => !loanId || row.loanId === loanId,
               );
@@ -71,7 +75,7 @@ export default function Settlements() {
                 <EmptyState title="No settlements" />
               );
             }}
-          </QueryView>
+          </PagedView>
         </>
       )}
     </Screen>

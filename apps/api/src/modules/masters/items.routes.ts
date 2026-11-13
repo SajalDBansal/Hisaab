@@ -6,6 +6,8 @@ import {
   ItemDetail,
   StockLot,
   IsoDate,
+  ListPageQuery,
+  MovementPage,
   NewUnitInput,
   UnitParams,
   UnitRow,
@@ -18,10 +20,15 @@ import { z } from "zod";
 import type { Db } from "@repo/backend/db/client";
 import { itemsRepo } from "./items.repo";
 import { itemsService, toItemRow } from "./items.service";
-import { expectedVersion, pageOf, pageStart } from "@repo/backend/modules/masters/shared";
+import {
+  expectedVersion,
+  pageOf,
+  pageStart,
+} from "@repo/backend/modules/masters/shared";
 import { unitsService } from "./units.service";
-import { readItem } from "./views.service";
-import { stockLots, inventoryValue } from "@repo/core";
+import { readItem, readItemMovements } from "./views.service";
+import { createListCache, listKey } from "../../lib/list-cache";
+import { stockLots, inventoryValue, pageRows } from "@repo/core";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
 
 const Ok = z.object({ ok: z.literal(true) });
@@ -32,6 +39,7 @@ export async function itemRoutes(app: FastifyInstance, options: { db: Db }) {
   const typed = app.withTypeProvider<ZodTypeProvider>();
   const writeItems = app.inFirm(["sales", "purchase"]);
   const writeUnits = app.inFirm("settings");
+  const movements = createListCache();
   typed.get(
     "/items/stock-lots",
     {
@@ -90,6 +98,28 @@ export async function itemRoutes(app: FastifyInstance, options: { db: Db }) {
       schema: { params: IdParams, response: { 200: ItemDetail } },
     },
     async (req) => readItem(db, req.firm.id, req.params.id),
+  );
+
+  typed.get(
+    "/items/:id/movements",
+    {
+      // Movements show purchases, so the item detail rule applies.
+      preHandler: app.inFirm(["purchase", "reports"]),
+      schema: {
+        params: IdParams,
+        querystring: ListPageQuery,
+        response: { 200: MovementPage },
+      },
+    },
+    async (req) => ({
+      ...pageRows(
+        await movements(listKey(req, `movements:${req.params.id}`), () =>
+          readItemMovements(db, req.firm.id, req.params.id),
+        ),
+        req.query,
+      ),
+      summary: null,
+    }),
   );
 
   typed.post(

@@ -1,7 +1,7 @@
 import * as c from "@repo/contracts";
-import { stockValue } from "@repo/core";
+import { PAGE_SIZE, stockValue } from "@repo/core";
 import { z } from "zod";
-import { type Client, queryString } from "./client";
+import { type Client, pageQuery, queryString, statementPageOf } from "./client";
 import type { Services } from "./services";
 
 // Updates require the version shown when the form opened, never a freshly fetched version.
@@ -30,6 +30,21 @@ export function masterServices(client: Client) {
           overdueAmount: party.overdueAmount,
           maxOverdueDays: party.maxOverdueDays,
         })),
+      page: async (query) => {
+        const page = await request(
+          `/parties/page${pageQuery(query)}`,
+          c.PartyPage,
+        );
+        return {
+          ...page,
+          items: page.items.map((party) => ({
+            party,
+            balance: party.balance,
+            overdueAmount: party.overdueAmount,
+            maxOverdueDays: party.maxOverdueDays,
+          })),
+        };
+      },
       get: (id) => request(`/parties/${id}`, c.PartyDetail),
       items: (id) => request(`/parties/${id}/items`, c.PartyItems),
       itemRates: (id, itemId) =>
@@ -55,8 +70,28 @@ export function masterServices(client: Client) {
           value: item.value ?? stockValue(item, item.stock),
           lowStock: item.lowStock,
         })),
+      page: async (query) => {
+        const page = await request(
+          `/items/page${pageQuery(query)}`,
+          c.ItemPage,
+        );
+        return {
+          ...page,
+          items: page.items.map((item) => ({
+            item,
+            qty: item.stock,
+            value: item.value ?? 0,
+            lowStock: item.lowStock,
+          })),
+        };
+      },
       get: (id) => request(`/items/${id}`, c.ItemDetail),
       parties: (id) => request(`/items/${id}/parties`, c.ItemParties),
+      movementPage: (id, query) =>
+        request(
+          `/items/${id}/movements${pageQuery({ cursor: query.cursor })}`,
+          c.MovementPage,
+        ),
       create: (input) => request("/items", c.ItemRow, { body: input }),
       update: (id, input, version?: number) =>
         request(`/items/${id}`, c.ItemRow, {
@@ -76,6 +111,13 @@ export function masterServices(client: Client) {
         request(
           `/ledgers/${id}/statement${queryString({ tax })}`,
           c.LedgerStatement,
+        ),
+      statementPage: async (id, tax, query) =>
+        statementPageOf(
+          await request(
+            `/ledgers/${id}/statement${pageQuery({ tax, limit: PAGE_SIZE, cursor: query.cursor })}`,
+            c.LedgerStatement,
+          ),
         ),
     } satisfies Services["ledgerService"],
     unitService: {

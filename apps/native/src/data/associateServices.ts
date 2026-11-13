@@ -6,6 +6,8 @@ import { matchVersion } from "./masterServices";
 export function associateServices(client: Client) {
   return {
     list: () => client.pages("/associates", c.AssociateRecord),
+    listPage: (cursor?: string) =>
+      client.page("/associates", c.AssociateRecord, {}, cursor),
     options: () =>
       client.request("/associates/options", z.array(c.AssociateOption)),
     fields: () =>

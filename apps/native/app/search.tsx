@@ -1,5 +1,5 @@
 import { router, type Href } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { View } from "react-native";
 import { formatDate, type SearchHit } from "@repo/core";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components";
 import { voucherTypeIcon, voucherTypeLabel } from "@/data/labels";
 import { useSearch } from "@/data/queries";
+import { useDebounced } from "@/data/useDebounced";
 
 import { space } from "@/theme";
 
@@ -31,19 +32,11 @@ const hrefFor = (h: SearchHit): Href =>
         : `/voucher/${h.id}`;
 
 /** Wait until the user stops typing for a moment before searching. */
-function useDebounced(value: string, ms = 250) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(id);
-  }, [value, ms]);
-  return debounced;
-}
 
 /** One search box for parties, items, bills and vouchers, and cash/bank accounts. */
 export default function SearchScreen() {
   const [text, setText] = useState("");
-  const query = useDebounced(text);
+  const query = useDebounced(text, 250);
   const results = useSearch(query);
   const tooShort = query.trim().length < 2;
   const r = results.data;

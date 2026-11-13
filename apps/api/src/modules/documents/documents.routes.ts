@@ -1,3 +1,4 @@
+import { pageRows } from "@repo/core";
 import {
   DocumentListParams,
   DocumentFilters,
@@ -7,6 +8,8 @@ import {
   StoredDocument,
   UploadRequest,
   UploadTicket,
+  ListPageQuery,
+  listPage,
 } from "@repo/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -76,6 +79,27 @@ export async function documentRoutes(
     },
     async (req) =>
       documentsService.list(db, req.firm.id, req.firm.role, req.body),
+  );
+
+  /** The documents screen, a page at a time (filters in the body, page in the query). */
+  typed.post(
+    "/documents/search/page",
+    {
+      preHandler: app.inFirm(),
+      config: { readOnly: true },
+      schema: {
+        body: DocumentFilters,
+        querystring: ListPageQuery,
+        response: { 200: listPage(StoredDocument, z.null()) },
+      },
+    },
+    async (req) => ({
+      ...pageRows(
+        await documentsService.list(db, req.firm.id, req.firm.role, req.body),
+        req.query,
+      ),
+      summary: null,
+    }),
   );
 
   typed.get(

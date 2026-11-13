@@ -8,7 +8,7 @@ import {
   EmptyState,
   Header,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TextField,
   Txt,
@@ -16,14 +16,14 @@ import {
 } from "@/components";
 import {
   useInventoryAccess,
-  useInventoryAdjustments,
+  useInventoryAdjustmentPages,
   useInventoryReverse,
 } from "@/data/inventoryHooks";
 import { space } from "@/theme";
 
 export default function InventoryCorrections() {
   const access = useInventoryAccess();
-  const query = useInventoryAdjustments();
+  const query = useInventoryAdjustmentPages();
   const reverse = useInventoryReverse();
   const [selected, setSelected] = useState("");
   const [date, setDate] = useState(today());
@@ -38,7 +38,10 @@ export default function InventoryCorrections() {
     }
   }
   return (
-    <Screen header={<Header title="Inventory adjustments" />}>
+    <Screen
+      header={<Header title="Inventory adjustments" />}
+      onEndReached={query.loadMore}
+    >
       {!access.read || !access.connected ? (
         <EmptyState title="Sign in to view inventory adjustments" />
       ) : (
@@ -50,8 +53,8 @@ export default function InventoryCorrections() {
               onPress={() => router.push("/inventory/new")}
             />
           ) : null}
-          <QueryView query={query}>
-            {(rows) => (
+          <PagedView list={query} noun="adjustments">
+            {({ items: rows }) => (
               <View style={{ gap: space.md }}>
                 {!rows.length ? (
                   <EmptyState title="No stock adjustments" />
@@ -83,7 +86,7 @@ export default function InventoryCorrections() {
                 ))}
               </View>
             )}
-          </QueryView>
+          </PagedView>
           {selected ? (
             <View style={{ gap: space.md }}>
               <Txt variant="heading">Reverse adjustment</Txt>

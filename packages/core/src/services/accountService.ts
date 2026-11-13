@@ -1,3 +1,4 @@
+import { statementAsPage, type PageQuery } from "../paging";
 import {
   acc,
   describeAccount,
@@ -98,6 +99,11 @@ export const accountService = {
   ): Promise<AccountStatement> {
     await delay();
     return clone(accountStatement(scopeBooks(getDb(), tax), key));
+  },
+
+  /** A page of an account statement. Real API: `/accounts/${key}/statement?limit&cursor` */
+  async statementPage(key: string, tax: TaxScope, query: PageQuery) {
+    return statementAsPage(await this.statement(key, tax), query);
   },
 
   /** Accounts to pick from in a journal. Real API: http.get<AccountInfo[]>("/accounts") */

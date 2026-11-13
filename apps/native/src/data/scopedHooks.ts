@@ -1,4 +1,11 @@
-import { useMutation, useQuery, type QueryKey } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  type QueryKey,
+} from "@tanstack/react-query";
+import type { PagedList } from "@repo/core";
 import { useEffect, useRef } from "react";
 import { associatePayloadForRead } from "@repo/core/src/accounting/associates";
 import { useAuth } from "../auth/AuthProvider";
@@ -35,6 +42,61 @@ export function useServiceQuery<T>(options: {
       associatePayloadForRead(data.role, await options.queryFn(data.services)),
   });
 }
+
+/**
+ * A list read a page at a time. `loadMore` asks for the next page and is safe
+ * to call repeatedly (the screen calls it while scrolling). While filters
+ * change, the previous rows stay on screen until the new first page arrives.
+ */
+export function useServicePages<T, S>(options: {
+  queryKey: QueryKey;
+  queryFn: (
+    services: Services,
+    cursor: string | undefined,
+  ) => Promise<PagedList<T, S>>;
+  enabled?: boolean;
+}) {
+  const data = useData();
+  const auth = useAuth();
+  const query = useInfiniteQuery({
+    networkMode: "always",
+    queryKey: scopedKey(
+      data.userId,
+      data.firmId,
+      options.queryKey,
+      data.accessKey,
+    ),
+    enabled:
+      auth.status === "signedIn" &&
+      !auth.locked &&
+      !!data.firmId &&
+      options.enabled !== false,
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: PagedList<T, S>) => last.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+    queryFn: async ({ pageParam }) =>
+      associatePayloadForRead(
+        data.role,
+        await options.queryFn(data.services, pageParam),
+      ),
+  });
+  const pages = query.data?.pages ?? [];
+  return {
+    query,
+    items: pages.flatMap((page) => page.items),
+    summary: pages[0]?.summary,
+    total: pages[0]?.total ?? 0,
+    loadMore: () => {
+      if (
+        query.hasNextPage &&
+        !query.isFetchingNextPage &&
+        !query.isFetchNextPageError
+      )
+        void query.fetchNextPage();
+    },
+  };
+}
+export type ServicePages<T, S> = ReturnType<typeof useServicePages<T, S>>;
 
 export function useServiceMutation<T, V = void>(options: {
   mutationFn: (services: Services, input: V) => Promise<T>;

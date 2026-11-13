@@ -59,6 +59,20 @@ import type {
   VoucherType,
 } from "../types";
 import { clone, delay, getDb } from "./client";
+import { gstModeOf } from "../accounting/gstMode";
+import {
+  VOUCHER_TYPES,
+  invoicePage,
+  orderPage,
+  voucherPage,
+  type InvoicePageQuery,
+  type InvoicePageSummary,
+  type OrderPageQuery,
+  type OrderPageSummary,
+  type PagedList,
+  type VoucherPageQuery,
+  type VoucherPageSummary,
+} from "../listPages";
 
 export interface VoucherFilters {
   type?: VoucherType;
@@ -423,6 +437,37 @@ export const voucherService = {
           status: orderStatus(v, now),
           convertedTo: to ? { id: to.id, number: to.number } : undefined,
         };
+      }),
+    );
+  },
+
+  /** One page of Sales or Purchase. Real API: http.get(`/vouchers/invoices/page?…`) */
+  async invoicePage(
+    type: "sale" | "purchase",
+    query: InvoicePageQuery,
+  ): Promise<PagedList<InvoiceRow, InvoicePageSummary>> {
+    return invoicePage(await this.listInvoices(type), query);
+  },
+
+  /** One page of estimates, orders or notes. Real API: http.get(`/vouchers/orders/page?…`) */
+  async orderPage(
+    type: OrderType,
+    query: OrderPageQuery,
+  ): Promise<PagedList<OrderRow, OrderPageSummary>> {
+    return orderPage(await this.listOrders(type), query);
+  },
+
+  /** One page of entries, newest first. Real API: http.get(`/vouchers/page?…`) */
+  async page(
+    query: VoucherPageQuery,
+  ): Promise<PagedList<Voucher, VoucherPageSummary>> {
+    await delay();
+    const { vouchers, parties, firm } = getDb();
+    return clone(
+      voucherPage(vouchers, query, {
+        readable: VOUCHER_TYPES,
+        defaultScope: gstModeOf(firm) === "off" ? "nongst" : "gst",
+        parties,
       }),
     );
   },

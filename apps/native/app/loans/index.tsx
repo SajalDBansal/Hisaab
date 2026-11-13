@@ -7,25 +7,26 @@ import {
   EmptyState,
   Header,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   Segmented,
   Txt,
 } from "@/components";
-import { useLoanAccess, useLoans } from "@/data/loanHooks";
+import { useLoanAccess, useLoanPages } from "@/data/loanHooks";
 import { space } from "@/theme";
 
 export default function LoanRegister() {
   const access = useLoanAccess();
-  const query = useLoans();
+  const query = useLoanPages();
   const [direction, setDirection] = useState<"all" | "borrowed" | "lent">(
     "all",
   );
   return (
     <Screen
       header={<Header title="Loan register" />}
-      onRefresh={() => void query.refetch()}
-      refreshing={query.isRefetching}
+      onRefresh={() => void query.query.refetch()}
+      refreshing={query.query.isRefetching && !query.query.isFetchingNextPage}
+      onEndReached={query.loadMore}
     >
       {!access.read ? (
         <EmptyState title="Loan register access denied" />
@@ -50,8 +51,8 @@ export default function LoanRegister() {
               { value: "lent", label: "Lent" },
             ]}
           />
-          <QueryView query={query}>
-            {(rows) => {
+          <PagedView list={query} noun="loans">
+            {({ items: rows }) => {
               const filtered = rows.filter(
                 (row) =>
                   direction === "all" || row.loan.direction === direction,
@@ -89,7 +90,7 @@ export default function LoanRegister() {
                 <EmptyState title="No loans registered" />
               );
             }}
-          </QueryView>
+          </PagedView>
         </>
       )}
     </Screen>

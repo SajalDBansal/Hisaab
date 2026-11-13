@@ -1,3 +1,4 @@
+import { statementAsPage, type PageQuery } from "../paging";
 import {
   ledgerBalance,
   ledgerStatement,
@@ -49,5 +50,10 @@ export const ledgerService = {
     const ledger = ledgers.find((l) => l.id === id);
     if (!ledger) throw new Error("Account not found");
     return clone({ ledger, ...ledgerStatement(ledger, vouchers, parties) });
+  },
+
+  /** A page of a cash or bank book. Real API: `/ledgers/${id}/statement?limit&cursor` */
+  async statementPage(id: string, tax: TaxScope, query: PageQuery) {
+    return statementAsPage(await this.statement(id, tax), query);
   },
 };

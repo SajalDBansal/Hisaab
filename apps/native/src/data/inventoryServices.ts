@@ -8,6 +8,8 @@ import type { Client } from "./client";
 export function inventoryServices(client: Client) {
   return {
     list: () => client.pages("/inventory/adjustments", Voucher),
+    listPage: (cursor?: string) =>
+      client.page("/inventory/adjustments", Voucher, {}, cursor),
     create: (input: InventoryAdjustmentInput) => {
       InventoryAdjustmentInput.parse(input);
       return client.request("/inventory/adjustments", Voucher, { body: input });

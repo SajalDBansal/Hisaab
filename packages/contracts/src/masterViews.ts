@@ -3,7 +3,7 @@ import { IsoDate, Paise } from "./common";
 import { PartyRow } from "./parties";
 import { ItemRow } from "./items";
 import { Ledger } from "./ledgers";
-import { Ageing, ReportVoucher } from "./reports";
+import { Ageing, ReportVoucher, StatementPaging } from "./reports";
 
 export const PartyListRow = PartyRow.extend({
   overdueAmount: Paise,
@@ -63,7 +63,17 @@ export const ItemDetail = ItemRow.safeExtend({
   }),
 });
 
+/** GET /items/:id/movements: one movement of stock. */
+export const StockMovementRow = ItemDetail.shape.movements.element;
+export const MovementPage = z.object({
+  items: z.array(StockMovementRow),
+  nextCursor: z.string().nullable(),
+  total: z.number().int(),
+  summary: z.null(),
+});
+
 export const LedgerStatement = z.object({
+  ...StatementPaging,
   ledger: Ledger,
   opening: Paise,
   totalIn: Paise,
