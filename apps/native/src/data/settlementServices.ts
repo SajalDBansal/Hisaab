@@ -4,6 +4,8 @@ import type { Client } from "./client";
 export function settlementServices(client: Client) {
   return {
     list: () => client.pages("/settlements", c.SettlementRecord),
+    listPage: (cursor?: string) =>
+      client.page("/settlements", c.SettlementRecord, {}, cursor),
     get: (id: string) =>
       client.request(`/settlements/${id}`, c.SettlementRecord),
     context: (input: c.SettlementContextQuery) =>

@@ -17,6 +17,12 @@ import {
   type TradeRateEntry,
 } from "../accounting/tradeRates";
 import { today } from "../dates";
+import {
+  partyPage,
+  type PagedList,
+  type PartyPageQuery,
+  type PartyPageSummary,
+} from "../listPages";
 import { createParty, updateParty, allocatePartyPayments } from "../mock/db";
 import type { Party, PartyInput, PartyType, Paise, Voucher } from "../types";
 import { clone, delay, getDb } from "./client";
@@ -54,6 +60,26 @@ export const partyService = {
     await delay();
     return allocatePartyPayments(getDb(), id, today());
   },
+  /** One page of the Parties screen. Real API: http.get(`/parties/page?…`) */
+  async page(
+    query: PartyPageQuery & { type?: PartyType },
+  ): Promise<PagedList<PartyListRow, PartyPageSummary>> {
+    await delay();
+    const { parties, vouchers } = getDb();
+    const rows = parties
+      .filter((p) => !query.type || p.type === query.type)
+      .map((p) => listRow(p, vouchers));
+    return clone(
+      partyPage(rows, query, (r) => ({
+        id: r.party.id,
+        name: r.party.name,
+        phone: r.party.phone,
+        gstin: r.party.gstin,
+        balance: r.balance,
+        overdueAmount: r.overdueAmount,
+      })),
+    );
+  },
   /** Real API: http.get<PartyListRow[]>(`/parties?type=${type ?? ""}`) */
   async list(type?: PartyType): Promise<PartyListRow[]> {
     await delay();
@@ -83,7 +109,7 @@ export const partyService = {
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-    );
+    ).slice(0, 20); // the latest few; the tab pages through voucherService.page
     return clone({
       ...row,
       unallocated: unallocatedMoney(party, vouchers),

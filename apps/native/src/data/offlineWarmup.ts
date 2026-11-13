@@ -1,7 +1,39 @@
-import { can, canSeeCosts, financialYear, today } from "@repo/core";
+import {
+  can,
+  canSeeCosts,
+  financialYear,
+  lastMonths,
+  laterPageCursors,
+  today,
+  type OrderType,
+  type PagedList,
+} from "@repo/core";
 import type { Services } from "./services";
 import type { OfflineBooks } from "./offlineBooks";
 import { finalAccountsPeriod, REPORT_PERIODS } from "./reportPeriods";
+
+/**
+ * Every page of one list view, asked exactly as the screen asks for it. With a
+ * total, the later pages go out together; otherwise follow the cursor chain.
+ */
+async function everyPage(
+  read: (cursor?: string) => Promise<PagedList<unknown, unknown>>,
+) {
+  const first = await read();
+  if (first.total >= 0) {
+    await Promise.all(laterPageCursors(first.total).map((c) => read(c)));
+    return;
+  }
+  for (let next = first.nextCursor; next; next = (await read(next)).nextCursor);
+}
+
+const SCOPES = ["all", "gst", "nongst"] as const;
+const ORDER_TYPES: OrderType[] = [
+  "estimate",
+  "sales-order",
+  "delivery-note",
+  "purchase-order",
+];
 
 // Cache real API answers through the same transport used by screens. No balances,
 // IDs or entries are made up on the device. Reads issued together are sent to the
@@ -28,11 +60,7 @@ export async function downloadOfflineBooks(
       services.itemService.lots(),
       services.ledgerService.listCashAndBank(),
       ...(can(role, "accounts") || can(role, "reports")
-        ? [
-            services.accountService.list(),
-            services.accountService.pickable(),
-            services.inventoryService?.list(),
-          ]
+        ? [services.accountService.list(), services.accountService.pickable()]
         : []),
       services.voucherService.list({ limit: 5 }),
       ...(["sale", "purchase"] as const)
@@ -92,12 +120,85 @@ export async function downloadOfflineBooks(
           );
         }
       }
-    // 3. Other book screens. A read this role may not see is skipped, not fatal.
+    // 3. The list screens' default views, every page (same paths as on screen).
+    const list = (
+      read: (cursor?: string) => Promise<PagedList<unknown, unknown>>,
+    ) => reads.push(everyPage(read));
+    const noFilters = { search: "", overdue: false, withBalance: false };
+    for (const type of ["customer", "supplier", undefined] as const)
+      if (type === "customer" || can(role, "reports"))
+        for (const sort of ["balance", "name"] as const)
+          list((cursor) =>
+            services.partyService.page({ ...noFilters, type, sort, cursor }),
+          );
+    for (const scope of SCOPES)
+      list((cursor) =>
+        services.itemService.page({
+          search: "",
+          group: undefined,
+          low: false,
+          scope,
+          cursor,
+        }),
+      );
+    for (const kind of ["sale", "purchase"] as const)
+      if (can(role, kind === "sale" ? "sales" : "purchase"))
+        for (const month of [...lastMonths(today(), 3), "all"])
+          list((cursor) =>
+            services.voucherService.invoicePage(kind, {
+              month,
+              status: undefined,
+              search: "",
+              scope: "all",
+              cursor,
+            }),
+          );
+    for (const type of ORDER_TYPES)
+      if (
+        can(role, "reports") ||
+        (type !== "purchase-order" && can(role, "sales"))
+      )
+        for (const status of ["open", undefined] as const)
+          list((cursor) =>
+            services.voucherService.orderPage(type, { status, cursor }),
+          );
+    for (const scope of SCOPES) {
+      list((cursor) =>
+        services.voucherService.page({ types: undefined, scope, cursor }),
+      );
+      list((cursor) =>
+        services.voucherService.page({ types: "journal", scope, cursor }),
+      );
+    }
+    for (const direction of [undefined, "in", "out"] as const)
+      list((cursor) =>
+        services.voucherService.page({
+          types: "receipt,payment,expense,contra",
+          direction,
+          cursor,
+        }),
+      );
+    for (const row of parties)
+      list((cursor) =>
+        services.voucherService.page({ partyId: row.party.id, cursor }),
+      );
+    if (can(role, "purchase") || can(role, "reports"))
+      for (const row of items)
+        list((cursor) =>
+          services.itemService.movementPage(row.item.id, { cursor }),
+        );
+    if (can(role, "payments") || can(role, "reports"))
+      for (const ledger of await services.ledgerService.listCashAndBank())
+        for (const tax of SCOPES)
+          list((cursor) =>
+            services.ledgerService.statementPage(ledger.ledger.id, tax, {
+              cursor,
+            }),
+          );
+
+    // 4. Other book screens. A read this role may not see is skipped, not fatal.
     const lastYear = Number(financialYear(today()).start.slice(0, 4)) - 1;
     const optional: (Promise<unknown> | undefined)[] = [
-      services.voucherService.list({
-        types: ["receipt", "payment", "expense", "contra"],
-      }),
       services.gstService
         .months()
         .then((months) =>
@@ -110,7 +211,11 @@ export async function downloadOfflineBooks(
         ),
       services.gstService.compositionQuarters(),
       services.notificationService.list(),
-      services.auditService.list(),
+      can(role, "reports")
+        ? everyPage((cursor) =>
+            services.auditService.page({ filter: "all", cursor }),
+          )
+        : undefined,
       services.settingsService.team(),
       services.reminderService.settings(),
       services.reminderService.due(),
@@ -118,9 +223,14 @@ export async function downloadOfflineBooks(
       services.bookControlService.history(),
       services.bookControlService.allocations(),
       services.bookControlService.yearEnd(lastYear),
-      services.loanService?.list(),
-      services.settlementService?.list(),
-      services.associateService?.list(),
+      services.loanService &&
+        everyPage((cursor) => services.loanService!.listPage(cursor)),
+      services.settlementService &&
+        everyPage((cursor) => services.settlementService!.listPage(cursor)),
+      services.associateService &&
+        everyPage((cursor) => services.associateService!.listPage(cursor)),
+      services.inventoryService &&
+        everyPage((cursor) => services.inventoryService!.listPage(cursor)),
       services.associateService?.fields(),
     ];
     const [required, ...extras] = await Promise.allSettled([

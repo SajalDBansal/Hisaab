@@ -102,9 +102,12 @@ export async function readParty(
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-    ),
+      // The latest few; the Transactions tab pages through /vouchers/page.
+    ).slice(0, PARTY_RECENT_ENTRIES),
   };
 }
+
+const PARTY_RECENT_ENTRIES = 20;
 
 export async function readItem(db: Db, firmId: string, id: string) {
   return db.transaction(
@@ -120,12 +123,19 @@ export async function readItem(db: Db, firmId: string, id: string) {
         qty,
         value: inventoryValue(item, vouchers),
         lowStock: isLowStock(item, qty),
-        movements: stockMovements(id, vouchers).reverse(),
+        // The latest few; the full list pages through /items/:id/movements.
+        movements: stockMovements(id, vouchers).reverse().slice(0, 20),
         profit: itemProfit(item, vouchers),
       };
     },
     { isolationLevel: "repeatable read", accessMode: "read only" },
   );
+}
+
+/** Every stock movement of one item, newest first. */
+export async function readItemMovements(db: Db, firmId: string, id: string) {
+  const { vouchers } = await loadReportBooks(db, firmId);
+  return stockMovements(id, vouchers).reverse();
 }
 
 export async function readLedgerStatement(

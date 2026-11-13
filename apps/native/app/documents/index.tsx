@@ -8,6 +8,7 @@ import {
   EmptyState,
   Header,
   ListRow,
+  PagedView,
   QueryView,
   Screen,
   Segmented,
@@ -16,7 +17,9 @@ import {
 } from "@/components";
 import { fileSize } from "@/data/labels";
 import { DocumentThumbnail } from "@/documents/DocumentThumbnail";
-import { useDocumentFolders, useDocuments } from "@/data/queries";
+import { useDocumentFolders } from "@/data/queries";
+import { useDocumentPages } from "@/data/pagedQueries";
+import { useDebounced } from "@/data/useDebounced";
 import { DocumentFilters } from "@/documents/DocumentFilters";
 import { space } from "@/theme";
 
@@ -27,8 +30,10 @@ export default function DocumentsScreen() {
   const [folder, setFolder] = useState("");
   const [newFolder, setNewFolder] = useState("");
   const folders = useDocumentFolders();
-  const docs = useDocuments({
+  const search = useDebounced(filters.search);
+  const docs = useDocumentPages({
     ...filters,
+    search,
     folder: view === "folders" ? folder : undefined,
   });
   const prefix = folder ? folder + "/" : "";
@@ -57,10 +62,11 @@ export default function DocumentsScreen() {
         />
       }
       onRefresh={() => {
-        void docs.refetch();
+        void docs.query.refetch();
         void folders.refetch();
       }}
-      refreshing={docs.isRefetching}
+      refreshing={docs.query.isRefetching && !docs.query.isFetchingNextPage}
+      onEndReached={docs.loadMore}
     >
       <View
         style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}
@@ -143,8 +149,8 @@ export default function DocumentsScreen() {
           />
         </View>
       ) : null}
-      <QueryView query={docs}>
-        {(list) =>
+      <PagedView list={docs} noun="documents">
+        {({ items: list, total }) =>
           list.length ? (
             <View>
               {list.map((d) => (
@@ -173,7 +179,7 @@ export default function DocumentsScreen() {
                 tone="body"
                 style={{ marginTop: space.sm }}
               >
-                {list.length} documents
+                {total} documents
               </Txt>
             </View>
           ) : (
@@ -184,7 +190,7 @@ export default function DocumentsScreen() {
             />
           )
         }
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }

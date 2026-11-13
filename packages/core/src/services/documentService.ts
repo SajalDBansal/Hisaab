@@ -1,3 +1,4 @@
+import { pageRows, type PageQuery } from "../paging";
 import { today } from "../dates";
 import { addDocument, removeDocument } from "../mock/db";
 import type {
@@ -14,6 +15,10 @@ export interface DocumentRow extends StoredDocument {
 }
 
 export const documentService = {
+  /** One page of documents. Real API: POST `/documents/search/page?cursor=…` */
+  async page(filters: DocumentFilters, query: PageQuery) {
+    return { ...pageRows(await this.list(filters), query), summary: null };
+  },
   /** Newest first. Real API: http.get<DocumentRow[]>(`/documents?kind=${kind ?? ""}`) */
   async list(filters: DocumentFilters = {}): Promise<DocumentRow[]> {
     await delay();

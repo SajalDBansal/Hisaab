@@ -4,6 +4,7 @@ import { View } from "react-native";
 import {
   formatDate,
   isOrderType,
+  type OrderPageSummary,
   type OrderRow,
   type OrderStatus,
   type OrderType,
@@ -17,13 +18,13 @@ import {
   Header,
   ListRow,
   Money,
-  QueryView,
+  PagedView,
   Screen,
   Segmented,
   Txt,
 } from "@/components";
 import { orderStatusBadge, voucherTypeLabel } from "@/data/labels";
-import { useOrders } from "@/data/queries";
+import { useOrderPages } from "@/data/pagedQueries";
 import { space } from "@/theme";
 
 const TABS: { value: OrderType; label: string }[] = [
@@ -47,7 +48,9 @@ export default function OrdersScreen() {
     params.type && isOrderType(params.type) ? params.type : "estimate",
   );
   const [status, setStatus] = useState<OrderStatus | "all">("open");
-  const orders = useOrders(type);
+  const orders = useOrderPages(type, {
+    status: status === "all" ? undefined : status,
+  });
 
   return (
     <Screen
@@ -65,35 +68,41 @@ export default function OrdersScreen() {
           }
         />
       }
-      onRefresh={() => orders.refetch()}
-      refreshing={orders.isRefetching}
+      onRefresh={() => orders.query.refetch()}
+      refreshing={orders.query.isRefetching && !orders.query.isFetchingNextPage}
+      onEndReached={orders.loadMore}
     >
       <Segmented value={type} onChange={setType} options={TABS} />
-      <QueryView query={orders}>
-        {(rows) => (
-          <List rows={rows} type={type} status={status} setStatus={setStatus} />
+      <PagedView list={orders} noun="documents">
+        {({ items, summary }) => (
+          <List
+            rows={items}
+            summary={summary}
+            type={type}
+            status={status}
+            setStatus={setStatus}
+          />
         )}
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }
 
 function List({
-  rows,
+  rows: visible,
+  summary,
   type,
   status,
   setStatus,
 }: {
   rows: OrderRow[];
+  summary: OrderPageSummary;
   type: OrderType;
   status: OrderStatus | "all";
   setStatus: (s: OrderStatus | "all") => void;
 }) {
-  const count = (s: OrderStatus) => rows.filter((r) => r.status === s).length;
-  const visible = rows.filter((r) => status === "all" || r.status === status);
-  const openValue = rows
-    .filter((r) => r.status === "open")
-    .reduce((s, r) => s + r.voucher.amount, 0);
+  const count = (s: OrderStatus) => summary.counts[s] ?? 0;
+  const openValue = summary.openValue;
   const statuses = STATUSES.filter(
     (s) => s !== "expired" || type === "estimate",
   );
@@ -112,7 +121,7 @@ function List({
             key={s}
             label={
               s === "all"
-                ? `All · ${rows.length}`
+                ? `All · ${summary.all}`
                 : `${orderStatusBadge[s].label} · ${count(s)}`
             }
             selected={status === s}

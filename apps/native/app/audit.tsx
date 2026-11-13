@@ -12,13 +12,13 @@ import {
   EmptyState,
   Header,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   Txt,
 } from "@/components";
 import { formatDateTime } from "@/data/format";
 import { voucherTypeLabel } from "@/data/labels";
-import { useAuditLog } from "@/data/queries";
+import { useAuditPages } from "@/data/pagedQueries";
 import { colors } from "@/theme";
 
 type Filter = "all" | "edited" | "cancelled";
@@ -28,39 +28,32 @@ type Filter = "all" | "edited" | "cancelled";
  * Entries are only ever added — there is no way to switch the log off or delete from it.
  */
 export default function AuditScreen() {
-  const log = useAuditLog();
   const [filter, setFilter] = useState<Filter>("all");
+  const log = useAuditPages({ filter });
   return (
     <Screen
       header={<Header title="Edit log" subtitle="Who changed what, and when" />}
-      onRefresh={() => log.refetch()}
-      refreshing={log.isRefetching}
+      onRefresh={() => log.query.refetch()}
+      refreshing={log.query.isRefetching && !log.query.isFetchingNextPage}
+      onEndReached={log.loadMore}
     >
-      <QueryView query={log}>
-        {(entries) => {
-          const changes = entries.filter((e) => e.action !== "created");
-          const visible = entries.filter((e) =>
-            filter === "all"
-              ? true
-              : filter === "edited"
-                ? e.action !== "created" && e.action !== "cancelled"
-                : e.action === "cancelled",
-          );
+      <PagedView list={log} noun="entries">
+        {({ items: visible, summary }) => {
           return (
             <>
               <ChipRow>
                 <Chip
-                  label={`All · ${entries.length}`}
+                  label={`All · ${summary.all}`}
                   selected={filter === "all"}
                   onPress={() => setFilter("all")}
                 />
                 <Chip
-                  label={`Changes · ${changes.filter((e) => e.action !== "cancelled").length}`}
+                  label={`Changes · ${summary.changes}`}
                   selected={filter === "edited"}
                   onPress={() => setFilter("edited")}
                 />
                 <Chip
-                  label={`Cancelled · ${entries.filter((e) => e.action === "cancelled").length}`}
+                  label={`Cancelled · ${summary.cancelled}`}
                   selected={filter === "cancelled"}
                   onPress={() => setFilter("cancelled")}
                 />
@@ -82,7 +75,7 @@ export default function AuditScreen() {
             </>
           );
         }}
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }

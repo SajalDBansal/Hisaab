@@ -1,6 +1,7 @@
 import * as c from "@repo/contracts";
 import { z } from "zod";
-import { type Client, queryString } from "./client";
+import { PAGE_SIZE } from "@repo/core";
+import { type Client, pageQuery, queryString, statementPageOf } from "./client";
 import { type Services } from "./services";
 
 export function readServices({ request, pages }: Client) {
@@ -31,6 +32,8 @@ export function readServices({ request, pages }: Client) {
     } satisfies Services["bookControlService"],
     auditService: {
       list: (limit) => pages("/audit-log", c.AuditEntry, {}, limit),
+      page: (query) =>
+        request(`/audit-log/page${pageQuery(query)}`, c.AuditPage),
     } satisfies Services["auditService"],
     bankService: {
       reconciliation: (ledgerId, asOf) =>
@@ -91,6 +94,13 @@ export function readServices({ request, pages }: Client) {
         request(
           `/accounts/${encodeURIComponent(key)}/statement${queryString({ tax })}`,
           c.AccountStatement,
+        ),
+      statementPage: async (key, tax, query) =>
+        statementPageOf(
+          await request(
+            `/accounts/${encodeURIComponent(key)}/statement${pageQuery({ tax, limit: PAGE_SIZE, cursor: query.cursor })}`,
+            c.AccountStatement,
+          ),
         ),
       pickable: () => request("/accounts", z.array(c.AccountInfo)),
     } satisfies Services["accountService"],

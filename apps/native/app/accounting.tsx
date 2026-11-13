@@ -1,7 +1,6 @@
 import { router } from "expo-router";
 import { useState } from "react";
 import { useReportScope } from "@/data/reportScope";
-import { bookScopeOf } from "@repo/core";
 import { View } from "react-native";
 import { formatDate, type ChartGroup } from "@repo/core";
 import {
@@ -11,6 +10,7 @@ import {
   ListRow,
   Money,
   PickerSheet,
+  PagedView,
   QueryView,
   Screen,
   TaxScopeFilter,
@@ -20,7 +20,8 @@ import {
   Txt,
 } from "@/components";
 import { accountHref, drCr } from "@/data/labels";
-import { useChart, useVouchers } from "@/data/queries";
+import { useChart } from "@/data/queries";
+import { useVoucherPages } from "@/data/pagedQueries";
 import { space } from "@/theme";
 
 /** One workspace for account masters and non-trade entries. */
@@ -28,9 +29,15 @@ export default function AccountingWorkspace() {
   const [tab, setTab] = useState<"ledgers" | "journals">("ledgers");
   const chart = useChart();
   const [scope] = useReportScope();
-  const journals = useVouchers({ type: "journal" });
+  const journals = useVoucherPages(
+    { types: "journal", scope },
+    tab === "journals",
+  );
   return (
-    <Screen header={<Header title="Ledgers & journals" />}>
+    <Screen
+      header={<Header title="Ledgers & journals" />}
+      onEndReached={tab === "journals" ? journals.loadMore : undefined}
+    >
       <TaxScopeFilter />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
         <Button
@@ -73,12 +80,9 @@ export default function AccountingWorkspace() {
           {(groups) => <LedgerList groups={groups} />}
         </QueryView>
       ) : (
-        <QueryView query={journals}>
-          {(rows) => {
-            const visible = rows.filter(
-              (v) => scope === "all" || bookScopeOf(v) === scope,
-            );
-            return visible.length ? (
+        <PagedView list={journals} noun="journals">
+          {({ items: visible }) =>
+            visible.length ? (
               <View>
                 {visible.map((v, i) => (
                   <ListRow
@@ -93,9 +97,9 @@ export default function AccountingWorkspace() {
               </View>
             ) : (
               <EmptyState icon="book-open" title="No journals yet" />
-            );
-          }}
-        </QueryView>
+            )
+          }
+        </PagedView>
       )}
     </Screen>
   );

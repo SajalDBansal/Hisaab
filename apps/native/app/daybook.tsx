@@ -1,8 +1,6 @@
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { useReportScope } from "@/data/reportScope";
-import { scopeVouchers } from "@repo/core";
-import { useGstMode } from "@/data/gstMode";
 import { View } from "react-native";
 import { formatDate, today, type Voucher, type VoucherType } from "@repo/core";
 import {
@@ -14,13 +12,13 @@ import {
   Header,
   ListRow,
   Money,
-  QueryView,
+  PagedView,
   TaxScopeFilter,
   Screen,
   Txt,
 } from "@/components";
 import { voucherBadge, voucherTypeIcon, voucherTypeLabel } from "@/data/labels";
-import { useParties, useVouchers } from "@/data/queries";
+import { useVoucherPages } from "@/data/pagedQueries";
 import { colors, space } from "@/theme";
 
 const TYPES: (VoucherType | "all")[] = [
@@ -44,15 +42,19 @@ const TYPES: (VoucherType | "all")[] = [
 export default function DayBookScreen() {
   const [type, setType] = useState<VoucherType | "all">("all");
   const [scope, setScope] = useReportScope();
-  const gst = useGstMode();
-  const vouchers = useVouchers({});
-  const parties = useParties();
+  const vouchers = useVoucherPages({
+    types: type === "all" ? undefined : type,
+    scope,
+  });
 
   return (
     <Screen
       header={<Header title="Day Book" subtitle="All vouchers" />}
-      onRefresh={() => vouchers.refetch()}
-      refreshing={vouchers.isRefetching}
+      onRefresh={() => vouchers.query.refetch()}
+      refreshing={
+        vouchers.query.isRefetching && !vouchers.query.isFetchingNextPage
+      }
+      onEndReached={vouchers.loadMore}
       contentStyle={{ gap: space.lg }}
     >
       <ChipRow>
@@ -66,22 +68,9 @@ export default function DayBookScreen() {
         ))}
       </ChipRow>
       <TaxScopeFilter value={scope} onChange={setScope} />
-      <QueryView query={vouchers}>
-        {(list) => (
-          <QueryView query={parties}>
-            {(rows) => (
-              <Grouped
-                list={scopeVouchers(
-                  list,
-                  scope,
-                  gst.off ? "nongst" : "gst",
-                  rows.map((r) => r.party),
-                ).filter((v) => type === "all" || v.type === type)}
-              />
-            )}
-          </QueryView>
-        )}
-      </QueryView>
+      <PagedView list={vouchers} noun="vouchers">
+        {({ items }) => <Grouped list={items} />}
+      </PagedView>
     </Screen>
   );
 }

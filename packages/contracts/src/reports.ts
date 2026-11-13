@@ -30,6 +30,20 @@ export const OutstandingQuery = z.object({
 });
 export const StockSummaryQuery = z.object({ tax: TaxScope.default("all") });
 
+/** A statement, optionally a page of its rows at a time (`limit`, `cursor`). */
+export const StatementQuery = StockSummaryQuery.extend({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z
+    .string()
+    .regex(/^\d{1,9}$/)
+    .optional(),
+});
+/** Present when a page was asked for. */
+export const StatementPaging = {
+  rowsTotal: z.number().int().optional(),
+  nextCursor: z.string().nullable().optional(),
+};
+
 export const ReportVoucher = Voucher.omit({ version: true }).extend({
   version: z.number().int().optional(),
 });

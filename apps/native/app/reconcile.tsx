@@ -29,6 +29,7 @@ import {
 import { voucherTypeLabel } from "@/data/labels";
 import { useLedgers, useReconciliation, useSetCleared } from "@/data/queries";
 import { colors, radius, space } from "@/theme";
+import { useReveal } from "@/data/useReveal";
 
 type Filter = "open" | "cleared" | "all";
 
@@ -37,6 +38,8 @@ type Filter = "open" | "cleared" | "all";
  * Whatever is left unticked explains the gap between the books and the bank.
  */
 export default function ReconcileScreen() {
+  // Entries are drawn a page at a time as the user scrolls.
+  const reveal = useReveal();
   const ledgers = useLedgers();
   const banks = (ledgers.data ?? []).filter((l) => l.ledger.kind === "bank");
   if (ledgers.data && banks.length === 0)
@@ -57,13 +60,22 @@ export default function ReconcileScreen() {
           subtitle="Match the books with the bank statement"
         />
       }
+      onEndReached={reveal.more}
     >
-      <QueryView query={ledgers}>{() => <Reconcile banks={banks} />}</QueryView>
+      <QueryView query={ledgers}>
+        {() => <Reconcile banks={banks} shown={reveal.count} />}
+      </QueryView>
     </Screen>
   );
 }
 
-function Reconcile({ banks }: { banks: LedgerWithBalance[] }) {
+function Reconcile({
+  banks,
+  shown,
+}: {
+  banks: LedgerWithBalance[];
+  shown: number;
+}) {
   const params = useLocalSearchParams<{ ledger?: string }>();
   const [ledgerId, setLedgerId] = useState(
     banks.find((b) => b.ledger.id === params.ledger)?.ledger.id ??
@@ -211,7 +223,7 @@ function Reconcile({ banks }: { banks: LedgerWithBalance[] }) {
                   />
                 ) : (
                   <View style={{ gap: space.sm }}>
-                    {visible.map((e) => (
+                    {visible.slice(0, shown).map((e) => (
                       <EntryRow
                         key={e.voucher.id}
                         e={e}

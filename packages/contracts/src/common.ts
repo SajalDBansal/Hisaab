@@ -90,6 +90,28 @@ export const PageQuery = z.object({
 export const pageOf = <T extends z.ZodType>(item: T) =>
   z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 
+/** `?limit=30&cursor=60` on lists the app pages through as the user scrolls. */
+export const ListPageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(30),
+  // The offset of the page's first row.
+  cursor: z
+    .string()
+    .regex(/^\d{1,9}$/)
+    .optional(),
+});
+
+/** One page, the number of matching rows and totals over all of them. */
+export const listPage = <T extends z.ZodType, S extends z.ZodType>(
+  item: T,
+  summary: S,
+) =>
+  z.object({
+    items: z.array(item),
+    nextCursor: z.string().nullable(),
+    total: z.number().int(),
+    summary,
+  });
+
 /** Every firm-level request carries this header. */
 export const FirmHeaders = z.object({ "x-firm-id": Id });
 

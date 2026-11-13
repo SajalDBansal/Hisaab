@@ -8,20 +8,22 @@ import {
   Header,
   KeyValue,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TaxScopeFilter,
   Txt,
 } from "@/components";
 import { voucherTypeLabel } from "@/data/labels";
-import { useLedgerStatement } from "@/data/queries";
+import { useLedgerStatementPages } from "@/data/pagedQueries";
+import { useReportScope } from "@/data/reportScope";
 import { space } from "@/theme";
 
 /** Cash book or bank book: every movement with the running balance. */
 export default function LedgerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const statement = useLedgerStatement(id);
-  const ledger = statement.data?.ledger;
+  const [tax] = useReportScope();
+  const statement = useLedgerStatementPages(id, tax);
+  const ledger = statement.summary?.ledger;
 
   return (
     <Screen
@@ -31,12 +33,15 @@ export default function LedgerScreen() {
           subtitle={ledger?.kind === "cash" ? "Cash book" : "Bank book"}
         />
       }
-      onRefresh={() => statement.refetch()}
-      refreshing={statement.isRefetching}
+      onRefresh={() => statement.query.refetch()}
+      refreshing={
+        statement.query.isRefetching && !statement.query.isFetchingNextPage
+      }
+      onEndReached={statement.loadMore}
     >
       <TaxScopeFilter />
-      <QueryView query={statement}>
-        {(st) => (
+      <PagedView list={statement} noun="entries">
+        {({ items: rows, summary: st }) => (
           <>
             <Card style={{ gap: 0 }}>
               <KeyValue label="Opening balance" value={formatINR(st.opening)} />
@@ -52,14 +57,14 @@ export default function LedgerScreen() {
               />
             </Card>
 
-            {st.rows.length === 0 ? (
+            {rows.length === 0 ? (
               <EmptyState icon="list" title="No entries yet" />
             ) : (
               <View>
                 <Txt variant="heading" style={{ marginBottom: space.xs }}>
                   Entries · newest first
                 </Txt>
-                {st.rows.map((r, i) => (
+                {rows.map((r, i) => (
                   <ListRow
                     key={r.voucher.id}
                     title={r.particulars || voucherTypeLabel[r.voucher.type]}
@@ -82,14 +87,14 @@ export default function LedgerScreen() {
                         </Txt>
                       </View>
                     }
-                    last={i === st.rows.length - 1}
+                    last={i === rows.length - 1}
                   />
                 ))}
               </View>
             )}
           </>
         )}
-      </QueryView>
+      </PagedView>
       <VoucherAttachments key={id} accountKey={`ledger:${id}`} />
     </Screen>
   );

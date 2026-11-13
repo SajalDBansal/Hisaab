@@ -1,7 +1,7 @@
 import * as c from "@repo/contracts";
 import type { InventoryAdjustmentInput } from "@repo/contracts/src/inventory";
 import { z } from "zod";
-import { type Client, queryString } from "./client";
+import { type Client, pageQuery, queryString } from "./client";
 import { matchVersion } from "./masterServices";
 import type { Services } from "./services";
 import { pendingWriteHeaders } from "./pendingWrites";
@@ -24,6 +24,18 @@ export function voucherServices({ request, pages }: Client) {
           partyId: filters.partyId,
         },
         filters.limit,
+      ),
+    page: (query) =>
+      request(`/vouchers/page${pageQuery(query)}`, c.VoucherPage),
+    invoicePage: (type, query) =>
+      request(
+        `/vouchers/invoices/page${pageQuery({ ...query, type })}`,
+        c.InvoicePage,
+      ),
+    orderPage: (type, query) =>
+      request(
+        `/vouchers/orders/page${pageQuery({ ...query, type })}`,
+        c.OrderPage,
       ),
     get: (id) => request(`/vouchers/${id}`, c.VoucherDetail),
     listInvoices: (type) =>

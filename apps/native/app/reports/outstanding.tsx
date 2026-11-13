@@ -23,6 +23,7 @@ import {
 } from "@/components";
 import { useOutstanding } from "@/data/queries";
 import { colors, radius, space } from "@/theme";
+import { useReveal } from "@/data/useReveal";
 
 const BUCKETS: (keyof Ageing)[] = ["0-30", "31-60", "61-90", "90+"];
 // Darker = older. Greys only, as in design.md.
@@ -30,6 +31,8 @@ const SHADES = ["#d4d4d4", "#a3a3a3", "#525252", "#000000"];
 
 /** Receivables or payables: total, ageing and the party list. */
 export default function OutstandingScreen() {
+  // Parties are drawn a page at a time as the user scrolls.
+  const reveal = useReveal();
   const params = useLocalSearchParams<{ type?: PartyType }>();
   const [type, setType] = useState<PartyType>(params.type ?? "customer");
   const report = useOutstanding(type);
@@ -47,6 +50,7 @@ export default function OutstandingScreen() {
       }
       onRefresh={() => report.refetch()}
       refreshing={report.isRefetching}
+      onEndReached={reveal.more}
     >
       <TaxScopeFilter />
       <Segmented
@@ -57,12 +61,14 @@ export default function OutstandingScreen() {
           { value: "supplier", label: "Payables" },
         ]}
       />
-      <QueryView query={report}>{(r) => <Body r={r} />}</QueryView>
+      <QueryView query={report}>
+        {(r) => <Body r={r} shown={reveal.count} />}
+      </QueryView>
     </Screen>
   );
 }
 
-function Body({ r }: { r: Outstanding }) {
+function Body({ r, shown }: { r: Outstanding; shown: number }) {
   const isCustomer = r.type === "customer";
   if (r.rows.length === 0)
     return (
@@ -155,7 +161,7 @@ function Body({ r }: { r: Outstanding }) {
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
           Parties · biggest first
         </Txt>
-        {r.rows.map((row, i) => (
+        {r.rows.slice(0, shown).map((row, i, rows) => (
           <ListRow
             key={row.partyId}
             title={row.name}
@@ -177,7 +183,7 @@ function Body({ r }: { r: Outstanding }) {
                 ) : null}
               </View>
             }
-            last={i === r.rows.length - 1}
+            last={i === rows.length - 1}
           />
         ))}
       </View>
