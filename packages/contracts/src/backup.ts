@@ -22,7 +22,7 @@ import { OpeningStockLots } from "./items";
 import { InventoryAdjustment } from "./inventory";
 import { DeliverySnapshot, CommissionSnapshot } from "./associates";
 
-// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules.
+// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and device.
 export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
@@ -295,6 +295,8 @@ export const BackupRows = {
       z.strictObject({ field: Text, before: Text, after: Text }),
     ),
     note: Text.nullable(),
+    ipAddress: Text.nullable(),
+    device: Text.nullable(),
   }),
   bookControls: z.strictObject({
     ...firm,
@@ -444,6 +446,7 @@ export type FirmExportFile = z.infer<typeof FirmExportFile>;
 const invoiceSettingsV4 = BackupRows.invoiceSettings.omit({ numbering: true });
 const LegacyDataV4 = FirmExportData.extend({
   invoiceSettings: invoiceSettingsV4,
+  auditLog: rows(BackupRows.auditLog.omit({ ipAddress: true, device: true })),
 });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({

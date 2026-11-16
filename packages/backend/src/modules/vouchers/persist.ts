@@ -10,6 +10,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "../../db/client";
 import { AppError } from "../../lib/app-error";
+import { currentOrigin } from "../../lib/request-origin";
 import type { Actor, Snapshot } from "./snapshot";
 import { assertOpenPeriod } from "../../lib/book-period";
 
@@ -403,10 +404,13 @@ export async function saveChanges(
       });
   }
 
-  // 5. Edit log
+  // 5. Edit log, with the request's IP address and device when there is one
+  const origin = currentOrigin();
   if (books.auditLog.length)
     await tx.insert(schema.auditLog).values(
       books.auditLog.map((e) => ({
+        ipAddress: origin.ipAddress,
+        device: origin.device,
         id: uuidv7(),
         firmId,
         voucherId: ids.uuid(e.voucherId),

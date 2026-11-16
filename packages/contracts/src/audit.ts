@@ -29,6 +29,9 @@ export const AuditEntry = z.object({
   userName: z.string(),
   changes: z.array(AuditChange),
   note: z.string().optional(),
+  /** Where the change came from; sent only to the owner (doc 37, T55). */
+  ipAddress: z.string().optional(),
+  device: z.string().optional(),
 });
 
 export type AuditEntry = z.infer<typeof AuditEntry>;

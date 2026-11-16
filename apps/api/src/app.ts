@@ -12,6 +12,7 @@ import type { Db } from "@repo/backend/db/client";
 import type { JobQueueClient } from "@repo/backend/jobs/queues";
 import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
+import { runWithOrigin } from "@repo/backend/lib/request-origin";
 import { safeError } from "@repo/backend/lib/safe-error";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
@@ -143,6 +144,11 @@ export async function buildApp({
 
   app.addHook("onSend", async (req, reply) => {
     reply.header("x-request-id", req.id);
+  });
+  // The edit log records each change's IP address and device (doc 37, T55).
+  // req.ip honours TRUSTED_PROXY_CIDRS; authentication adds the device.
+  app.addHook("onRequest", (req, _reply, done) => {
+    runWithOrigin({ ipAddress: req.ip || null, device: null }, done);
   });
 
   registerErrorHandling(app);

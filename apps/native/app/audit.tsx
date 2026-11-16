@@ -95,6 +95,13 @@ function Row({ e, last }: { e: AuditEntry; last: boolean }) {
             {formatDateTime(e.at)} · {e.userName}
             {e.note ? ` · ${e.note}` : ""}
           </Txt>
+          {(e.device || e.ipAddress) && (
+            <Txt variant="caption" tone="body" num>
+              {[e.device, e.ipAddress && `IP ${e.ipAddress}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </Txt>
+          )}
           {e.changes.slice(0, 3).map((c) => (
             <Txt
               key={c.field}

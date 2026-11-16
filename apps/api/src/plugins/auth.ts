@@ -5,6 +5,7 @@ import type { Auth } from "../auth/auth";
 import { tokenFromCookie, wasReplaced } from "../auth/sessionRules";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
+import { deviceLabel, setOriginDevice } from "@repo/backend/lib/request-origin";
 
 type Session = NonNullable<Awaited<ReturnType<Auth["api"]["getSession"]>>>;
 
@@ -106,6 +107,14 @@ export async function registerAuth(app: FastifyInstance, auth: Auth, db: Db) {
     }
     req.user = found.user;
     req.session = found.session;
+    setOriginDevice(
+      deviceLabel(
+        found.session as {
+          deviceName?: string | null;
+          platform?: string | null;
+        },
+      ),
+    );
 
     // Keep "active 2 hours ago" honest without writing on every request
     const last = new Date(

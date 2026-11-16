@@ -696,4 +696,7 @@ export interface AuditEntry {
   userName: string;
   changes: AuditChange[];
   note?: string;
+  /** Where the change came from; the API sends these only to the owner (doc 37, T55). */
+  ipAddress?: string;
+  device?: string;
 }

@@ -6,11 +6,28 @@ import {
   PageQuery,
   pageOf,
 } from "@repo/contracts";
-import { cursorOffset, pageCursor } from "@repo/core";
+import { can, cursorOffset, pageCursor, type Role } from "@repo/core";
 import { and, desc, eq, lt, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { schema, type Db } from "@repo/backend/db/client";
+
+type AuditRow = typeof schema.auditLog.$inferSelect;
+
+/**
+ * IP address and device are shown only to roles that manage the team (the owner)
+ * until custom roles add an audit right (doc 37, T55/T57).
+ */
+export function auditEntryFor(row: AuditRow, role: Role) {
+  const showOrigin = can(role, "team");
+  return AuditEntry.parse({
+    ...row,
+    at: row.at.toISOString(),
+    note: row.note ?? undefined,
+    ipAddress: (showOrigin && row.ipAddress) || undefined,
+    device: (showOrigin && row.device) || undefined,
+  });
+}
 
 // Keyset pagination keeps the full append-only history available without an unbounded query.
 export async function auditRoutes(app: FastifyInstance, { db }: { db: Db }) {
@@ -37,13 +54,9 @@ export async function auditRoutes(app: FastifyInstance, { db }: { db: Db }) {
         )
         .orderBy(desc(schema.auditLog.id))
         .limit(req.query.limit + 1);
-      const items = rows.slice(0, req.query.limit).map((row) =>
-        AuditEntry.parse({
-          ...row,
-          at: row.at.toISOString(),
-          note: row.note ?? undefined,
-        }),
-      );
+      const items = rows
+        .slice(0, req.query.limit)
+        .map((row) => auditEntryFor(row, req.firm.role));
       return {
         items,
         nextCursor:
@@ -97,13 +110,9 @@ export async function auditRoutes(app: FastifyInstance, { db }: { db: Db }) {
             ? counts.cancelled
             : counts.all;
       return {
-        items: rows.slice(0, req.query.limit).map((row) =>
-          AuditEntry.parse({
-            ...row,
-            at: row.at.toISOString(),
-            note: row.note ?? undefined,
-          }),
-        ),
+        items: rows
+          .slice(0, req.query.limit)
+          .map((row) => auditEntryFor(row, req.firm.role)),
         nextCursor:
           rows.length > req.query.limit
             ? pageCursor(offset + req.query.limit)

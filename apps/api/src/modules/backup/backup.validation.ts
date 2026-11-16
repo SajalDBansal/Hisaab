@@ -186,7 +186,8 @@ function upgradeVersionThree(input: unknown): unknown {
   };
 }
 
-// Version 4 files predate numbering rules: every type used the default format.
+// Version 4 files predate numbering rules (every type used the default format)
+// and the edit log's IP address and device (unknown for those changes).
 function upgradeVersionFour(input: unknown): unknown {
   const result = LegacyFirmExportFileV4.safeParse(input);
   if (!result.success) return input;
@@ -204,6 +205,11 @@ function upgradeVersionFour(input: unknown): unknown {
     data: {
       ...data,
       invoiceSettings: { ...data.invoiceSettings, numbering: {} },
+      auditLog: data.auditLog.map((row) => ({
+        ...row,
+        ipAddress: null,
+        device: null,
+      })),
     },
   };
   return {
