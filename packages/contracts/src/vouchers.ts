@@ -298,7 +298,12 @@ export const VoucherSnapshot = z.object({
   party: Party.optional(),
   items: z.array(Item),
   units: z.array(Unit),
-  settings: InvoiceSettings.extend({ bankLedgerId: z.string() }),
+  // Snapshots frozen before numbering rules (migration 0031) have no `numbering`;
+  // missing means the default format.
+  settings: InvoiceSettings.extend({
+    bankLedgerId: z.string(),
+    numbering: InvoiceSettings.shape.numbering.optional(),
+  }),
   bankName: z.string().optional(),
 });
 

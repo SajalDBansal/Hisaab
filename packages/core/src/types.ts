@@ -404,7 +404,9 @@ export interface VoucherSnapshot {
   party?: Party;
   items: Item[];
   units: UnitDef[];
-  settings: InvoiceSettings;
+  /** Snapshots frozen before numbering rules (migration 0031) have no `numbering`. */
+  settings: Omit<InvoiceSettings, "numbering"> &
+    Partial<Pick<InvoiceSettings, "numbering">>;
   bankName?: string;
 }
 

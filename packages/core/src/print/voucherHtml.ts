@@ -506,7 +506,12 @@ export function voucherHtml(input: PrintInput): Printable {
       party,
       items,
       bankName,
-      settings: { ...settings, template: input.settings.template },
+      settings: {
+        ...settings,
+        // Older snapshots predate numbering rules; printing doesn't use them.
+        numbering: settings.numbering ?? {},
+        template: input.settings.template,
+      },
     };
   }
   const title = printTitle(v);
