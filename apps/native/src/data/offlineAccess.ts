@@ -9,7 +9,9 @@ const Grant = z.object({
   rows: z.array(FirmListRow),
   recoveryEpoch: RecoveryEpoch.optional(),
 });
-export const offlineAccessMaxAge = 24 * 60 * 60 * 1000;
+// Owner decision (13 Nov 2026): a phone reads its books offline for up to 7
+// days after it last reached the server; logout wipes them at once.
+export const offlineAccessMaxAge = 7 * 24 * 60 * 60 * 1000;
 export const offlineLeaseActive = (expiresAt: number, now = Date.now()) =>
   now >= expiresAt - offlineAccessMaxAge && now < expiresAt;
 export function createOfflineAccess(store: OfflineStore, now = Date.now) {

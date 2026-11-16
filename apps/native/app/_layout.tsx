@@ -11,10 +11,44 @@ import { ToastHost, Screen, Txt, Button } from "@/components";
 import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { DataProvider, useData } from "@/data/DataProvider";
 import { REQUIRE_LOGIN } from "@/auth/config";
+import { can, type Permission } from "@repo/core";
 import { availableWithoutFirm } from "@/auth/accountRoutes";
 import { PrivacyBoundary } from "@/auth/PrivacyBoundary";
 
 /** Root of the app: data cache, safe areas, fonts and the screen stack. */
+/** Create and edit screens, with the rights the server checks on their save. */
+const CREATE_SCREENS: [string, Permission[] | null][] = [
+  ["sale/new", ["sales"]],
+  ["sale/edit/[id]", ["sales"]],
+  ["receipt/new", ["sales"]],
+  ["purchase/new", ["purchase"]],
+  ["purchase/edit/[id]", ["purchase"]],
+  ["payment/new", ["purchase"]],
+  ["expense/new", ["purchase"]],
+  ["journal/new", ["accounts"]],
+  ["journal/financing", ["accounts"]],
+  ["account/new", ["accounts"]],
+  ["contra/new", ["payments"]],
+  ["note/new", ["sales", "purchase"]],
+  ["order/new", ["sales", "purchase"]],
+  ["order/edit/[id]", ["sales", "purchase"]],
+  ["party/new", ["sales", "purchase"]],
+  ["party/edit/[id]", ["sales", "purchase"]],
+  ["item/new", ["sales", "purchase"]],
+  ["item/edit/[id]", ["sales", "purchase"]],
+  ["documents/new", ["sales", "purchase", "payments", "accounts", "settings"]],
+  ["settings/firm", ["settings"]],
+  ["settings/invoice", ["settings"]],
+  ["settings/invite", ["team"]],
+  ["settings/transfer", ["team"]],
+  ["firms", null],
+];
+
+/** List screens whose rows only some roles may read. */
+const READ_SCREENS: [string, Permission[]][] = [
+  ["purchases", ["purchase", "reports"]],
+];
+
 export default function RootLayout() {
   const [queryClient] = useState(
     () =>
@@ -127,38 +161,31 @@ function Routes() {
           name="create-sheet"
           options={{ presentation: "transparentModal", animation: "fade" }}
         />
-        {/* Create forms slide up as full-screen modals. */}
-        {[
-          "sale/new",
-          "purchase/new",
-          "receipt/new",
-          "payment/new",
-          "expense/new",
-          "journal/new",
-          "journal/financing",
-          "account/new",
-          "documents/new",
-          "party/new",
-          "party/edit/[id]",
-          "item/new",
-          "item/edit/[id]",
-          "sale/edit/[id]",
-          "purchase/edit/[id]",
-          "note/new",
-          "order/new",
-          "order/edit/[id]",
-          "contra/new",
-          "firms",
-          "settings/firm",
-          "settings/invoice",
-          "settings/invite",
-          "settings/transfer",
-        ].map((name) => (
-          <Stack.Screen
+        {/* Create forms slide up as full-screen modals. Each opens only for
+            roles the server lets save it, so a link or a back step never shows
+            a form that would be refused on Save. */}
+        {READ_SCREENS.map(([name, needs]) => (
+          <Stack.Protected
             key={name}
-            name={name}
-            options={{ presentation: "modal" }}
-          />
+            guard={
+              !REQUIRE_LOGIN ||
+              (!!data.role && needs.some((p) => can(data.role!, p)))
+            }
+          >
+            <Stack.Screen name={name} />
+          </Stack.Protected>
+        ))}
+        {CREATE_SCREENS.map(([name, needs]) => (
+          <Stack.Protected
+            key={name}
+            guard={
+              !REQUIRE_LOGIN ||
+              !needs ||
+              (!!data.role && needs.some((p) => can(data.role!, p)))
+            }
+          >
+            <Stack.Screen name={name} options={{ presentation: "modal" }} />
+          </Stack.Protected>
         ))}
       </Stack.Protected>
       <Stack.Protected guard={signedOut}>

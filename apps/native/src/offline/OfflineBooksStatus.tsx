@@ -8,7 +8,7 @@ export function OfflineBooksStatus() {
   const { books, entries, online, cachedAt, error, quarantine } =
     useOfflineBooks();
   const path = usePathname();
-  const { replica, offlineMode } = useData();
+  const { replica, offlineMode, catchingUp } = useData();
   if (offlineMode)
     return (
       <Button
@@ -16,6 +16,17 @@ export function OfflineBooksStatus() {
         size="sm"
         style={{ alignSelf: "center", margin: space.sm }}
         label="Offline - view only"
+        onPress={() => router.push("/settings/offline-books")}
+      />
+    );
+  // Back online: saves wait until the phone has what was saved meanwhile.
+  if (catchingUp)
+    return (
+      <Button
+        icon="refresh-cw"
+        size="sm"
+        style={{ alignSelf: "center", margin: space.sm }}
+        label="Updating your books…"
         onPress={() => router.push("/settings/offline-books")}
       />
     );

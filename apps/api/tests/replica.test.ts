@@ -212,8 +212,18 @@ test(
         const server = JSON.parse(
           JSON.stringify(await loadReportBooks(db, firmId)),
         ) as Awaited<ReturnType<typeof loadReportBooks>>;
-        const local = phone.books();
-        assert.ok(local, when);
+        const books = phone.books();
+        assert.ok(books, when);
+        // The phone also keeps each record's version, for edits.
+        assert.ok(books.vouchers.every((v) => typeof v.version === "number"));
+        const unversioned = <T extends { version?: number }>(rows: T[]) =>
+          rows.map(({ version: _v, ...row }) => row);
+        const local = {
+          ...books,
+          parties: unversioned(books.parties),
+          items: unversioned(books.items),
+          vouchers: unversioned(books.vouchers),
+        };
         const byId = <T extends { id: string }>(rows: T[]) =>
           [...rows].sort((a, b) => a.id.localeCompare(b.id));
         assert.deepEqual(

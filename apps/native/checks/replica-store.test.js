@@ -262,3 +262,67 @@ test("offline, reads come from the phone's books and every save is refused", asy
     setReplicaBooks(null);
   }
 });
+
+test("online, book screens read the phone; saves wait for the gate and the phone catches up before they return", async () => {
+  const { phoneFirstServices } = await import(
+    "../src/replica/localServices.ts"
+  );
+  const server = fakeServer();
+  const phone = createReplica({
+    firmId: "f",
+    store: sqlReplicaStore(async () => bunConnection(new Database(":memory:"))),
+    get: server.get,
+  });
+  await phone.sync();
+  // Installed as a getter: later syncs show without reinstalling.
+  setReplicaBooks(() => phone.books());
+  const order = [];
+  let offline = false;
+  const gate = {
+    ready: async () => {
+      order.push("ready");
+      if (offline) throw new Error("You're offline. You need to be online.");
+    },
+    saved: async () => {
+      order.push("saved");
+      await phone.sync();
+    },
+  };
+  const remote = {
+    partyService: {
+      list: async () => assert.fail("party lists read the phone"),
+      create: async (input) => {
+        order.push("create");
+        server.change("p9", party("p9", input.name));
+        return { id: "p9" };
+      },
+    },
+    documentService: { list: async () => "from the server" },
+  };
+  try {
+    const services = phoneFirstServices(remote, "owner", gate);
+    const names = async () =>
+      (await services.partyService.list("customer"))
+        .map((r) => r.party.name)
+        .sort();
+    assert.deepEqual(await names(), ["Asha", "Bina"]);
+    // Not on the phone: still asked of the server.
+    assert.equal(await services.documentService.list(), "from the server");
+
+    // The new party is on the phone by the time the save returns.
+    await services.partyService.create({ name: "Dev" });
+    assert.deepEqual(order, ["ready", "create", "saved"]);
+    assert.deepEqual(await names(), ["Asha", "Bina", "Dev"]);
+
+    // A closed gate stops the save before it reaches the server.
+    offline = true;
+    order.length = 0;
+    await assert.rejects(
+      services.partyService.create({ name: "Ela" }),
+      /need to be online/,
+    );
+    assert.deepEqual(order, ["ready"]);
+  } finally {
+    setReplicaBooks(null);
+  }
+});

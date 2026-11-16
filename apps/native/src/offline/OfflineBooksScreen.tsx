@@ -446,8 +446,9 @@ function PhoneBooks({ replica }: { replica: ReplicaState }) {
       <Txt variant="bodyStrong">Books on this phone</Txt>
       <Txt variant="small">{status}</Txt>
       <Txt variant="small" tone="body">
-        Every change saved online is copied here within moments, so the whole
-        firm is readable without a connection. Saving always needs a connection.
+        Screens read the books from this phone, online and offline. Every
+        change saved online is copied here within moments. Saving always needs
+        a connection, and waits until this phone has caught up.
       </Txt>
     </>
   );

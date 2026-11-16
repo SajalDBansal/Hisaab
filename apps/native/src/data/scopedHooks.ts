@@ -154,6 +154,15 @@ export function useServiceMutation<T, V = void>(options: {
         );
       return associatePayloadForRead(role, result);
     },
-    onSuccess: options.onSuccess,
+    // Refreshing the open screens runs in the background: the save is already
+    // on the server and on the phone, so the form need not wait for every
+    // mounted list and report to recompute before it closes.
+    onSuccess: options.onSuccess
+      ? (...args: Parameters<NonNullable<typeof options.onSuccess>>) => {
+          void Promise.resolve(options.onSuccess!(...args)).catch(
+            () => undefined,
+          );
+        }
+      : undefined,
   });
 }

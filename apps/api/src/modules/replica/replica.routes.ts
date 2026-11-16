@@ -13,7 +13,7 @@ import {
   type ReplicaTables,
 } from "@repo/core";
 import type { Db as MockDb } from "@repo/core/src/mock/db";
-import { and, asc, eq, gt, isNull, max } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, max } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -35,6 +35,43 @@ const tablesOf = (books: MockDb): ReplicaTables => ({
 });
 const rowsOf = (books: MockDb, kind: ReplicaKind): unknown[] =>
   kind === "vouchers" ? books.vouchers.map(replicaVoucher) : books[kind];
+
+const TABLE = {
+  parties: schema.parties,
+  items: schema.items,
+  vouchers: schema.vouchers,
+};
+
+/**
+ * Rows as the phone keeps them: with each record's version, so an edit opened
+ * from the phone's books is refused if someone changed the record since.
+ */
+async function versionedRows(
+  tx: Reader,
+  firmId: string,
+  books: MockDb,
+  kind: ReplicaKind,
+) {
+  const rows = rowsOf(books, kind) as { id: string }[];
+  if (!rows.length) return rows;
+  const table = TABLE[kind];
+  const found = await tx
+    .select({ id: table.id, version: table.version })
+    .from(table)
+    .where(
+      rows.length > 500
+        ? eq(table.firmId, firmId)
+        : and(
+            eq(table.firmId, firmId),
+            inArray(
+              table.id,
+              rows.map((r) => r.id),
+            ),
+          ),
+    );
+  const versions = new Map(found.map((r) => [r.id, r.version]));
+  return rows.map((row) => ({ ...row, version: versions.get(row.id) }));
+}
 
 const ENTITY_KIND: Record<string, ReplicaKind | undefined> = {
   party: "parties",
@@ -78,6 +115,11 @@ export async function replicaRoutes(app: FastifyInstance, options: { db: Db }) {
           items: "all",
           vouchers: "all",
         });
+        const rows = {
+          parties: await versionedRows(tx, req.firm.id, books, "parties"),
+          items: await versionedRows(tx, req.firm.id, books, "items"),
+          vouchers: await versionedRows(tx, req.firm.id, books, "vouchers"),
+        };
         const per = <T>(f: (kind: ReplicaKind) => T) =>
           Object.fromEntries(REPLICA_KINDS.map((k) => [k, f(k)])) as Record<
             ReplicaKind,
@@ -86,8 +128,8 @@ export async function replicaRoutes(app: FastifyInstance, options: { db: Db }) {
         return {
           seq,
           tables: tablesOf(books),
-          counts: per((k) => rowsOf(books, k).length),
-          checksum: per((k) => replicaChecksum(rowsOf(books, k))),
+          counts: per((k) => rows[k].length),
+          checksum: per((k) => replicaChecksum(rows[k])),
         };
       }),
   );
@@ -125,7 +167,7 @@ export async function replicaRoutes(app: FastifyInstance, options: { db: Db }) {
         const page = ids.slice(0, limit);
         const books = await loadBookPart(tx, req.firm.id, { [kind]: page });
         return {
-          rows: rowsOf(books, kind),
+          rows: await versionedRows(tx, req.firm.id, books, kind),
           next: ids.length > limit ? (page.at(-1) ?? null) : null,
         };
       }),
@@ -176,9 +218,14 @@ export async function replicaRoutes(app: FastifyInstance, options: { db: Db }) {
           items: [...wanted.items],
           vouchers: [...wanted.vouchers],
         });
+        const upserts = {
+          parties: await versionedRows(tx, firmId, books, "parties"),
+          items: await versionedRows(tx, firmId, books, "items"),
+          vouchers: await versionedRows(tx, firmId, books, "vouchers"),
+        };
         const changes = Object.fromEntries(
           REPLICA_KINDS.map((kind) => {
-            const upsert = rowsOf(books, kind);
+            const upsert = upserts[kind];
             const present = new Set(
               upsert.map((row) => (row as { id: string }).id),
             );

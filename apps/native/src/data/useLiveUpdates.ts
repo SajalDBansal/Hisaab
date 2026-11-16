@@ -16,7 +16,7 @@ export function useLiveUpdates(options: {
   transport: Transport;
   cache: QueryClient;
   /** Something changed, or may have: bring the books on the phone up to date. */
-  onChanged?: () => void;
+  onChanged?: () => Promise<void>;
 }) {
   const { enabled, userId, firmId, role, transport, cache } = options;
   const onChanged = useRef(options.onChanged);
@@ -26,11 +26,16 @@ export function useLiveUpdates(options: {
     let seenVersion: string | undefined;
     let pending: ReturnType<typeof setTimeout> | undefined;
     // Several notices in a row cost one refetch; ETags make unchanged reads cheap.
+    // The phone's books are brought up to date first, so screens reading
+    // them show the change on the same refresh.
     const refetchBooks = () => {
-      onChanged.current?.();
       clearTimeout(pending);
       pending = setTimeout(() => {
-        void cache.invalidateQueries({ queryKey: ["books", userId, firmId] });
+        void (onChanged.current?.() ?? Promise.resolve())
+          .catch(() => undefined)
+          .then(() =>
+            cache.invalidateQueries({ queryKey: ["books", userId, firmId] }),
+          );
       }, 100);
     };
     const live = createLiveConnection({

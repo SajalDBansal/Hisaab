@@ -43,7 +43,11 @@ import {
 } from "./accessScope";
 import { useLiveUpdates } from "./useLiveUpdates";
 import { useReplica } from "@/replica/useReplica";
-import { localServices } from "@/replica/localServices";
+import {
+  phoneFirstServices,
+  type SaveGate,
+} from "@/replica/localServices";
+import { OfflineWriteError } from "./offlineOperation";
 import { replicaStore } from "@/replica/replicaStore";
 
 interface DataState {
@@ -57,6 +61,10 @@ interface DataState {
   replica: ReplicaState | null;
   /** No connection: screens read the books on the phone; saving is refused. */
   offlineMode: boolean;
+  /** Back online, bringing the phone's books up to date; saves wait for it. */
+  catchingUp: boolean;
+  /** Bring the phone's books up to date (after a save, before refreshing). */
+  syncBooks(): Promise<void>;
   loading: boolean;
   error: Error | null;
   retry(): void;
@@ -201,11 +209,23 @@ function UserData({
     },
     [userId, endSession, cache],
   );
+  // Saves wait until the phone shows the latest books: after the app opens
+  // and after every reconnect, the first sync must finish first.
+  const caughtUp = useRef(false);
+  const [catchingUp, setCatchingUp] = useState(false);
+  const replicaRole = REQUIRE_LOGIN && !!role && can(role, "reports");
+  const refreshBooks = () =>
+    void cache.invalidateQueries({ queryKey: ["books", userId] });
   const replica = useReplica({
-    enabled: REQUIRE_LOGIN && enabled && !!role && can(role, "reports"),
+    enabled: enabled && replicaRole,
     userId,
     firmId,
     transport: onlineTransport,
+    onSynced: (changed) => {
+      caughtUp.current = true;
+      setCatchingUp(false);
+      if (changed) refreshBooks();
+    },
   });
   useLiveUpdates({
     enabled: REQUIRE_LOGIN && enabled && !!role,
@@ -214,20 +234,59 @@ function UserData({
     role,
     transport: onlineTransport,
     cache,
-    // Every change on the server reaches the phone's books at once.
-    onChanged: replica.sync,
+    // Every change on the server reaches the phone's books, then the screens.
+    onChanged: replicaRole ? () => replica.syncNow(true) : undefined,
   });
-  // Offline, while the access grant lasts, screens read the phone's books.
-  const offlineMode =
-    connectionLost &&
+  // Book screens read the phone whenever it holds the books: online, and
+  // offline while the access grant lasts (7 days).
+  const phoneReads =
     !!replica.state?.ready &&
-    offlineLeaseActive(leaseUntil.current);
+    (!connectionLost || offlineLeaseActive(leaseUntil.current));
+  const offlineMode = connectionLost && phoneReads;
   useEffect(() => {
-    setReplicaBooks(offlineMode ? replica.books() : null);
-    void cache.invalidateQueries({ queryKey: ["books", userId] });
+    setReplicaBooks(phoneReads ? () => replica.books() : null);
+    refreshBooks();
     return () => setReplicaBooks(null);
-    // The books change only through syncs, which need a connection.
-  }, [offlineMode, cache, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // replica.books reads the hook's current replica when called.
+  }, [phoneReads, cache, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const lostRef = useRef(connectionLost);
+  useEffect(() => {
+    if (lostRef.current && !connectionLost && replicaRole) {
+      caughtUp.current = false;
+      setCatchingUp(true);
+      replica.sync();
+    }
+    lostRef.current = connectionLost;
+  }, [connectionLost, replicaRole]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gate = useRef<SaveGate>({
+    ready: async () => undefined,
+    saved: async () => undefined,
+  });
+  gate.current.ready = async () => {
+    if (connectionLost) throw new OfflineWriteError();
+    if (!replicaRole || !phoneReads || caughtUp.current) return;
+    await Promise.race([
+      replica.syncNow(),
+      new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Your books are still updating. Try again in a moment.",
+              ),
+            ),
+          15_000,
+        ),
+      ),
+    ]);
+  };
+  gate.current.saved = () =>
+    Promise.race([
+      replica.syncNow(true),
+      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+    ]).catch(() => undefined);
+
   // Browsers say at once when the network goes; phones find out on the next request.
   useEffect(() => {
     if (
@@ -389,10 +448,11 @@ function UserData({
 
   const services = useMemo<Services>(() => {
     if (!REQUIRE_LOGIN) return demoServices;
+    const server = remoteServices(transport, firmId, uploadDocumentFile);
     const remote =
-      offlineMode && role
-        ? localServices(role)
-        : remoteServices(transport, firmId, uploadDocumentFile);
+      phoneReads && role
+        ? phoneFirstServices(server, role, gate.current)
+        : server;
     const switchTo = async (id: string) => {
       // Verify access before changing the visible firm or persisting the selection.
       FirmDetail.parse(
@@ -433,7 +493,7 @@ function UserData({
         },
       },
     };
-  }, [transport, firmId, userId, cache, offlineMode, role]);
+  }, [transport, firmId, userId, cache, phoneReads, role]);
 
   return (
     <DataContext.Provider
@@ -446,6 +506,10 @@ function UserData({
         offline,
         replica: replica.state,
         offlineMode,
+        catchingUp: catchingUp && !connectionLost,
+        syncBooks: replicaRole
+          ? () => replica.syncNow()
+          : async () => undefined,
         loading: REQUIRE_LOGIN && enabled && firms.isPending,
         error: REQUIRE_LOGIN ? firms.error : null,
         retry: () => {

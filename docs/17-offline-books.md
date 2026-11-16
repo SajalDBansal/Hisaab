@@ -61,7 +61,7 @@ versions, and for review after a server restore.
   also includes membership scope, session revision and lock/auth state. Queued
   writes never transfer to another account, firm or role.
 - Offline restoration requires the existing authenticated identity plus an
-  encrypted membership grant verified online within 24 hours. A backwards clock
+  encrypted membership grant verified online within 7 days (owner decision, 13 Nov 2026; was 24 hours). A backwards clock
   or expired grant fails closed. No offline password, OTP or role elevation exists.
   Server revocation while truly disconnected cannot be discovered until reconnect;
   the short grant bounds that limitation. Every sync/reconciliation rechecks access.
