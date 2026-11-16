@@ -218,6 +218,13 @@
       "when": 1793404800000,
       "tag": "0030_live_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794819552615,
+      "tag": "0031_voucher_numbering",
+      "breakpoints": true
     }
   ]
 }

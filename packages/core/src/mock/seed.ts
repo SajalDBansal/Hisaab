@@ -516,6 +516,7 @@ export function buildSeed(asOf: string = today()): Db {
       },
       prefixes: { ...DEFAULT_PREFIXES },
       billOfSupplyPrefix: DEFAULT_BILL_OF_SUPPLY_PREFIX,
+      numbering: {},
     },
     team: [
       {
@@ -1259,6 +1260,7 @@ export function blankBooks(
       bankLedgerId: "",
       prefixes: { ...DEFAULT_PREFIXES },
       billOfSupplyPrefix: DEFAULT_BILL_OF_SUPPLY_PREFIX,
+      numbering: {},
     },
     team: [
       {

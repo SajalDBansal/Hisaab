@@ -61,6 +61,8 @@ export const invoiceSettings = pgTable("invoice_settings", {
   // Voucher type -> prefix, e.g. { "sale": "SI" }
   prefixes: jsonb("prefixes").notNull(),
   billOfSupplyPrefix: text("bill_of_supply_prefix").notNull().default("BS"),
+  // Voucher type -> { start, digits, showYear }; missing types use the default format.
+  numbering: jsonb("numbering").notNull().default({}),
   ...stamps,
 });
 

@@ -83,6 +83,7 @@ define the latest repairs and backup/migration work.
 | 34    | [Products and rates per party](34-party-product-rates.md) | What each supplier sells us and each customer buys, latest rates, stock left per supplier, and who supplies or buys each product |
 | 35    | [Paged lists, performance and whole-app check](35-paging-performance-and-whole-app-check.md) | How every list pages, measured response times online and offline, what was fixed and the remaining limits |
 | 36    | [Books on the phone](36-books-on-the-phone.md) | The firm's books kept in encrypted SQLite on the device, synced from the server, read offline; saves only online |
+| 37    | [Taxxa comparison and parity plan](37-taxxa-comparison-and-parity-plan.md) | What Taxxa does, what Hisaab already has, 74 gaps (T01-T74) and the phased plan to build them |
 
 ## How to Use These Guides
 

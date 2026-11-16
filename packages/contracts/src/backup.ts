@@ -22,7 +22,8 @@ import { OpeningStockLots } from "./items";
 import { InventoryAdjustment } from "./inventory";
 import { DeliverySnapshot, CommissionSnapshot } from "./associates";
 
-export const FIRM_EXPORT_VERSION = 4;
+// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules.
+export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
 export const RESTORE_UNAVAILABLE =
@@ -68,6 +69,7 @@ export const BackupRows = {
     bankAccount: BankAccount.strict().nullable(),
     prefixes: InvoiceSettings.shape.prefixes,
     billOfSupplyPrefix: Text,
+    numbering: InvoiceSettings.shape.numbering,
   }),
   reminderSettings: z.strictObject({
     ...firm,
@@ -439,7 +441,18 @@ export const FirmExportFile = z.strictObject({
 export type FirmExportFile = z.infer<typeof FirmExportFile>;
 
 // Older files are checked against their exact original schema before a lossless upgrade.
-const LegacyDataV3 = FirmExportData.omit({
+const invoiceSettingsV4 = BackupRows.invoiceSettings.omit({ numbering: true });
+const LegacyDataV4 = FirmExportData.extend({
+  invoiceSettings: invoiceSettingsV4,
+});
+export const LegacyFirmExportFileV4 = FirmExportFile.extend({
+  payload: FirmExportPayload.extend({
+    version: z.literal(4),
+    data: LegacyDataV4,
+  }),
+});
+
+const LegacyDataV3 = LegacyDataV4.omit({
   settlementEntries: true,
   settlementAllocations: true,
   creditApprovals: true,

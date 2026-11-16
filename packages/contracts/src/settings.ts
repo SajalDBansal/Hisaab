@@ -24,6 +24,21 @@ const Prefix = z
   .string()
   .regex(/^[A-Z0-9-]{1,5}$/, "Use 1 to 5 capital letters, digits or hyphens.");
 
+/** Number format for one voucher type; see NumberingRule in @repo/core. */
+export const NumberingRule = z.strictObject({
+  start: z
+    .number()
+    .int()
+    .min(1, "Start from 1 or more.")
+    .max(99_999_999, "Use a starting number up to 99,999,999."),
+  digits: z
+    .number()
+    .int()
+    .min(1, "Use 1 to 8 digits.")
+    .max(8, "Use 1 to 8 digits."),
+  showYear: z.boolean(),
+});
+
 export const InvoiceSettings = z.object({
   template: InvoiceTemplate,
   terms: z.string().max(1000),
@@ -32,6 +47,8 @@ export const InvoiceSettings = z.object({
   bankAccount: BankAccount.optional(),
   prefixes: z.record(z.string(), Prefix),
   billOfSupplyPrefix: Prefix,
+  // Keyed by voucher type (core rejects unknown types; vouchers.ts imports this file).
+  numbering: z.record(z.string(), NumberingRule),
 });
 
 export const InvoiceSettingsUpdate = InvoiceSettings.partial();

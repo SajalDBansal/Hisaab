@@ -12,6 +12,7 @@ import type {
   ISODate,
   Item,
   Ledger,
+  NumberingRule,
   Party,
   ReminderSettings,
   StoredDocument,
@@ -30,7 +31,7 @@ export interface Db {
   vouchers: Voucher[];
   /** Opening balances of other accounts, e.g. furniture. Capital balances them. */
   openingAccounts: OpeningAccount[];
-  /** Last used number per voucher type and financial year, e.g. { "sale:26-27": 149 }. */
+  /** Last used number per voucher type and financial year, e.g. { "sale:26-27": 149 }; "sale:all" when the year is hidden. */
   counters: Record<string, number>;
   invoiceSettings: InvoiceSettings;
   team: TeamMember[];
@@ -84,28 +85,82 @@ export function newId(prefix: string): ID {
   return `${prefix}_${Date.now().toString(36)}${idCounter.toString(36)}`;
 }
 
-/** Number the next voucher would get, e.g. "SI/26-27/0150". Does not reserve it. */
 /** Number series: normal, or "bos" for sales bills of supply (their own series, e.g. BS/26-27/0001). */
 export type Series = "bos" | "nongst";
 
-const counterKey = (type: VoucherType, date: ISODate, series?: Series) =>
-  `${type}${series ? `-${series}` : ""}:${financialYear(date).short}`;
+export const DEFAULT_NUMBERING: NumberingRule = {
+  start: 1,
+  digits: 4,
+  showYear: true,
+};
 
+/** Counter "year" for numbers without a year: one sequence across all years. */
+export const ALL_YEARS = "all";
+
+export function numberingRule(
+  settings: Pick<InvoiceSettings, "numbering">,
+  type: VoucherType,
+): NumberingRule {
+  return { ...DEFAULT_NUMBERING, ...settings.numbering?.[type] };
+}
+
+/** The year a counter belongs to: the financial year, or ALL_YEARS when the year is hidden. */
+export function counterYear(rule: NumberingRule, date: ISODate): string {
+  return rule.showYear ? financialYear(date).short : ALL_YEARS;
+}
+
+export function nextSequence(last: number | undefined, rule: NumberingRule) {
+  return Math.max((last ?? 0) + 1, rule.start);
+}
+
+export function formatVoucherNumber(
+  prefix: string,
+  year: string,
+  sequence: number,
+  rule: NumberingRule,
+): string {
+  const n = String(sequence).padStart(rule.digits, "0");
+  return rule.showYear ? `${prefix}/${year}/${n}` : `${prefix}/${n}`;
+}
+
+export function seriesPrefix(
+  settings: Pick<InvoiceSettings, "prefixes" | "billOfSupplyPrefix">,
+  type: VoucherType,
+  series?: Series,
+): string {
+  return series === "nongst"
+    ? `N${settings.prefixes[type]}`
+    : series === "bos"
+      ? settings.billOfSupplyPrefix
+      : settings.prefixes[type];
+}
+
+const counterKey = (
+  db: Db,
+  type: VoucherType,
+  date: ISODate,
+  series?: Series,
+) =>
+  `${type}${series ? `-${series}` : ""}:${counterYear(numberingRule(db.invoiceSettings, type), date)}`;
+
+/** Number the next voucher would get, e.g. "SI/26-27/0150". Does not reserve it. */
 export function peekNumber(
   db: Db,
   type: VoucherType,
   date: ISODate,
   series?: Series,
 ): string {
-  const fy = financialYear(date).short;
-  const next = (db.counters[counterKey(type, date, series)] ?? 0) + 1;
-  const prefix =
-    series === "nongst"
-      ? `N${db.invoiceSettings.prefixes[type]}`
-      : series === "bos"
-        ? db.invoiceSettings.billOfSupplyPrefix
-        : db.invoiceSettings.prefixes[type];
-  return `${prefix}/${fy}/${String(next).padStart(4, "0")}`;
+  const rule = numberingRule(db.invoiceSettings, type);
+  const next = nextSequence(
+    db.counters[counterKey(db, type, date, series)],
+    rule,
+  );
+  return formatVoucherNumber(
+    seriesPrefix(db.invoiceSettings, type, series),
+    financialYear(date).short,
+    next,
+    rule,
+  );
 }
 
 export function takeNumber(
@@ -115,8 +170,11 @@ export function takeNumber(
   series?: Series,
 ): string {
   const number = peekNumber(db, type, date, series);
-  const key = counterKey(type, date, series);
-  db.counters[key] = (db.counters[key] ?? 0) + 1;
+  const key = counterKey(db, type, date, series);
+  db.counters[key] = nextSequence(
+    db.counters[key],
+    numberingRule(db.invoiceSettings, type),
+  );
   return number;
 }
 

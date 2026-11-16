@@ -1,4 +1,5 @@
 import {
+  ALL_YEARS,
   baseQty,
   calcInvoice,
   checkInvoiceNumbers,
@@ -231,14 +232,19 @@ function checkCounters(data: FirmExportData) {
     unsupported("Duplicate invoice counters.");
   const numbers = new Set<string>();
   for (const voucher of data.vouchers) {
-    const match = /^([^/]+)\/(\d{2}-\d{2})\/(\d+)$/.exec(voucher.number);
+    // "SI/26-27/0001", or "SI/0001" for a type numbered without the year
+    // (one running sequence, counted under the year "all").
+    const match =
+      /^([^/]+)\/(\d{2}-\d{2})\/(\d+)$/.exec(voucher.number) ??
+      /^([^/]+)\/()(\d+)$/.exec(voucher.number);
     if (
       !match ||
       Number(match[3]) < 1 ||
       !Number.isSafeInteger(Number(match[3]))
     )
       unsupported("An invoice number uses an unsupported format.");
-    const last = counters.get(`${voucher.type}:${match[1]}:${match[2]}`);
+    const year = match[2] || ALL_YEARS;
+    const last = counters.get(`${voucher.type}:${match[1]}:${year}`);
     if (last === undefined || last < Number(match[3]))
       unsupported("Invoice counters do not cover every issued number.");
     const key = `${voucher.type}:${voucher.number}`;

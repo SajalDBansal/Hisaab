@@ -407,6 +407,7 @@ export async function loadBooks(
       ),
       prefixes: prefixes as MockDb["invoiceSettings"]["prefixes"],
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
     },
     team: [
       {

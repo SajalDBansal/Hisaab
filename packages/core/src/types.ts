@@ -511,6 +511,21 @@ export interface InvoiceSettings {
   prefixes: Record<VoucherType, string>;
   /** Sales with no GST (only nil, exempt or non-GST goods) get their own series, e.g. "BS/26-27/0001". */
   billOfSupplyPrefix: string;
+  /** Number format per voucher type; a missing type uses DEFAULT_NUMBERING. */
+  numbering: Partial<Record<VoucherType, NumberingRule>>;
+}
+
+/**
+ * How a voucher type is numbered. With the year shown, numbers restart every
+ * financial year (SI/26-27/0001). Without it there is one running sequence
+ * (SI/0001), because numbers must stay unique and a yearly restart would repeat them.
+ */
+export interface NumberingRule {
+  /** The lowest number to use; raising it skips ahead, it never goes back. */
+  start: number;
+  /** Minimum digits, padded with zeros (1-8). */
+  digits: number;
+  showYear: boolean;
 }
 
 export type Role = "owner" | "accountant" | "sales" | "viewer";

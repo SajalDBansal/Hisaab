@@ -5,6 +5,7 @@ import {
   cancelBlocker,
   cancelVoucher,
   CONVERTS_TO,
+  counterYear,
   createContra,
   createExpense,
   createJournal,
@@ -17,19 +18,24 @@ import {
   createSales,
   editBlocker,
   financialYear,
+  formatVoucherNumber,
   invoiceStatus,
   isOrderType,
   newestFirst,
+  nextSequence,
+  numberingRule,
   orderStatus,
   openingBillId,
   partyBills,
   postingTotals,
   returnAmountBasis,
+  seriesPrefix,
   setCleared,
   settledAmounts,
   today,
   updateInvoice,
   voucherPostings,
+  type InvoiceSettings as InvoiceSettingsCore,
   type Permission,
   type Role,
   type Voucher as CoreVoucher,
@@ -753,14 +759,14 @@ export const vouchersService = {
       .where(eq(schema.invoiceSettings.firmId, firmId));
     if (!settings) throw new Error("Invoice settings missing");
 
-    const prefixes = settings.prefixes as Record<string, string>;
-    const prefix =
-      series === "nongst"
-        ? `N${prefixes[type]}`
-        : series === "bos"
-          ? settings.billOfSupplyPrefix
-          : prefixes[type];
-    const year = financialYear(date).short;
+    const numbering = {
+      prefixes: settings.prefixes as Record<VoucherType, string>,
+      billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      numbering: settings.numbering as InvoiceSettingsCore["numbering"],
+    };
+    const prefix = seriesPrefix(numbering, type, series);
+    const rule = numberingRule(numbering, type);
+    const year = counterYear(rule, date);
     const [counter] = await db
       .select()
       .from(schema.voucherCounters)
@@ -770,8 +776,12 @@ export const vouchersService = {
           and ${schema.voucherCounters.series} = ${prefix}
           and ${schema.voucherCounters.financialYear} = ${year}`,
       );
-    const next = (counter?.lastNumber ?? 0) + 1;
-    return `${prefix}/${year}/${String(next).padStart(4, "0")}`;
+    return formatVoucherNumber(
+      prefix,
+      financialYear(date).short,
+      nextSequence(counter?.lastNumber, rule),
+      rule,
+    );
   },
 
   async returnable(

@@ -103,6 +103,15 @@ export {
   updateInvoice,
   updateInvoiceSettings,
 } from "./mock/db";
+export {
+  ALL_YEARS,
+  DEFAULT_NUMBERING,
+  counterYear,
+  formatVoucherNumber,
+  nextSequence,
+  numberingRule,
+  seriesPrefix,
+} from "./books/base";
 export * from "./precision";
 export * from "./accounting/voucherSnapshot";
 export { checkInvoiceNumbers } from "./accounting/invoiceValidation";

@@ -5,6 +5,7 @@ import {
   FIRM_EXPORT_VERSION,
   LegacyFirmExportFileV2,
   LegacyFirmExportFileV3,
+  LegacyFirmExportFileV4,
   MAX_FIRM_EXPORT_BYTES,
   MAX_FIRM_EXPORT_ROWS,
   type FirmExportData,
@@ -53,6 +54,7 @@ function upgradeReturnAmounts(input: unknown): unknown {
     return input;
   for (const schema of [
     FirmExportFile,
+    LegacyFirmExportFileV4,
     LegacyFirmExportFileV3,
     LegacyFirmExportFileV2,
   ]) {
@@ -97,7 +99,9 @@ export function readExport(text: string) {
     throw invalid("Choose a valid Hisaab JSON export.");
   }
   checkJsonDepth(input);
-  input = upgradeVersionThree(upgradeVersionTwo(upgradeReturnAmounts(input)));
+  input = upgradeVersionFour(
+    upgradeVersionThree(upgradeVersionTwo(upgradeReturnAmounts(input))),
+  );
   const parsed = FirmExportFile.safeParse(input);
   if (!parsed.success || !isDeepStrictEqual(input, parsed.data))
     throw invalid();
@@ -157,7 +161,7 @@ function upgradeVersionThree(input: unknown): unknown {
   const data = result.data.payload.data;
   const payload = {
     ...result.data.payload,
-    version: FIRM_EXPORT_VERSION,
+    version: 4,
     data: {
       ...data,
       ...Object.fromEntries(
@@ -174,6 +178,32 @@ function upgradeVersionThree(input: unknown): unknown {
         ...row,
         openingBillId: null,
       })),
+    },
+  };
+  return {
+    payload,
+    integrity: { algorithm: "sha256", digest: exportDigest(payload) },
+  };
+}
+
+// Version 4 files predate numbering rules: every type used the default format.
+function upgradeVersionFour(input: unknown): unknown {
+  const result = LegacyFirmExportFileV4.safeParse(input);
+  if (!result.success) return input;
+  const original = input as typeof result.data;
+  // Files upgraded from v2/v3 above carry a fresh digest, so this check holds for them too.
+  if (
+    !isDeepStrictEqual(input, result.data) ||
+    exportDigest(original.payload) !== result.data.integrity.digest
+  )
+    throw invalid("The legacy export checksum or schema does not match.");
+  const data = result.data.payload.data;
+  const payload = {
+    ...result.data.payload,
+    version: FIRM_EXPORT_VERSION,
+    data: {
+      ...data,
+      invoiceSettings: { ...data.invoiceSettings, numbering: {} },
     },
   };
   return {

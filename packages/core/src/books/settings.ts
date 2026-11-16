@@ -66,10 +66,28 @@ export function updateInvoiceSettings(
       "Bill of supply prefix must be 1–5 capital letters or digits.",
     );
   }
+  for (const [type, rule] of Object.entries(patch.numbering ?? {})) {
+    if (!(type in db.invoiceSettings.prefixes))
+      throw new Error(`Unknown voucher type: ${type}.`);
+    if (!rule) continue;
+    if (
+      !Number.isInteger(rule.start) ||
+      rule.start < 1 ||
+      rule.start > 99_999_999
+    )
+      throw new Error(
+        `Starting number for ${type} must be from 1 to 99,999,999.`,
+      );
+    if (!Number.isInteger(rule.digits) || rule.digits < 1 || rule.digits > 8)
+      throw new Error(`Digits for ${type} must be from 1 to 8.`);
+    if (typeof rule.showYear !== "boolean")
+      throw new Error(`Choose whether ${type} numbers show the year.`);
+  }
   const next = {
     ...db.invoiceSettings,
     ...patch,
     prefixes: { ...db.invoiceSettings.prefixes, ...patch.prefixes },
+    numbering: { ...db.invoiceSettings.numbering, ...patch.numbering },
   };
   const salePrefix = next.prefixes.sale;
   if (
