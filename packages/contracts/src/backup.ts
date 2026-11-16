@@ -286,6 +286,7 @@ export const BackupRows = {
       "cancelled",
       "converted",
       "reopened",
+      "restored",
       "bank-date",
     ]),
     at: IsoDateTime,

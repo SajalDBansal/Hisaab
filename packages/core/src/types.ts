@@ -673,7 +673,13 @@ export interface NewFirmInput {
 // ---------------------------------------------------------------------------
 
 export type AuditAction =
-  "created" | "edited" | "cancelled" | "converted" | "reopened" | "bank-date";
+  | "created"
+  | "edited"
+  | "cancelled"
+  | "converted"
+  | "reopened"
+  | "restored"
+  | "bank-date";
 
 /** One field that changed, in words: { field: "Amount", before: "₹1,000.00", after: "₹1,200.00" }. */
 export interface AuditChange {

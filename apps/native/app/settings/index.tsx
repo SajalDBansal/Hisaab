@@ -139,6 +139,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "reports",
       },
       {
+        title: "Cancelled entries",
+        note: "Restore an entry cancelled by mistake",
+        icon: "rotate-ccw",
+        href: "/settings/cancelled",
+        needs: "team",
+      },
+      {
         title: "Invoice and numbering",
         note: "Print format, terms, bank details, prefixes",
         icon: "file-text",

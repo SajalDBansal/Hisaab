@@ -77,6 +77,13 @@ export function voucherServices({ request, pages }: Client) {
         body: { reason },
         headers: matchVersion(version),
       }),
+    cancelled: (limit = 200) =>
+      request(`/vouchers/cancelled?limit=${limit}`, c.pageOf(c.CancelledEntry)),
+    restore: (id: string, version?: number) =>
+      request(`/vouchers/${id}/restore`, c.Voucher, {
+        method: "POST",
+        headers: matchVersion(version),
+      }),
   } satisfies Services["voucherService"];
 }
 

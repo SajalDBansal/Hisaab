@@ -13,6 +13,7 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   cancelled: "Cancelled",
   converted: "Converted",
   reopened: "Reopened",
+  restored: "Restored",
   "bank-date": "Bank date",
 };
 

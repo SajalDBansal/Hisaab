@@ -9,6 +9,7 @@ export const auditAction = pgEnum("audit_action", [
   "cancelled",
   "converted",
   "reopened",
+  "restored",
   "bank-date",
 ]);
 

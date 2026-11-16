@@ -650,6 +650,23 @@ export function useCancelVoucher() {
   });
 }
 
+/** Owner: cancelled entries with why each can't be restored (doc 37, T47). */
+export function useCancelledVouchers() {
+  return useQuery({
+    queryKey: ["vouchers", "cancelled"],
+    queryFn: (services) => services.voucherService.cancelled(200),
+  });
+}
+
+export function useRestoreVoucher() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (services, args: { id: string; version?: number }) =>
+      services.voucherService.restore(args.id, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
 export function useUpdateInvoice(id: string, version?: number) {
   const refreshAll = useRefreshAll();
   return useMutation({

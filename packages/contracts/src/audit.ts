@@ -8,6 +8,7 @@ export const AuditAction = z.enum([
   "cancelled",
   "converted",
   "reopened",
+  "restored",
   "bank-date",
 ]);
 

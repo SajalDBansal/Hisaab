@@ -267,6 +267,22 @@ export const CancelInput = z.object({
   reason: requiredText("Say why you're cancelling.", 200),
 });
 
+/** One cancelled entry the owner may restore (doc 37, T47). */
+export const CancelledEntry = z.object({
+  id: Id,
+  type: VoucherType,
+  number: z.string(),
+  date: IsoDate,
+  partyName: z.string().optional(),
+  amount: z.number().int(),
+  reason: z.string().optional(),
+  cancelledAt: z.string().optional(),
+  version: z.number().int(),
+  /** Why it can't be restored now; absent when it can. */
+  restoreBlocker: z.string().optional(),
+});
+export type CancelledEntry = z.infer<typeof CancelledEntry>;
+
 export const BankDateInput = z.object({
   clearedOn: IsoDate.nullable(),
   ledgerId: Id.optional(),
@@ -398,6 +414,7 @@ const VoucherAuditEntry = z.object({
     "cancelled",
     "converted",
     "reopened",
+    "restored",
     "bank-date",
   ]),
   at: IsoDateTime,

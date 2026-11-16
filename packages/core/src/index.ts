@@ -38,6 +38,7 @@ export {
   voucherService,
   type InvoiceRow,
   allowedDates,
+  type CancelledEntry,
   type OrderRow,
   type ReturnableBill,
   type VoucherDetail,
@@ -86,6 +87,8 @@ export { cleanItem, cleanParty } from "./mock/db";
 export {
   cancelBlocker,
   cancelVoucher,
+  restoreBlocker,
+  restoreVoucher,
   createContra,
   createExpense,
   createJournal,

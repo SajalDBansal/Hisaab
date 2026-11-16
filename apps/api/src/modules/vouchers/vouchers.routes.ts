@@ -1,7 +1,9 @@
 import {
   BankDateInput,
   CancelInput,
+  CancelledEntry,
   IdParams,
+  ListPageQuery,
   InvoiceListQuery,
   InvoiceRow,
   NewContraInput,
@@ -40,7 +42,11 @@ import {
   requireVoucherRead,
   requireVoucherTypeRead,
 } from "../../lib/read-permissions";
-import { dateIdCursor, expectedVersion, pageByDateId } from "@repo/backend/modules/masters/shared";
+import {
+  dateIdCursor,
+  expectedVersion,
+  pageByDateId,
+} from "@repo/backend/modules/masters/shared";
 import { idemOf } from "@repo/backend/modules/vouchers/idempotency";
 import { requireRight, vouchersService, type Ctx } from "./vouchers.service";
 
@@ -429,6 +435,41 @@ export async function voucherRoutes(
         req.params.id,
         expectedVersion(req.headers["if-match"]),
         req.body.reason,
+      ),
+  );
+
+  // Cancelled entries the owner can put back (doc 37, T47).
+  typed.get(
+    "/vouchers/cancelled",
+    {
+      preHandler: app.inFirm(),
+      schema: {
+        querystring: ListPageQuery,
+        response: { 200: pageSchema(CancelledEntry) },
+      },
+    },
+    async (req) =>
+      vouchersService.cancelled(
+        db,
+        req.firm.id,
+        req.firm.role,
+        req.query.limit,
+        req.query.cursor,
+      ),
+  );
+
+  typed.post(
+    "/vouchers/:id/restore",
+    {
+      preHandler: app.inFirm(),
+      schema: { params: IdParams, response: { 200: Voucher } },
+    },
+    async (req) =>
+      vouchersService.restore(
+        db,
+        ctxOf(req),
+        req.params.id,
+        expectedVersion(req.headers["if-match"]),
       ),
   );
 

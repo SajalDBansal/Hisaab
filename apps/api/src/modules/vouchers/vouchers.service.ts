@@ -4,6 +4,10 @@ import {
   calcInvoice,
   cancelBlocker,
   cancelVoucher,
+  cursorOffset,
+  pageCursor,
+  restoreBlocker,
+  restoreVoucher,
   CONVERTS_TO,
   counterYear,
   createContra,
@@ -42,6 +46,7 @@ import {
   type VoucherType,
 } from "@repo/core";
 import type {
+  CancelledEntry,
   InvoiceRow,
   NewContraInput,
   NewExpenseInput,
@@ -584,6 +589,69 @@ export const vouchersService = {
     return voucher;
   },
 
+  /**
+   * Put a cancelled voucher back as it was (doc 37, T47). Owner only until custom
+   * roles add a restore right. The period lock is checked when saving, and the
+   * order and associate hooks run as for any change.
+   */
+  async restore(db: Db, ctx: Ctx, id: string, version: number) {
+    requireOwner(ctx.role);
+    return change(
+      db,
+      ctx,
+      { vouchers: [id] },
+      (snap) => {
+        const v = existing(snap, ctx, id, version);
+        const blocked = restoreBlocker(snap.books, v);
+        if (blocked) throw new AppError("CANNOT_RESTORE", blocked, 409);
+        return core(() => restoreVoucher(snap.books, id));
+      },
+      // Orders: a restored conversion uses the order's quantities again.
+      (tx, saved) => afterOrderVoucherChange(tx, ctx.firmId, saved.id),
+    );
+  },
+
+  /** Cancelled entries, newest cancellation first, with why each can't be restored. */
+  async cancelled(
+    db: Db,
+    firmId: string,
+    role: Role,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: CancelledEntry[]; nextCursor: string | null }> {
+    requireOwner(role);
+    const { books, apiVoucher } = await readBooks(db, firmId);
+    const rows = books.vouchers
+      .filter((v) => v.status === "cancelled")
+      .sort(
+        (a, b) =>
+          (b.cancelledAt ?? "").localeCompare(a.cancelledAt ?? "") ||
+          b.date.localeCompare(a.date),
+      );
+    const offset = cursorOffset(cursor);
+    const page = rows.slice(offset, offset + limit).map((v) => {
+      const party =
+        v.snapshot?.party ?? books.parties.find((p) => p.id === v.partyId);
+      return {
+        id: v.id,
+        type: v.type,
+        number: v.number,
+        date: v.date,
+        partyName: party?.name,
+        amount: v.amount,
+        reason: v.cancelReason,
+        cancelledAt: v.cancelledAt,
+        version: apiVoucher(v).version,
+        restoreBlocker: restoreBlocker(books, v) ?? undefined,
+      };
+    });
+    return {
+      items: page,
+      nextCursor:
+        offset + limit < rows.length ? pageCursor(offset + limit) : null,
+    };
+  },
+
   /** Bank reconciliation: the date an entry showed up in the bank statement. */
   async bankDate(
     db: Db,
@@ -882,6 +950,16 @@ async function money(
 }
 
 /** The voucher named in the URL, if it is in this firm and the caller may change it and saw its latest version. */
+/** Restoring cancelled entries is the owner's (team right) until roles add its own right. */
+function requireOwner(role: Role) {
+  if (!can(role, "team"))
+    throw new AppError(
+      "FORBIDDEN",
+      "Only the owner can see and restore cancelled entries.",
+      403,
+    );
+}
+
 function existing(snap: Snapshot, ctx: Ctx, id: string, version: number) {
   const v = snap.books.vouchers.find((x) => x.id === id);
   if (!v) throw notFound("entry");

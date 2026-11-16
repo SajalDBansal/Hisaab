@@ -50,6 +50,8 @@ export {
 export {
   cancelBlocker,
   cancelVoucher,
+  restoreBlocker,
+  restoreVoucher,
   editBlocker,
   dateChangeBlocker,
   updateInvoice,

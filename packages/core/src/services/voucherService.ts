@@ -38,6 +38,8 @@ import {
   convertBlocker,
   editBlocker,
   peekNumber,
+  restoreBlocker,
+  restoreVoucher,
   returnableLines,
   updateInvoice,
   type Series,
@@ -73,6 +75,21 @@ import {
   type VoucherPageQuery,
   type VoucherPageSummary,
 } from "../listPages";
+
+/** One cancelled entry the owner may restore (doc 37, T47); same shape as the API's. */
+export interface CancelledEntry {
+  id: string;
+  type: VoucherType;
+  number: string;
+  date: string;
+  partyName?: string;
+  amount: number;
+  reason?: string;
+  cancelledAt?: string;
+  version: number;
+  /** Why it can't be restored now; absent when it can. */
+  restoreBlocker?: string;
+}
 
 export interface VoucherFilters {
   type?: VoucherType;
@@ -361,6 +378,45 @@ export const voucherService = {
   async cancel(id: string, reason: string): Promise<Voucher> {
     await delay();
     return clone(cancelVoucher(getDb(), id, reason, new Date().toISOString()));
+  },
+
+  /**
+   * Owner: cancelled entries, newest cancellation first, each with why it can't be
+   * restored now (doc 37, T47). Real API: GET /vouchers/cancelled
+   */
+  async cancelled(
+    limit = 200,
+  ): Promise<{ items: CancelledEntry[]; nextCursor: string | null }> {
+    await delay();
+    const db = getDb();
+    const rows = db.vouchers
+      .filter((v) => v.status === "cancelled")
+      .sort((a, b) => (b.cancelledAt ?? "").localeCompare(a.cancelledAt ?? ""));
+    return clone({
+      items: rows.slice(0, limit).map((v) => ({
+        id: v.id,
+        type: v.type,
+        number: v.number,
+        date: v.date,
+        partyName: (
+          v.snapshot?.party ?? db.parties.find((p) => p.id === v.partyId)
+        )?.name,
+        amount: v.amount,
+        reason: v.cancelReason,
+        cancelledAt: v.cancelledAt,
+        version: 1,
+        restoreBlocker: restoreBlocker(db, v) ?? undefined,
+      })),
+      nextCursor: null,
+    });
+  },
+
+  /** Owner: put a cancelled entry back. Real API: POST /vouchers/:id/restore */
+  // The API checks `version` (If-Match); the in-app demo has no concurrent edits.
+  async restore(id: string, _version?: number): Promise<Voucher> {
+    void _version;
+    await delay();
+    return clone(restoreVoucher(getDb(), id));
   },
 
   /** Edit a saved sale or purchase. Real API: http.put<Voucher>(`/vouchers/${id}`, input) */

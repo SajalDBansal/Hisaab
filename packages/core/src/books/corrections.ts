@@ -9,6 +9,7 @@ import { purchaseReturnLines } from "../accounting/purchaseReturnCost";
 import { returnAllocations } from "../accounting/returnAllocations";
 import { returnAmountBasis, returnAmounts } from "../accounting/returnAmounts";
 import { returnStockCost } from "../accounting/returnStockCost";
+import { settledAmounts } from "../accounting/bills";
 import { billAllocations } from "../accounting/settlements";
 import { baseQty } from "../accounting/stock";
 import {
@@ -171,6 +172,113 @@ export function cancelVoucher(
   if (source) {
     source.convertedToId = undefined;
     logAudit(db, "reopened", source, [], `${v.number} was cancelled`);
+  }
+  return v;
+}
+
+/**
+ * Why a cancelled voucher can't be restored, or null if it can (doc 37, T47).
+ * Restoring puts it back exactly as it was, so everything it depends on must
+ * still allow that: its stock, the bills it settles, the bill it returns against
+ * and the order it was made from. The period lock is checked when saving.
+ */
+export function restoreBlocker(db: Db, v: Voucher): string | null {
+  if (v.status !== "cancelled")
+    return "Only cancelled entries can be restored.";
+  if (v.inventoryAdjustment || v.settlementLocked)
+    return "This entry is restored through its own correction screen.";
+  const restored: Voucher = { ...v, status: "posted" };
+  const vouchers = db.vouchers.map((x) => (x.id === v.id ? restored : x));
+  const books = { ...db, vouchers };
+
+  const history = inventoryHistoryBlocker(books, restored);
+  if (history) return history;
+
+  const lots = (v.lines ?? []).flatMap((l) =>
+    l.stockLotId ? [l.stockLotId] : [],
+  );
+  if (v.type === "purchase")
+    (v.lines ?? []).forEach((_, i) => lots.push(purchaseLotId(v, i)));
+  try {
+    assertLotsAvailable(db.items, vouchers, lots);
+  } catch {
+    return "Its stock has been used by other entries since it was cancelled.";
+  }
+
+  if (v.type === "purchase") {
+    try {
+      checkSupplierInvoice(
+        vouchers,
+        {
+          partyId: v.partyId ?? "",
+          supplierInvoiceNo: v.supplierInvoiceNo,
+          date: v.date,
+        },
+        v.id,
+      );
+    } catch (error) {
+      return (error as Error).message;
+    }
+  }
+
+  if (v.againstId) {
+    const bill = db.vouchers.find((x) => x.id === v.againstId);
+    if (!bill || bill.status !== "posted")
+      return "The bill it returns against is no longer posted.";
+    if (returnableLines(books, bill.id).some((row) => row.returnable < 0))
+      return `${bill.number} has been returned again since; restoring would return more than was billed.`;
+  }
+
+  const settled = settledAmounts(vouchers);
+  for (const a of billAllocations(v)) {
+    const bill = db.vouchers.find((x) => x.id === a.voucherId);
+    if (!bill)
+      return "It settles opening balances. Record a new entry instead.";
+    if (bill.status !== "posted")
+      return `${bill.number} has been cancelled since.`;
+    if ((settled.get(bill.id) ?? 0) > bill.amount)
+      return `${bill.number} has been settled by other entries since.`;
+  }
+
+  // Partial order conversions are checked against the order's remaining
+  // quantities when saving; a whole conversion needs its order still open.
+  if (v.sourceId && !v.fulfillmentManaged) {
+    const source = db.vouchers.find((x) => x.id === v.sourceId);
+    if (source?.convertedToId && source.convertedToId !== v.id) {
+      const other = db.vouchers.find((x) => x.id === source.convertedToId);
+      return `${source.number} has been turned into ${other?.number ?? "another entry"} since.`;
+    }
+    if (source && source.status !== "posted")
+      return `${source.number} has been cancelled since.`;
+  }
+  return null;
+}
+
+/** Put a cancelled voucher back as it was; it keeps its number. */
+export function restoreVoucher(db: Db, id: ID): Voucher {
+  const v = db.vouchers.find((x) => x.id === id);
+  if (!v) throw new Error("Voucher not found");
+  const blocker = restoreBlocker(db, v);
+  if (blocker) throw new Error(blocker);
+  const reason = v.cancelReason;
+  v.status = "posted";
+  v.cancelReason = undefined;
+  v.cancelledAt = undefined;
+  logAudit(
+    db,
+    "restored",
+    v,
+    [],
+    reason ? `Cancelled for: ${reason}` : undefined,
+  );
+  // The estimate / order it was wholly made from is converted again
+  const source =
+    v.sourceId && !v.fulfillmentManaged
+      ? db.vouchers.find((x) => x.id === v.sourceId)
+      : undefined;
+  if (source && !source.convertedToId) {
+    source.convertedToId = v.id;
+    logAudit(db, "converted", source, [], `Turned into ${v.number} (restored)`);
   }
   return v;
 }
