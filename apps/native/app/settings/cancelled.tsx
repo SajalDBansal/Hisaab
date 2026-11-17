@@ -81,7 +81,6 @@ function Row({ entry, last }: { entry: CancelledEntry; last: boolean }) {
     <ListRow
       title={label}
       last={last}
-      onPress={() => router.push(`/voucher/${entry.id}`)}
       subtitle={
         <View style={{ gap: 2 }}>
           <Txt variant="caption" tone="body" num>
@@ -101,14 +100,22 @@ function Row({ entry, last }: { entry: CancelledEntry; last: boolean }) {
           )}
         </View>
       }
+      // The row itself isn't pressable: a button can't sit inside another on web.
       right={
-        <Button
-          label="Restore"
-          size="sm"
-          onPress={run}
-          loading={restore.isPending}
-          disabled={!!entry.restoreBlocker}
-        />
+        <View style={{ gap: 6 }}>
+          <Button
+            label="Restore"
+            size="sm"
+            onPress={run}
+            loading={restore.isPending}
+            disabled={!!entry.restoreBlocker}
+          />
+          <Button
+            label="View"
+            size="sm"
+            onPress={() => router.push(`/voucher/${entry.id}`)}
+          />
+        </View>
       }
     />
   );
