@@ -187,3 +187,44 @@ describe("custom fields (doc 37, T07)", () => {
     expect(sale.snapshot?.party?.customFields).toEqual({ [AREA.key]: "South" });
   });
 });
+
+describe("printing custom fields", () => {
+  test("fields marked print appear in the header, under the party and under items", async () => {
+    const { voucherHtml } = await import("../src/print/voucherHtml");
+    const db = books();
+    const brand = def({
+      key: "cf_brand00000",
+      entity: "item",
+      name: "Brand",
+      print: true,
+    });
+    const hidden = def({ key: "cf_hidden0000", name: "Internal note" });
+    db.customFieldDefs = [
+      { ...VEHICLE, required: false, print: true },
+      { ...AREA, print: true },
+      brand,
+      hidden,
+    ];
+    db.items[0].customFields = { [brand.key]: "Acme" };
+    db.parties[0].customFields = { [AREA.key]: "South" };
+    const sale = createSale(db, {
+      date: "2026-10-10",
+      partyId: "customer",
+      lines: [line],
+      customFields: { [VEHICLE.key]: "UP85 AB 1234", [hidden.key]: "secret" },
+    });
+    const html = voucherHtml({
+      firm: db.firm,
+      voucher: sale,
+      party: db.parties[0],
+      items: db.items,
+      settings: db.invoiceSettings,
+      customFields: db.customFieldDefs,
+    }).html;
+    expect(html).toContain("Vehicle no.");
+    expect(html).toContain("UP85 AB 1234");
+    expect(html).toContain("Area: South");
+    expect(html).toContain("Brand: Acme");
+    expect(html).not.toContain("secret");
+  });
+});

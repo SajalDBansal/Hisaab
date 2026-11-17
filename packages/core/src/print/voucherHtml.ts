@@ -25,6 +25,12 @@ import {
 import { formatDate } from "../dates";
 import { amountInWords, formatINR, thousandths } from "../money";
 import { stateName } from "../states";
+import {
+  formatCustomValue,
+  type CustomFieldDef,
+  type CustomFieldEntity,
+  type CustomFieldValues,
+} from "../customFields";
 import type {
   InvoiceLine,
   Firm,
@@ -50,6 +56,22 @@ export interface PrintInput {
   against?: { number: string; date: string };
   /** Receipts/payments: the bills the money was applied to. */
   allocatedTo?: { number: string; amount: number }[];
+  /** The firm's custom field definitions; those marked "print" are printed (doc 37, T07). */
+  customFields?: CustomFieldDef[];
+}
+
+/** [label, value] pairs of a record's custom fields marked for printing. */
+function printedFields(
+  defs: CustomFieldDef[] | undefined,
+  entity: CustomFieldEntity,
+  values: CustomFieldValues | undefined,
+): [string, string][] {
+  return (defs ?? [])
+    .filter(
+      (d) => d.entity === entity && d.print && values?.[d.key] !== undefined,
+    )
+    .sort((a, b) => a.position - b.position)
+    .map((d) => [d.name, formatCustomValue(values?.[d.key])]);
 }
 
 /**
@@ -188,6 +210,8 @@ function partyBlock(
   label: string,
   /** Firms without GST don't print the party's GST status. */
   showGstin = true,
+  /** The party's custom fields marked for printing. */
+  extra: [string, string][] = [],
 ) {
   if (!party) return "";
   const gst = showGstin
@@ -199,7 +223,7 @@ function partyBlock(
 <div class="small muted">${esc(label)}</div>
 <div style="font-weight:600;font-size:13px">${esc(party.name)}</div>
 <div class="small">${esc([party.city, `${stateName(party.stateCode)} (${party.stateCode})`].filter(Boolean).join(", "))}</div>
-<div class="small">${[gst, party.phone ? `Ph ${esc(party.phone)}` : ""].filter(Boolean).join(" · ")}</div>`;
+<div class="small">${[gst, party.phone ? `Ph ${esc(party.phone)}` : ""].filter(Boolean).join(" · ")}</div>${extra.map(([k, value]) => `<div class="small">${esc(k)}: ${esc(value)}</div>`).join("")}`;
 }
 
 function metaRows(rows: [string, string | undefined][]) {
@@ -308,7 +332,19 @@ function billHtml(input: PrintInput, title: string): string {
         ? `${stateName(party.stateCode)} (${party.stateCode})`
         : undefined,
     ],
+    ...printedFields(input.customFields, "voucher", v.customFields),
   ]);
+  const partyExtra = printedFields(
+    input.customFields,
+    "party",
+    party?.customFields,
+  );
+  const itemExtra = (it: Item | undefined) => {
+    const pairs = printedFields(input.customFields, "item", it?.customFields);
+    return pairs.length
+      ? `<div class="small muted">${pairs.map(([k, value]) => `${esc(k)}: ${esc(value)}`).join(" · ")}</div>`
+      : "";
+  };
 
   // Item rows (one row per item and price, even when the stock came from several lots)
   const rows = printRows(v.lines ?? [], interState)
@@ -320,10 +356,10 @@ function billHtml(input: PrintInput, title: string): string {
       const gst =
         type === "taxable" ? `${line.gstRate}%` : esc(taxTypeLabel(type));
       if (compact)
-        return `<tr><td>${esc(it?.name)}<div class="small muted">${qty} × ${inr(line.rate)}${lt.discount ? ` − ${inr(lt.discount)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
+        return `<tr><td>${esc(it?.name)}${itemExtra(it)}<div class="small muted">${qty} × ${inr(line.rate)}${lt.discount ? ` − ${inr(lt.discount)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
       return `<tr>
 <td class="num">${i + 1}</td>
-<td>${esc(it?.name)}</td>
+<td>${esc(it?.name)}${itemExtra(it)}</td>
 ${showHsn ? `<td>${esc(it?.hsn || "—")}</td>` : ""}
 <td class="num">${qty}</td>
 <td class="num">${inr(line.rate)}</td>
@@ -402,7 +438,7 @@ ${rates
     return `<div class="sheet">
 <div class="sec">${firmBlock(firm, true)}</div>
 <div class="sec"><div class="title">${esc(title)}</div>${meta}</div>
-<div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn)}</div>
+<div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div>
 <div class="sec">${itemsTable}</div>
 <div class="sec">${totalsTable}${supplyNote}</div>
 ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${terms ? `<br/>${terms}` : ""}</div>` : ""}
@@ -414,7 +450,7 @@ ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${t
     return `<div class="sheet">
 <div class="row sec"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right">${copyTag}</div></div>
 <div class="band row"><span class="title">${esc(title)}</span><span>${esc(v.number)}</span></div>
-<div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn)}</div><div class="col card box">${meta}</div></div>
+<div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col card box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="row sec"><div class="col">${taxBreakup}${supplyNote}</div><div class="col">${totalsTable}</div></div>
 <div class="row sec"><div class="col">${bankBlock}</div><div class="col">${terms}</div></div>
@@ -426,7 +462,7 @@ ${sign}
   // classic
   return `<div class="sheet">
 <div class="sec box row"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
-<div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn)}</div><div class="col box">${meta}</div></div>
+<div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="sec row split"><div class="col box">${taxBreakup}${supplyNote}</div><div class="col box">${totalsTable}</div></div>
 ${bankBlock || terms ? `<div class="sec row split"><div class="col box">${bankBlock}</div><div class="col box">${terms}</div></div>` : ""}

@@ -37,6 +37,7 @@ export const printService = {
       firm: db.firm,
       voucher,
       party,
+      customFields: db.customFieldDefs,
       items: db.items.filter((i) => itemIds.has(i.id)),
       settings,
       bankName: db.ledgers.find((l) => l.id === settings.bankLedgerId)?.name,
