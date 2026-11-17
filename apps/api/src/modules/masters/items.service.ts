@@ -4,9 +4,12 @@ import {
   checkItem,
   cleanItem,
   gstModeOf,
+  storedCustomValues,
+  type CustomFieldValues,
   type Item,
   type Role,
 } from "@repo/core";
+import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
 import { eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -83,6 +86,7 @@ export const toItemRow = (r: ItemRecord): ItemRow => {
     ...(r.batchNumber && r.batchExpiry
       ? { batch: { number: r.batchNumber, expiry: r.batchExpiry } }
       : {}),
+    ...(r.customFields ? { customFields: r.customFields } : {}),
     version: r.version,
     stock,
     lowStock: stock < r.reorderLevel,
@@ -108,6 +112,10 @@ const columnsOf = (i: ItemInput) => ({
   batchNumber: i.batch?.number ?? null,
   batchExpiry: i.batch?.expiry ?? null,
 });
+
+/** undefined leaves stored values alone on update; null clears them. */
+const customColumn = (value: CustomFieldValues | null | undefined) =>
+  value === undefined ? {} : { customFields: value };
 
 const asCoreItem = (r: ItemRecord): Item => ({
   ...toItemRow(r),
@@ -151,9 +159,24 @@ async function validated(
   )
     problems.altUnit = `${item.altUnit.name} isn't a switched-on unit. Add it in Settings → Units.`;
 
+  // Custom values: checked against the firm's item fields (doc 37, T07).
+  // Not sent (older app) = keep what is stored.
+  let customFields: CustomFieldValues | null | undefined;
+  if (item.customFields !== undefined)
+    try {
+      customFields =
+        storedCustomValues(
+          await loadCustomFieldDefs(db, firmId),
+          "item",
+          item.customFields,
+        ) ?? null;
+    } catch (e) {
+      problems.customFields = (e as Error).message;
+    }
+
   const error = invalidFields(problems);
   if (error) throw error;
-  return item;
+  return { ...item, storedCustomFields: customFields };
 }
 
 const duplicate = () =>
@@ -177,6 +200,7 @@ export const itemsService = {
           id,
           firmId,
           ...columnsOf(item),
+          ...customColumn(item.storedCustomFields),
           openingCost: item.openingCost ?? item.purchasePrice,
           openingBookScope:
             item.openingBookScope ??
@@ -218,7 +242,9 @@ export const itemsService = {
       );
       if (
         item.openingStock !== current.openingStock ||
-        (item.openingLots !== undefined && JSON.stringify(item.openingLots) !== JSON.stringify(current.openingLots ?? [])) ||
+        (item.openingLots !== undefined &&
+          JSON.stringify(item.openingLots) !==
+            JSON.stringify(current.openingLots ?? [])) ||
         (item.openingCost !== undefined &&
           item.openingCost !== current.openingCost) ||
         (item.openingBookScope !== undefined &&
@@ -246,6 +272,7 @@ export const itemsService = {
       try {
         saved = await itemsRepo.update(db, firmId, id, version, {
           ...columnsOf(item),
+          ...customColumn(item.storedCustomFields),
           openingCost:
             item.openingCost ?? current.openingCost ?? current.purchasePrice,
           openingBookScope: item.openingBookScope ?? current.openingBookScope,

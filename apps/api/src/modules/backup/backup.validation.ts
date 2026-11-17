@@ -187,7 +187,7 @@ function upgradeVersionThree(input: unknown): unknown {
 }
 
 // Version 4 files predate numbering rules (every type used the default format)
-// and the edit log's IP address and device (unknown for those changes).
+// the edit log's IP address and device (unknown for those changes) and custom fields.
 function upgradeVersionFour(input: unknown): unknown {
   const result = LegacyFirmExportFileV4.safeParse(input);
   if (!result.success) return input;
@@ -210,6 +210,10 @@ function upgradeVersionFour(input: unknown): unknown {
         ipAddress: null,
         device: null,
       })),
+      parties: data.parties.map((row) => ({ ...row, customFields: null })),
+      items: data.items.map((row) => ({ ...row, customFields: null })),
+      vouchers: data.vouchers.map((row) => ({ ...row, customFields: null })),
+      customFields: [],
     },
   };
   return {

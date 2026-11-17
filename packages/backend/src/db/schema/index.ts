@@ -15,3 +15,4 @@ export * from "./importOpening";
 export * from "./recoveryOperations";
 export * from "../../modules/imports/imports.schema";
 export * from "./backupState";
+export * from "./customFields";

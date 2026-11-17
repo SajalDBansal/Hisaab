@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CustomFieldValues } from "./customFields";
 import {
   GstRate,
   Id,
@@ -73,6 +74,7 @@ export const ItemInput = z
     openingBookScope: BookScope.optional(),
     openingLots: OpeningStockLots.optional(),
     batch: z.object({ number: z.string().max(40), expiry: IsoDate }).optional(),
+    customFields: CustomFieldValues.optional(),
   })
   .superRefine((item, ctx) => {
     if (

@@ -21,8 +21,15 @@ import { ExtendedBackupData, ExtendedBackupRows } from "./backupExtensions";
 import { OpeningStockLots } from "./items";
 import { InventoryAdjustment } from "./inventory";
 import { DeliverySnapshot, CommissionSnapshot } from "./associates";
+import {
+  CustomFieldDefinition,
+  CustomFieldEntity,
+  CustomFieldKey,
+  CustomFieldValues,
+} from "./customFields";
 
-// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and device.
+// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and
+// device; custom field definitions and values.
 export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
@@ -95,6 +102,7 @@ export const BackupRows = {
     openingGstBalance: Paise.nullable(),
     openingDate: IsoDate,
     deletedAt: IsoDateTime.nullable(),
+    customFields: CustomFieldValues.nullable(),
   }),
   items: z.strictObject({
     ...row,
@@ -119,6 +127,7 @@ export const BackupRows = {
     batchNumber: Text.nullable(),
     batchExpiry: IsoDate.nullable(),
     deletedAt: IsoDateTime.nullable(),
+    customFields: CustomFieldValues.nullable(),
   }),
   units: z.strictObject({
     ...firm,
@@ -200,6 +209,7 @@ export const BackupRows = {
     inventoryAdjustment: InventoryAdjustment.nullable(),
     delivery: DeliverySnapshot.strict().nullable(),
     commission: CommissionSnapshot.strict().nullable(),
+    customFields: CustomFieldValues.nullable(),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -298,6 +308,14 @@ export const BackupRows = {
     note: Text.nullable(),
     ipAddress: Text.nullable(),
     device: Text.nullable(),
+  }),
+  customFields: z.strictObject({
+    ...row,
+    ...stamps,
+    key: CustomFieldKey,
+    entity: CustomFieldEntity,
+    definition: CustomFieldDefinition,
+    position: Count,
   }),
   bookControls: z.strictObject({
     ...firm,
@@ -403,6 +421,7 @@ export const FirmExportData = z.strictObject({
   loanRepaymentReferences: rows(BackupRows.loanRepaymentReferences),
   loanEvents: rows(BackupRows.loanEvents),
   masterImportBatches: rows(BackupRows.masterImportBatches),
+  customFields: rows(BackupRows.customFields),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 
@@ -448,7 +467,10 @@ const invoiceSettingsV4 = BackupRows.invoiceSettings.omit({ numbering: true });
 const LegacyDataV4 = FirmExportData.extend({
   invoiceSettings: invoiceSettingsV4,
   auditLog: rows(BackupRows.auditLog.omit({ ipAddress: true, device: true })),
-});
+  parties: rows(BackupRows.parties.omit({ customFields: true })),
+  items: rows(BackupRows.items.omit({ customFields: true })),
+  vouchers: rows(BackupRows.vouchers.omit({ customFields: true })),
+}).omit({ customFields: true });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({
     version: z.literal(4),

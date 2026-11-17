@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { OpeningStockLot } from "@repo/core";
+import type { CustomFieldValues } from "@repo/core";
 import {
   boolean,
   bigint,
@@ -52,6 +53,8 @@ export const parties = pgTable(
     openingGstBalance: bigint("opening_gst_balance", { mode: "number" }),
     openingDate: date("opening_date", { mode: "string" }).notNull(),
     deletedAt: moment("deleted_at"),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
     ...stamps,
   },
   (t) => [
@@ -101,6 +104,8 @@ export const items = pgTable(
     batchNumber: text("batch_number"),
     batchExpiry: date("batch_expiry", { mode: "string" }),
     deletedAt: moment("deleted_at"),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
     ...stamps,
   },
   (t) => [

@@ -15,6 +15,7 @@ export * from "./validation";
 export * from "./permissions";
 export * from "./states";
 export * from "./units";
+export * from "./customFields";
 
 // Data services — the only way apps should read or write data.
 export { API_BASE_URL, resetDb, setReplicaBooks } from "./services/client";

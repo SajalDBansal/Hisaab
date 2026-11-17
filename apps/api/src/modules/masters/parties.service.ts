@@ -1,5 +1,13 @@
 import type { PartyInput, PartyRow } from "@repo/contracts";
-import { checkParty, cleanParty, today, type Role } from "@repo/core";
+import {
+  checkParty,
+  cleanParty,
+  storedCustomValues,
+  today,
+  type CustomFieldValues,
+  type Role,
+} from "@repo/core";
+import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
 import { v7 as uuidv7 } from "uuid";
 import type { Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
@@ -27,6 +35,7 @@ export const toPartyRow = (r: PartyRecord): PartyRow => ({
   openingGstBalance: r.openingGstBalance ?? undefined,
   openingDate: r.openingDate,
   openingBills: r.openingBills,
+  ...(r.customFields ? { customFields: r.customFields } : {}),
   version: r.version,
   balance: Number(r.balance),
 });
@@ -40,21 +49,38 @@ async function validated(
 ) {
   const party = cleanParty(input);
   const others = await partiesRepo.clashes(db, firmId, party, exceptId);
-  const problems = checkParty(
+  const problems: Record<string, string | undefined> = checkParty(
     party,
     others.map((o) => ({
       ...o,
       gstin: o.gstin ?? undefined,
       openingGstBalance: o.openingGstBalance ?? undefined,
+      customFields: o.customFields ?? undefined,
     })),
     exceptId,
   );
+  // Custom values: checked against the firm's party fields (doc 37, T07).
+  // Not sent (older app) = keep what is stored.
+  let storedCustomFields: CustomFieldValues | null | undefined;
+  if (party.customFields !== undefined)
+    try {
+      storedCustomFields =
+        storedCustomValues(
+          await loadCustomFieldDefs(db, firmId),
+          "party",
+          party.customFields,
+        ) ?? null;
+    } catch (e) {
+      problems.customFields = (e as Error).message;
+    }
   const error = invalidFields(problems);
   if (error) throw error;
-  return party;
+  return { ...party, storedCustomFields };
 }
 
-const columnsOf = (p: PartyInput) => ({
+const columnsOf = (
+  p: PartyInput & { storedCustomFields?: CustomFieldValues | null },
+) => ({
   name: p.name,
   type: p.type,
   phone: p.phone,
@@ -64,6 +90,10 @@ const columnsOf = (p: PartyInput) => ({
   creditDays: p.creditDays,
   creditLimit: p.creditLimit,
   openingBalance: p.openingBalance,
+  // undefined leaves stored values alone on update; null clears them.
+  ...(p.storedCustomFields === undefined
+    ? {}
+    : { customFields: p.storedCustomFields }),
 });
 
 const duplicate = () =>

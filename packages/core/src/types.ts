@@ -1,3 +1,4 @@
+import type { CustomFieldValues } from "./customFields";
 /**
  * Shared data types for Hisaab.
  *
@@ -81,6 +82,8 @@ export type PartyType = "customer" | "supplier";
 
 export interface Party {
   version?: number;
+  /** Custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   id: ID;
   name: string;
   type: PartyType;
@@ -145,6 +148,8 @@ export interface AltUnit {
 
 export interface Item {
   version?: number;
+  /** Custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   id: ID;
   name: string;
   code: string;
@@ -316,6 +321,8 @@ export interface Allocation {
 }
 
 export interface Voucher {
+  /** Header custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   inventoryAdjustment?: InventoryAdjustment;
   delivery?: DeliverySnapshot;
   commission?: CommissionSnapshot;
@@ -435,6 +442,7 @@ export interface TdsDeduction {
 
 /** A new sale or purchase invoice. */
 export interface NewInvoiceInput {
+  customFields?: CustomFieldValues;
   creditOverrideId?: ID;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;
@@ -630,6 +638,7 @@ export interface NewContraInput {
 
 /** Estimate, sales order, delivery note or purchase order. */
 export interface NewOrderInput {
+  customFields?: CustomFieldValues;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;
   partyId: ID;

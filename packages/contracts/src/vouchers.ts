@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InvoiceTotals } from "./invoiceTotals";
+import { CustomFieldValues } from "./customFields";
 import {
   GstRate,
   Id,
@@ -161,6 +162,7 @@ export const NewInvoiceInput = z.object({
     .optional(),
   narration: z.string().max(500).optional(),
   sourceId: Id.optional(),
+  customFields: CustomFieldValues.optional(),
 });
 
 export const NewMoneyInput = z.object({
@@ -241,6 +243,7 @@ export const NewOrderInput = z.object({
   validUntil: IsoDate.optional(),
   sourceId: Id.optional(),
   narration: z.string().max(500).optional(),
+  customFields: CustomFieldValues.optional(),
 });
 
 /** A return: which lines of the original bill, and how many, come back. */
@@ -308,6 +311,7 @@ export const VoucherSnapshot = z.object({
 });
 
 export const Voucher = z.object({
+  customFields: CustomFieldValues.optional(),
   delivery: DeliverySnapshot.optional(),
   commission: CommissionSnapshot.optional(),
   fulfillmentManaged: z.boolean().optional(),

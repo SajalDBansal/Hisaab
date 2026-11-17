@@ -1,4 +1,5 @@
 /** Estimates and orders. */
+import { storedCustomValues } from "../customFields";
 import { gstModeOf } from "../accounting/gstMode";
 import { calcInvoice } from "../accounting/invoice";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
@@ -52,8 +53,15 @@ export function createOrder(
     lines.splice(0, lines.length, ...selected);
   }
   const totals = calcInvoice({ lines, charges, interState });
+  const customFields = storedCustomValues(
+    db.customFieldDefs,
+    "voucher",
+    input.customFields,
+    type,
+  );
   const voucher: Voucher = {
     id: newId("v"),
+    customFields,
     type,
     number: takeNumber(db, type, input.date),
     date: input.date,

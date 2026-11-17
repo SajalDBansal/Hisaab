@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ImportedOpeningBill, MAX_IMPORT_ROWS } from "./imports";
+import { CustomFieldValues } from "./customFields";
 import {
   Gstin,
   Id,
@@ -29,6 +30,7 @@ export const PartyInput = z.object({
   creditLimit: NonNegativePaise.describe("0 means no limit"),
   // Positive = they owe us, negative = we owe them
   openingBalance: Paise,
+  customFields: CustomFieldValues.optional(),
 });
 
 export const Party = PartyInput.extend({

@@ -1,5 +1,6 @@
 /** Parties and items. */
 import { gstModeOf } from "../accounting/gstMode";
+import { storedCustomValues } from "../customFields";
 import type { ID, ISODate, Item, ItemInput, Party, PartyInput } from "../types";
 import { checkItem, checkParty } from "../validation";
 import type { Db } from "./base";
@@ -26,6 +27,11 @@ export function createParty(db: Db, input: PartyInput, date: ISODate): Party {
   const p = cleanParty(input);
   const problem = firstError(checkParty(p, db.parties));
   if (problem) throw new Error(problem);
+  p.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "party",
+    p.customFields,
+  );
   const party: Party = {
     id: newId(p.type === "customer" ? "c" : "s"),
     ...p,
@@ -41,6 +47,11 @@ export function updateParty(db: Db, id: ID, input: PartyInput): Party {
   const p = cleanParty(input);
   const problem = firstError(checkParty(p, db.parties, id));
   if (problem) throw new Error(problem);
+  p.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "party",
+    p.customFields,
+  );
   if (p.type !== party.type && db.vouchers.some((v) => v.partyId === id)) {
     throw new Error(
       `This party already has entries, so it can't be changed to a ${p.type}.`,
@@ -86,6 +97,11 @@ export function createItem(db: Db, input: ItemInput): Item {
   );
   if (problem) throw new Error(problem);
   checkItemUnits(db, i);
+  i.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "item",
+    i.customFields,
+  );
   const item: Item = {
     id: newId("i"),
     ...i,
@@ -107,6 +123,11 @@ export function updateItem(db: Db, id: ID, input: ItemInput): Item {
   const problem = firstError(checkItem(i, db.items, id, gstModeOf(db.firm)));
   if (problem) throw new Error(problem);
   checkItemUnits(db, i, item);
+  i.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "item",
+    i.customFields,
+  );
   const used = db.vouchers.some((v) => v.lines?.some((l) => l.itemId === id));
   if (
     used &&

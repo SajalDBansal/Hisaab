@@ -238,6 +238,7 @@ async function readReportBooks(
       openingGstBalance: row.deletedAt ? 0 : undef(row.openingGstBalance),
       openingDate: row.openingDate,
       openingBills: partyOpeningBills.get(row.id),
+      customFields: undef(row.customFields),
     })),
     items: itemRows.map((row) => ({
       id: row.id,
@@ -264,6 +265,7 @@ async function readReportBooks(
         row.batchNumber && row.batchExpiry
           ? { number: row.batchNumber, expiry: row.batchExpiry }
           : undefined,
+      customFields: undef(row.customFields),
     })),
     ledgers: ledgerRows.map((row) => ({
       id: row.id,

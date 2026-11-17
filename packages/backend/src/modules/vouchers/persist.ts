@@ -60,6 +60,7 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     snapshot: v.snapshot ?? null,
     delivery: v.delivery ?? null,
     commission: v.commission ?? null,
+    customFields: v.customFields ?? null,
     inventoryAdjustment: v.inventoryAdjustment
       ? {
           ...v.inventoryAdjustment,

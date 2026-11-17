@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { CustomFieldValues } from "@repo/core";
 import type {
   CommissionSnapshot,
   DeliverySnapshot,
@@ -110,6 +111,8 @@ export const vouchers = pgTable(
     ).$type<InventoryAdjustment>(),
     delivery: jsonb("delivery").$type<DeliverySnapshot>(),
     commission: jsonb("commission").$type<CommissionSnapshot>(),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
 
     // Sale / purchase
     interState: boolean("inter_state"),

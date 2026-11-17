@@ -239,6 +239,13 @@
       "when": 1794821081056,
       "tag": "0033_audit_restored",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794831310130,
+      "tag": "0034_custom_fields",
+      "breakpoints": true
     }
   ]
 }

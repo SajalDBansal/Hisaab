@@ -1,6 +1,7 @@
 /** Book state, defaults, numbering, party lookup and the audit log shared by every entry. */
 import type { CustomAccount } from "../accounting/accounts";
 import type { OpeningAccount } from "../accounting/generalLedger";
+import type { CustomFieldDef } from "../customFields";
 import { financialYear } from "../dates";
 import type {
   AuditAction,
@@ -24,6 +25,8 @@ import type {
 
 export interface Db {
   accounts?: CustomAccount[];
+  /** The firm's custom field definitions (doc 37, T07); loaded where values are saved. */
+  customFieldDefs?: CustomFieldDef[];
   firm: Firm;
   parties: Party[];
   items: Item[];

@@ -1,4 +1,5 @@
 /** Corrections: cancelling, editing and moving bills, and returns (credit / debit notes). */
+import { storedCustomValues } from "../customFields";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
@@ -451,6 +452,16 @@ export function updateInvoice(
       v.type === "purchase" ? input.supplierInvoiceNo : undefined,
     amount,
     narration: input.narration,
+    // A form that doesn't send custom values leaves them as they were.
+    customFields:
+      input.customFields === undefined
+        ? v.customFields
+        : storedCustomValues(
+            db.customFieldDefs,
+            "voucher",
+            input.customFields,
+            v.type,
+          ),
     editedAt: at,
   });
   logAudit(db, "edited", v, voucherChanges(before, v, auditNames(db)));

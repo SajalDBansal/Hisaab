@@ -1,4 +1,5 @@
 /** Sale and purchase invoices, including split GST / non-GST sales and order conversion. */
+import { storedCustomValues } from "../customFields";
 import {
   applyGstMode,
   gstModeOf,
@@ -288,8 +289,15 @@ function createInvoice(
   // New bills only: existing purchases keep what they were saved with.
   if (type === "purchase" && totals.tax > 0 && !party.gstin?.trim())
     throw new Error(UNREGISTERED_SUPPLIER_GST_MESSAGE);
+  const customFields = storedCustomValues(
+    db.customFieldDefs,
+    "voucher",
+    input.customFields,
+    type,
+  );
   const invoice: Voucher = {
     id: newId("v"),
+    customFields,
     type,
     number: takeNumber(
       db,

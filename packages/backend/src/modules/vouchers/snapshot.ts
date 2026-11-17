@@ -5,6 +5,7 @@ import { listAccounts } from "../accounts/accountMasters";
 import { hydrateOrderFulfillment } from "../order-fulfillment/orderFulfillment.repo";
 import { hydrateSettlementVouchers } from "../settlements/settlements.shared";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
+import { loadCustomFieldDefs } from "../customFields/customFields.repo";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -151,6 +152,7 @@ export async function hydrateVouchers(
       inventoryAdjustment: undef(r.inventoryAdjustment),
       delivery: undef(r.delivery),
       commission: undef(r.commission),
+      customFields: undef(r.customFields),
       interState: undef(r.interState),
       dueDate: undef(r.dueDate),
       supplierInvoiceNo: undef(r.supplierInvoiceNo),
@@ -359,6 +361,7 @@ export async function loadBooks(
       openingGstBalance: undef(r.openingGstBalance),
       openingDate: r.openingDate,
       openingBills: partyOpeningBills.get(r.id),
+      customFields: undef(r.customFields),
     })),
     items: itemRows.map((r) => ({
       id: r.id,
@@ -385,6 +388,7 @@ export async function loadBooks(
         r.batchNumber && r.batchExpiry
           ? { number: r.batchNumber, expiry: r.batchExpiry }
           : undefined,
+      customFields: undef(r.customFields),
     })),
     ledgers: ledgerRows.map((r) => ({
       id: r.id,
@@ -397,6 +401,7 @@ export async function loadBooks(
     vouchers: loaded,
     openingAccounts: [],
     counters: { ...counters },
+    customFieldDefs: await loadCustomFieldDefs(db, firmId),
     invoiceSettings: {
       template: settings.template,
       terms: settings.terms,

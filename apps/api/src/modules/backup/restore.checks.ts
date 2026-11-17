@@ -1039,6 +1039,7 @@ function restoreItem(item: FirmExportData["items"][number]): Item {
     openingLots: item.deletedAt ? undefined : (item.openingLots ?? undefined),
     openingCost: item.openingCost ?? undefined,
     openingBookScope: item.openingBookScope ?? undefined,
+    customFields: item.customFields ?? undefined,
   };
 }
 
