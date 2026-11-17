@@ -23,7 +23,12 @@ import {
   Txt,
   showError,
 } from "@/components";
-import { usePresence, useTeam, useUpdateMember } from "@/data/queries";
+import {
+  usePresence,
+  useRoles,
+  useTeam,
+  useUpdateMember,
+} from "@/data/queries";
 import { timeAgo } from "@/data/format";
 import { confirmAction } from "@/data/confirm";
 import { colors, radius, space } from "@/theme";
@@ -37,6 +42,7 @@ export default function TeamScreen() {
   const canManage = !!me && can(me.role, "team");
   const isOwner = me?.role === "owner";
   const presence = usePresence(canManage);
+  const customRoles = useRoles().data?.custom ?? [];
   const status = (m: TeamMember) => {
     if (!m.active) return "Invite sent";
     const seen = presence.data?.members.find((p) => p.memberId === m.id);
@@ -146,6 +152,14 @@ export default function TeamScreen() {
         </Txt>
       ) : null}
 
+      {canManage ? (
+        <Button
+          label="Roles"
+          icon="shield"
+          onPress={() => router.push("/settings/roles")}
+        />
+      ) : null}
+
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Role permissions</Txt>
         <ScrollView horizontal contentContainerStyle={{ flexGrow: 1 }}>
@@ -204,6 +218,16 @@ export default function TeamScreen() {
             subtitle: r.note,
             right:
               editing?.role === r.role ? (
+                <Icon name="check" size={18} />
+              ) : undefined,
+          })),
+          // Custom roles (doc 37, T57)
+          ...customRoles.map((r) => ({
+            id: r.id,
+            title: r.name,
+            subtitle: r.description || "Custom role",
+            right:
+              editing?.role === r.id ? (
                 <Icon name="check" size={18} />
               ) : undefined,
           })),

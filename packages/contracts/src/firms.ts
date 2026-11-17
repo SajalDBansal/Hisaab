@@ -152,10 +152,37 @@ export const FirmDetail = Firm.extend({
   permissions: z.array(Permission),
 });
 
+/**
+ * The caller's custom role in a firm (doc 37, T57), so the app knows its rights
+ * offline and before any screen checks them. Voucher types are plain keys here
+ * (vouchers.ts imports this file); the server builds this from validated roles.
+ */
+export const MyCustomRole = z.object({
+  id: CustomRoleId,
+  name: z.string(),
+  description: z.string(),
+  version: z.number().int(),
+  rights: z.object({
+    permissions: z.array(Permission),
+    vouchers: z.record(
+      z.string(),
+      z.array(z.enum(["view", "create", "edit", "cancel"])),
+    ),
+    flags: z.object({
+      hidePurchaseRate: z.boolean(),
+      viewProfitMargin: z.boolean(),
+      ownRecordsOnly: z.boolean(),
+      viewAudit: z.boolean(),
+      restoreCancelled: z.boolean(),
+    }),
+  }),
+});
+
 export const FirmListRow = Firm.extend({
   role: Role,
   parties: z.number().int(),
   vouchers: z.number().int(),
+  customRole: MyCustomRole.optional(),
 });
 
 export const Member = z.object({

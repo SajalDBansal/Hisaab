@@ -22,7 +22,8 @@ import {
   type Role,
 } from "@repo/core";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { roleIdOf } from "@repo/backend/modules/roles/roles.repo";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -108,12 +109,39 @@ export async function firmRoutes(
         )
         .where(eq(schema.member.userId, req.user.id))
         .orderBy(asc(schema.organization.createdAt));
-      return rows.map((r) => ({
-        ...toFirm(r.name, r.profile),
-        parties: r.parties,
-        vouchers: r.vouchers,
-        role: toRole(r.role),
-      }));
+      // The caller's custom roles, so the app knows their rights (doc 37, T57).
+      const customIds = rows
+        .map((r) => r.role)
+        .filter((role) => isCustomRoleId(role))
+        .map((role) => role.slice(2));
+      const custom = customIds.length
+        ? await db
+            .select()
+            .from(schema.customRoles)
+            .where(inArray(schema.customRoles.id, customIds))
+        : [];
+      return rows.map((r) => {
+        const own = custom.find(
+          (c) => `r_${c.id}` === r.role && c.firmId === r.profile.firmId,
+        );
+        return {
+          ...toFirm(r.name, r.profile),
+          parties: r.parties,
+          vouchers: r.vouchers,
+          role: toRole(r.role),
+          ...(own
+            ? {
+                customRole: {
+                  id: roleIdOf(own),
+                  name: own.name,
+                  description: own.description,
+                  version: own.version,
+                  rights: own.rights,
+                },
+              }
+            : {}),
+        };
+      });
     },
   );
 

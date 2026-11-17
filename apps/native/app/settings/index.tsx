@@ -139,6 +139,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "reports",
       },
       {
+        title: "Roles",
+        note: "Who can see and change what",
+        icon: "shield",
+        href: "/settings/roles",
+        needs: "team",
+      },
+      {
         title: "Custom fields",
         note: "Your own fields on parties, items and bills",
         icon: "list",

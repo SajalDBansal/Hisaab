@@ -180,6 +180,17 @@ test(
         role: role.id,
       });
 
+      // The member's firm list carries their role's rights (the app needs them offline).
+      const myFirms = await ok<{ id: string; customRole?: { id: string } }[]>(
+        counter,
+        "GET",
+        "/v1/firms",
+      );
+      assert.equal(
+        myFirms.find((f) => f.id === firmId)?.customRole?.id,
+        role.id,
+      );
+
       // Setup by the owner: a supplier, an item with stock, a customer and an owner's sale.
       const party = (type: "customer" | "supplier") =>
         ok<{ id: string }>(owner, "POST", "/v1/parties", {

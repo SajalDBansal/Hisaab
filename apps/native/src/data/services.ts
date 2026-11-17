@@ -17,6 +17,8 @@ import type {
   BookControlView,
   OpeningAllocationView,
   OpeningAllocationChange,
+  RoleInput,
+  RolesView,
   YearEndView,
   YearEndClose,
 } from "@repo/contracts";
@@ -31,6 +33,24 @@ export const demoServices = {
     allocate: signInForBookControls,
     yearEnd: signInForBookControls,
     closeYear: signInForBookControls,
+  },
+  // Custom roles need the server (doc 37, T57); the demo lists the built-ins.
+  roleService: {
+    list: async (): Promise<RolesView> => ({
+      builtIn: demo.BUILT_IN_ROLES.map((role) => ({
+        role,
+        label: demo.roleInfo(role).label,
+        note: demo.roleInfo(role).note,
+        rights: demo.presetRights(role),
+      })),
+      custom: [],
+    }),
+    save: (async () => unavailable()) as (
+      input: RoleInput,
+      id?: string,
+      version?: number,
+    ) => Promise<RolesView>,
+    remove: (async () => unavailable()) as (id: string) => Promise<RolesView>,
   },
   firmService: demo.firmService,
   partyService: demo.partyService,

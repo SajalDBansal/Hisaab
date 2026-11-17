@@ -5,7 +5,7 @@
  * for signed-in users; only explicit demo mode uses the in-memory books.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import type { BookControlChange } from "@repo/contracts";
+import type { BookControlChange, RoleInput } from "@repo/contracts";
 import {
   useServiceQuery as useQuery,
   useServiceMutation as useMutation,
@@ -41,6 +41,8 @@ import {
   type PartyType,
   type VoucherFilters,
   type VoucherType,
+  registerRoles,
+  type RoleDefinition,
 } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
@@ -647,6 +649,49 @@ export function useCancelVoucher() {
       services,
       args: { id: string; reason: string; version?: number },
     ) => services.voucherService.cancel(args.id, args.reason, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Built-in and custom roles of the firm (doc 37, T57). */
+export function useRoles() {
+  return useQuery({
+    queryKey: ["roles"],
+    queryFn: async (services) => {
+      const view = await services.roleService.list();
+      // So member lists show each custom role's name.
+      registerRoles(
+        view.custom.map((role) => ({
+          id: role.id,
+          name: role.name,
+          description: role.description,
+          version: role.version,
+          ...(role.rights as Omit<
+            RoleDefinition,
+            "id" | "name" | "description" | "version"
+          >),
+        })),
+      );
+      return view;
+    },
+  });
+}
+
+export function useSaveRole() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { input: RoleInput; id?: string; version?: number },
+    ) => services.roleService.save(args.input, args.id, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+export function useDeleteRole() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (services, id: string) => services.roleService.remove(id),
     onSuccess: refreshAll,
   });
 }

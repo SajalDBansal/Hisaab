@@ -7,7 +7,22 @@ import { type Services } from "./services";
 
 export function readServices({ request, pages }: Client) {
   const team = () => request("/settings/team", c.TeamView);
+  const rolePath = (id: string) =>
+    `/firms/current/roles/${id.replace(/^r_/, "")}`;
   return {
+    roleService: {
+      list: () => request("/firms/current/roles", c.RolesView),
+      save: (input: c.RoleInput, id?: string, version?: number) =>
+        id
+          ? request(rolePath(id), c.RolesView, {
+              method: "PUT",
+              body: input,
+              headers: matchVersion(version),
+            })
+          : request("/firms/current/roles", c.RolesView, { body: input }),
+      remove: (id: string) =>
+        request(rolePath(id), c.RolesView, { method: "DELETE" }),
+    } satisfies Services["roleService"],
     bookControlService: {
       get: () => request("/settings/books", c.BookControlView),
       history: (cursor) =>

@@ -146,8 +146,16 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
   const { role } = useData();
   const customDefs = useCustomFields().data;
   const canWrite = canManageVoucher(role, v.type);
+  // Each button needs its own action on this type (doc 37, T57).
+  const canEdit = canManageVoucher(role, v.type, "edit");
+  const canCancel = canManageVoucher(role, v.type, "cancel");
+  const canReturn = canManageVoucher(
+    role,
+    v.type === "sale" ? "credit-note" : "debit-note",
+    "create",
+  );
   const conversions = d.canConvertTo.filter((type) =>
-    canManageVoucher(role, type),
+    canManageVoucher(role, type, "create"),
   );
   const badge = voucherBadge(v);
   const isInvoice = v.type === "sale" || v.type === "purchase";
@@ -250,7 +258,7 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
       ) : null}
       {canWrite && v.status === "posted" ? (
         <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
-          {isOrder && !v.convertedToId ? (
+          {isOrder && canEdit && !v.convertedToId ? (
             <Button
               label="Edit"
               size="sm"
@@ -264,35 +272,43 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           ) : null}
           {isInvoice ? (
             <>
-              <Button
-                label="Edit"
-                size="sm"
-                icon="edit-2"
-                onPress={() =>
-                  guard(d.editBlocker, () =>
-                    router.push(`/${v.type}/edit/${v.id}` as Href),
-                  )
-                }
-              />
-              <Button
-                label="Return"
-                size="sm"
-                icon={v.type === "sale" ? "corner-up-left" : "corner-up-right"}
-                onPress={() =>
-                  router.push(
-                    `/note/new?kind=${v.type === "sale" ? "credit" : "debit"}&against=${v.id}` as Href,
-                  )
-                }
-              />
+              {canEdit ? (
+                <Button
+                  label="Edit"
+                  size="sm"
+                  icon="edit-2"
+                  onPress={() =>
+                    guard(d.editBlocker, () =>
+                      router.push(`/${v.type}/edit/${v.id}` as Href),
+                    )
+                  }
+                />
+              ) : null}
+              {canReturn ? (
+                <Button
+                  label="Return"
+                  size="sm"
+                  icon={
+                    v.type === "sale" ? "corner-up-left" : "corner-up-right"
+                  }
+                  onPress={() =>
+                    router.push(
+                      `/note/new?kind=${v.type === "sale" ? "credit" : "debit"}&against=${v.id}` as Href,
+                    )
+                  }
+                />
+              ) : null}
             </>
           ) : null}
-          <Button
-            label="Cancel"
-            size="sm"
-            icon="x-circle"
-            variant="danger"
-            onPress={() => guard(d.cancelBlocker, () => setCancelling(true))}
-          />
+          {canCancel ? (
+            <Button
+              label="Cancel"
+              size="sm"
+              icon="x-circle"
+              variant="danger"
+              onPress={() => guard(d.cancelBlocker, () => setCancelling(true))}
+            />
+          ) : null}
         </View>
       ) : null}
       {blocked ? <Notice text={blocked} /> : null}

@@ -1,5 +1,12 @@
 import { FirmDetail, FirmListRow } from "@repo/contracts";
-import { can, setReplicaBooks, type ReplicaState, type Role } from "@repo/core";
+import {
+  can,
+  registerRoles,
+  setReplicaBooks,
+  type ReplicaState,
+  type Role,
+  type RoleDefinition,
+} from "@repo/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import {
@@ -43,10 +50,7 @@ import {
 } from "./accessScope";
 import { useLiveUpdates } from "./useLiveUpdates";
 import { useReplica } from "@/replica/useReplica";
-import {
-  phoneFirstServices,
-  type SaveGate,
-} from "@/replica/localServices";
+import { phoneFirstServices, type SaveGate } from "@/replica/localServices";
 import { OfflineWriteError } from "./offlineOperation";
 import { replicaStore } from "@/replica/replicaStore";
 
@@ -152,6 +156,19 @@ function UserData({
   const role: Role | null = REQUIRE_LOGIN
     ? (firms.data?.rows.find((row) => row.id === firmId)?.role ?? null)
     : "owner";
+  // Custom roles' rights come with the firm list (also offline) and are
+  // registered before any screen checks them (doc 37, T57).
+  for (const row of firms.data?.rows ?? [])
+    if (row.customRole)
+      registerRoles([
+        {
+          ...row.customRole,
+          ...(row.customRole.rights as Omit<
+            RoleDefinition,
+            "id" | "name" | "description" | "version"
+          >),
+        },
+      ]);
   const accessKey = REQUIRE_LOGIN ? membershipScope(firms.data?.rows) : "demo";
   const revision = sessionStore.revision;
   const identity = JSON.stringify([
