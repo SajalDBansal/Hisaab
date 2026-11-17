@@ -42,6 +42,7 @@ export const demoServices = {
   gstService: demo.gstService,
   settingsService: demo.settingsService,
   unitService: demo.unitService,
+  customFieldService: demo.customFieldService,
   printService: demo.printService,
   searchService: demo.searchService,
   notificationService: demo.notificationService,

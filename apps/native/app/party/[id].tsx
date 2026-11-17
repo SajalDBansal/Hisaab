@@ -31,9 +31,10 @@ import {
   Txt,
   showError,
   type IconName,
+  CustomFieldValuesView,
 } from "@/components";
 import { voucherBadge, voucherTypeLabel, stateName } from "@/data/labels";
-import { useParty, useAllocatePayments } from "@/data/queries";
+import { useAllocatePayments, useCustomFields, useParty } from "@/data/queries";
 import { confirmAction } from "@/data/confirm";
 import { callPhone, openWhatsApp, useSendReminder } from "@/data/share";
 import { colors, radius, space } from "@/theme";
@@ -139,6 +140,7 @@ function PartyBody({
 }) {
   const sendReminder = useSendReminder();
   const allocate = useAllocatePayments();
+  const customDefs = useCustomFields().data;
   const gst = useGstMode();
   const { role } = useData();
   const p = d.party;
@@ -204,6 +206,11 @@ function PartyBody({
             </Txt>
           </View>
         </View>
+        <CustomFieldValuesView
+          defs={customDefs}
+          entity="party"
+          values={p.customFields}
+        />
         {p.creditLimit > 0 ? (
           <View
             style={{

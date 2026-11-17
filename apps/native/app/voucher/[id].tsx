@@ -48,6 +48,7 @@ import {
   Screen,
   Txt,
   SectionHeader,
+  CustomFieldValuesView,
 } from "@/components";
 import {
   paymentModeLabel,
@@ -56,7 +57,7 @@ import {
   voucherBadge,
   voucherTypeLabel,
 } from "@/data/labels";
-import { useVoucher } from "@/data/queries";
+import { useCustomFields, useVoucher } from "@/data/queries";
 import { useData } from "@/data/DataProvider";
 import { canManageVoucher } from "@/data/voucherAccess";
 import { colors, space } from "@/theme";
@@ -143,6 +144,7 @@ export default function VoucherScreen() {
 function VoucherBody({ d }: { d: VoucherDetail }) {
   const v = d.voucher;
   const { role } = useData();
+  const customDefs = useCustomFields().data;
   const canWrite = canManageVoucher(role, v.type);
   const conversions = d.canConvertTo.filter((type) =>
     canManageVoucher(role, type),
@@ -555,6 +557,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         </Card>
       )}
 
+      <CustomFieldValuesView
+        defs={customDefs}
+        entity="voucher"
+        values={v.customFields}
+      />
       {v.narration ? (
         <Txt variant="small" tone="charcoal">
           {v.narration}

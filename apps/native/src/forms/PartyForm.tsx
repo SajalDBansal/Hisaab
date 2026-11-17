@@ -16,6 +16,8 @@ import {
   type Party,
   type PartyInput,
   type PartyType,
+  fieldsFor,
+  type CustomFieldValues,
 } from "@repo/core";
 import {
   AmountField,
@@ -31,10 +33,16 @@ import {
   TextField,
   Txt,
   showError,
+  CustomFieldInputs,
 } from "@/components";
 import { toRupeeText } from "@/data/labels";
 import { setPicked } from "@/data/picked";
-import { useFirm, useParties, useSaveParty } from "@/data/queries";
+import {
+  useCustomFields,
+  useFirm,
+  useParties,
+  useSaveParty,
+} from "@/data/queries";
 import { space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
@@ -85,6 +93,10 @@ export function PartyForm({
         : "get",
   );
   const [pickState, setPickState] = useState(false);
+  const customDefs = useCustomFields().data;
+  const [customValues, setCustomValues] = useState<CustomFieldValues>(
+    party?.customFields ?? {},
+  );
   const [showErrors, setShowErrors] = useState(false);
 
   const gstinValid = !gstinProblem(gstin) && !!stateFromGstin(gstin);
@@ -104,6 +116,7 @@ export function PartyForm({
     creditDays: Number(creditDays || "0"),
     creditLimit: parseRupees(limitText) ?? 0,
     openingBalance: openingSide === "get" ? opening : -opening,
+    customFields: customValues,
   };
   const errors = checkParty(
     input,
@@ -279,6 +292,19 @@ export function PartyForm({
           error={err("creditLimit")}
         />
       </Card>
+
+      {fieldsFor(customDefs, "party").length ||
+      Object.keys(customValues).length ? (
+        <Card style={{ gap: space.md }}>
+          <Txt variant="bodyStrong">More details</Txt>
+          <CustomFieldInputs
+            defs={customDefs}
+            entity="party"
+            values={customValues}
+            onChange={setCustomValues}
+          />
+        </Card>
+      ) : null}
 
       <Card style={{ gap: space.md }}>
         <View>

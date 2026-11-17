@@ -22,4 +22,5 @@ export { Checkbox } from "./Checkbox";
 export { TaxScopeFilter } from "./TaxScopeFilter";
 export { HtmlPreview } from "./HtmlPreview";
 export { DateField } from "./DateField";
+export { CustomFieldInputs, CustomFieldValuesView } from "./CustomFieldInputs";
 export { ToastHost, showToast, showError } from "./Toast";

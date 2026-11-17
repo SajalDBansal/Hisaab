@@ -21,6 +21,8 @@ import {
   type TaxType,
   type Item,
   type ItemInput,
+  fieldsFor,
+  type CustomFieldValues,
 } from "@repo/core";
 import {
   AmountField,
@@ -35,11 +37,17 @@ import {
   TextField,
   Txt,
   showError,
+  CustomFieldInputs,
 } from "@/components";
 import { toRupeeText } from "@/data/labels";
 import { setPicked } from "@/data/picked";
 import { useData } from "@/data/DataProvider";
-import { useItems, useSaveItem, useUnits } from "@/data/queries";
+import {
+  useCustomFields,
+  useItems,
+  useSaveItem,
+  useUnits,
+} from "@/data/queries";
 import { AddUnitSheet } from "./AddUnitSheet";
 import { useGstMode } from "@/data/gstMode";
 import { colors, space } from "@/theme";
@@ -136,6 +144,10 @@ export function ItemForm({
   );
   const [reorder, setReorder] = useState(String(item?.reorderLevel ?? ""));
   const [showErrors, setShowErrors] = useState(false);
+  const customDefs = useCustomFields().data;
+  const [customValues, setCustomValues] = useState<CustomFieldValues>(
+    item?.customFields ?? {},
+  );
 
   const suggestedCode = suggestItemCode(
     name || "Item",
@@ -163,6 +175,7 @@ export function ItemForm({
     openingBookScope: item?.openingBookScope ?? openingBookScope,
     reorderLevel: Number(reorder || "0"),
     ...(item?.batch ? { batch: item.batch } : {}),
+    customFields: customValues,
   };
   const errors = checkItem(input, others, item?.id, gst.mode);
   const err = (k: keyof typeof errors) => (showErrors ? errors[k] : undefined);
@@ -572,6 +585,19 @@ export function ItemForm({
           </Txt>
         ) : null}
       </Card>
+
+      {fieldsFor(customDefs, "item").length ||
+      Object.keys(customValues).length ? (
+        <Card style={{ gap: space.md }}>
+          <Txt variant="bodyStrong">More details</Txt>
+          <CustomFieldInputs
+            defs={customDefs}
+            entity="item"
+            values={customValues}
+            onChange={setCustomValues}
+          />
+        </Card>
+      ) : null}
 
       {warnings.map((w) => (
         <Notice key={w} text={w} />

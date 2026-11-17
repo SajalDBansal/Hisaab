@@ -23,8 +23,14 @@ import {
   Screen,
   Segmented,
   Txt,
+  CustomFieldValuesView,
 } from "@/components";
-import { useItem, useItemParties, useStockLots } from "@/data/queries";
+import {
+  useCustomFields,
+  useItem,
+  useItemParties,
+  useStockLots,
+} from "@/data/queries";
 import { TradeRateList } from "@/lists/TradeRateList";
 import { useItemMovementPages } from "@/data/pagedQueries";
 import { space } from "@/theme";
@@ -71,6 +77,7 @@ function ItemBody({
 }) {
   const stock = useStockLots();
   const gst = useGstMode();
+  const customDefs = useCustomFields().data;
   const { item } = d;
   const margin =
     d.profit.salesValue > 0
@@ -98,6 +105,13 @@ function ItemBody({
               />
             ) : null}
             {d.lowStock ? <Badge label="Low stock" tone="warn" /> : null}
+          </View>
+          <View>
+            <CustomFieldValuesView
+              defs={customDefs}
+              entity="item"
+              values={item.customFields}
+            />
           </View>
         </View>
       </View>

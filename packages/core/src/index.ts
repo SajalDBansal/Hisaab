@@ -55,6 +55,10 @@ export {
 } from "./services/settingsService";
 export { documentService, type DocumentRow } from "./services/documentService";
 export { unitService, type UnitRow } from "./services/unitService";
+export {
+  customFieldService,
+  type CustomFieldInput,
+} from "./services/customFieldService";
 export * from "./print/voucherHtml";
 export * from "./print/messages";
 export { printService, type PrintableVoucher } from "./services/printService";

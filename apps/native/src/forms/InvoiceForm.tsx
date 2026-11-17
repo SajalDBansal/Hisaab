@@ -44,6 +44,7 @@ import {
   type BookScope,
   financialYear,
   canSeeCosts,
+  type CustomFieldValues,
 } from "@repo/core";
 import {
   AmountField,
@@ -66,9 +67,11 @@ import {
   TextField,
   Txt,
   showError,
+  CustomFieldInputs,
 } from "@/components";
 import {
   useCreatePurchase,
+  useCustomFields,
   useCreateSales,
   useStockLots,
   useCreateOrder,
@@ -190,6 +193,11 @@ export function InvoiceForm({
 }) {
   const text = TEXT[kind];
   const attachments = useFinancialAttachments(editing?.id);
+  const customDefs = useCustomFields().data;
+  // Header custom fields (doc 37, T07): the bill's own values when editing.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>(
+    editing?.customFields ?? {},
+  );
   const isOrder = isOrderType(kind);
   /** Sale side (customer, sale price) or purchase side (supplier, purchase price). */
   const side: "sale" | "purchase" =
@@ -528,6 +536,7 @@ export function InvoiceForm({
           : undefined,
       supplierInvoiceNo:
         kind === "purchase" ? supplierInvoiceNo || undefined : undefined,
+      customFields: customValues,
     };
     try {
       if (editing) {
@@ -568,6 +577,7 @@ export function InvoiceForm({
             charges,
             sourceId: source?.id,
             ...associates,
+            customFields: customValues,
           },
           createOrder.mutateAsync,
         );
@@ -708,6 +718,13 @@ export function InvoiceForm({
         />
       </View>
 
+      <CustomFieldInputs
+        defs={customDefs}
+        entity="voucher"
+        voucherType={kind}
+        values={customValues}
+        onChange={setCustomValues}
+      />
       <AttachmentPicker {...attachments} />
       {side === "sale" ? (
         <InvoiceAssociates

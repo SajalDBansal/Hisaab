@@ -136,5 +136,16 @@ export function masterServices(client: Client) {
         );
       },
     } satisfies Services["unitService"],
+    customFieldService: {
+      list: () => request("/settings/custom-fields", z.array(c.CustomField)),
+      save: (input, id?: string, version?: number) =>
+        id
+          ? request(`/settings/custom-fields/${id}`, c.CustomField, {
+              method: "PUT",
+              body: input,
+              headers: matchVersion(version),
+            })
+          : request("/settings/custom-fields", c.CustomField, { body: input }),
+    } satisfies Services["customFieldService"],
   };
 }

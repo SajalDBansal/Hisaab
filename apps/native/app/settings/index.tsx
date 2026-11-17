@@ -139,6 +139,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "reports",
       },
       {
+        title: "Custom fields",
+        note: "Your own fields on parties, items and bills",
+        icon: "list",
+        href: "/settings/custom-fields",
+        needs: "settings",
+      },
+      {
         title: "Cancelled entries",
         note: "Restore an entry cancelled by mistake",
         icon: "rotate-ccw",

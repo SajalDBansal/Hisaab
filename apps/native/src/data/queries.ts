@@ -26,6 +26,7 @@ import {
   type ItemInput,
   type PartyInput,
   type NewDocumentInput,
+  type CustomFieldInput,
   type NewInvoiceInput,
   type PeriodKey,
   type ReportRequest,
@@ -646,6 +647,25 @@ export function useCancelVoucher() {
       services,
       args: { id: string; reason: string; version?: number },
     ) => services.voucherService.cancel(args.id, args.reason, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+/** The firm's custom fields for parties, items and voucher headers (doc 37, T07). */
+export function useCustomFields() {
+  return useQuery({
+    queryKey: ["custom-fields"],
+    queryFn: (services) => services.customFieldService.list(),
+  });
+}
+
+export function useSaveCustomField() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { input: CustomFieldInput; id?: string; version?: number },
+    ) => services.customFieldService.save(args.input, args.id, args.version),
     onSuccess: refreshAll,
   });
 }
