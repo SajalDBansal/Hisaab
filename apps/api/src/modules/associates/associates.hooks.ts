@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { bookScopeOf, type Voucher } from "@repo/core";
+import { bookScopeOf, can, type Voucher } from "@repo/core";
 import {
   associatePayloadForRead,
   commissionLines,
@@ -15,7 +15,10 @@ import {
   commissionEntries,
   deliveryAssignments,
 } from "@repo/backend/db/schema/associates";
-import { hydrateVouchers, type Snapshot } from "@repo/backend/modules/vouchers/snapshot";
+import {
+  hydrateVouchers,
+  type Snapshot,
+} from "@repo/backend/modules/vouchers/snapshot";
 import type { Saved } from "@repo/backend/modules/vouchers/persist";
 import { postAssociateJournal } from "./associates.journals";
 import {
@@ -37,7 +40,7 @@ export function associateVoucherForRead<T extends AssociateVoucher>(
   role: string,
   voucher: T,
 ): T {
-  if (role === "owner" || role === "accountant") return voucher;
+  if (can(role, "accounts")) return voucher;
   return associatePayloadForRead(role, voucher);
 }
 
@@ -424,7 +427,8 @@ export async function associateJournalIds(
   ids: string[],
 ) {
   if (!ids.length) return new Set<string>();
-  const { associateJournals } = await import("@repo/backend/db/schema/associates");
+  const { associateJournals } =
+    await import("@repo/backend/db/schema/associates");
   const rows = await db
     .select()
     .from(associateJournals)

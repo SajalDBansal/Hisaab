@@ -39,6 +39,8 @@ export const vouchersRepo = {
       to?: string;
       status?: CoreVoucher["status"];
       search?: string;
+      /** Only entries this user made (roles limited to their own records). */
+      createdBy?: string;
       limit: number;
       cursor?: DateIdCursor;
     },
@@ -55,6 +57,7 @@ export const vouchersRepo = {
           f.type ? eq(vouchers.type, f.type) : undefined,
           f.types?.length ? inArray(vouchers.type, f.types) : undefined,
           f.partyId ? eq(vouchers.partyId, f.partyId) : undefined,
+          f.createdBy ? eq(vouchers.createdBy, f.createdBy) : undefined,
           f.status ? eq(vouchers.status, f.status) : undefined,
           f.from ? gte(vouchers.date, f.from) : undefined,
           f.to ? lte(vouchers.date, f.to) : undefined,

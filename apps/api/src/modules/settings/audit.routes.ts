@@ -6,7 +6,7 @@ import {
   PageQuery,
   pageOf,
 } from "@repo/contracts";
-import { can, cursorOffset, pageCursor, type Role } from "@repo/core";
+import { cursorOffset, pageCursor, roleFlag, type Role } from "@repo/core";
 import { and, desc, eq, lt, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -14,12 +14,9 @@ import { schema, type Db } from "@repo/backend/db/client";
 
 type AuditRow = typeof schema.auditLog.$inferSelect;
 
-/**
- * IP address and device are shown only to roles that manage the team (the owner)
- * until custom roles add an audit right (doc 37, T55/T57).
- */
+/** IP address and device go only to roles with the audit right (the owner by default; doc 37, T55/T57). */
 export function auditEntryFor(row: AuditRow, role: Role) {
-  const showOrigin = can(role, "team");
+  const showOrigin = roleFlag(role, "viewAudit");
   return AuditEntry.parse({
     ...row,
     at: row.at.toISOString(),

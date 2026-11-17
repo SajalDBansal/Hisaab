@@ -253,6 +253,13 @@
       "when": 1794897786980,
       "tag": "0035_firm_branding",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794900713150,
+      "tag": "0036_custom_roles",
+      "breakpoints": true
     }
   ]
 }

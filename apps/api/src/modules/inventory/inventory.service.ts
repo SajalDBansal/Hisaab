@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Voucher } from "@repo/contracts";
 import type { InventoryAdjustmentInput } from "@repo/contracts/src/inventory";
-import { createInventoryJournal } from "@repo/core";
+import { can, createInventoryJournal, type Role } from "@repo/core";
 import {
   prepareStockAdjustment,
   prepareStockReversal,
@@ -9,7 +9,11 @@ import {
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
-import { rememberAnswer, replayOf, type Idem } from "@repo/backend/modules/vouchers/idempotency";
+import {
+  rememberAnswer,
+  replayOf,
+  type Idem,
+} from "@repo/backend/modules/vouchers/idempotency";
 import { loadBooks } from "@repo/backend/modules/vouchers/snapshot";
 import { saveChanges } from "@repo/backend/modules/vouchers/persist";
 
@@ -33,7 +37,7 @@ export function writeInventoryAdjustment(
           eq(schema.member.userId, actor.id),
         ),
       );
-    if (!member || !["owner", "accountant"].includes(member.role))
+    if (!member || !can(member.role as Role, "accounts"))
       throw new AppError(
         "FORBIDDEN",
         "Only an owner or accountant can correct stock.",

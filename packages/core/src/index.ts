@@ -13,6 +13,7 @@ export * from "./accounting/tradeRates";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";
+export * from "./roles";
 export * from "./states";
 export * from "./units";
 export * from "./customFields";

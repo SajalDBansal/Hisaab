@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { createSales, partyBalance, today, updateInvoice } from "@repo/core";
+import {
+  can,
+  createSales,
+  partyBalance,
+  type Role,
+  today,
+  updateInvoice,
+} from "@repo/core";
 import { NewInvoiceInput, type Voucher } from "@repo/contracts";
 import type { CreditApprovalInput } from "@repo/contracts/src/settlements";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -237,7 +244,7 @@ export async function enforceCreditForPostedSales(
       ),
     )
     .for("share");
-  if (!member || !["owner", "accountant", "sales"].includes(member.role))
+  if (!member || !can(member.role as Role, "sales"))
     invalid("Your role can no longer post sales.", "FORBIDDEN", 403);
   const [party] = await tx
     .select()

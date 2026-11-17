@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -10,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { paise, stamps } from "./columns";
+import type { RoleRights } from "@repo/core";
 
 export const gstRegistration = pgEnum("gst_registration", [
   "regular",
@@ -85,3 +87,20 @@ export const firmBranding = pgTable("firm_branding", {
   signature: text("signature"),
   ...stamps,
 });
+
+// Custom roles (doc 37, T57). A member's `role` holds "r_<id>" for these; the
+// built-in roles stay fixed in code. Rights: { permissions, vouchers, flags }.
+export const customRoles = pgTable(
+  "custom_roles",
+  {
+    id: uuid("id").primaryKey(),
+    firmId: uuid("firm_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    rights: jsonb("rights").$type<RoleRights>().notNull(),
+    ...stamps,
+  },
+  (t) => [index("custom_roles_firm_idx").on(t.firmId)],
+);

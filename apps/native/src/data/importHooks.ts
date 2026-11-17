@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   ImportApplyInput,
@@ -12,9 +13,7 @@ export function useMasterImports() {
   const { userId, firmId, role } = useData();
   const cache = useQueryClient();
   const allowed =
-    userId !== "demo" &&
-    !!firmId &&
-    (role === "owner" || role === "accountant");
+    userId !== "demo" && !!firmId && !!role && can(role, "accounts");
   const checkAccess = () => {
     if (!allowed)
       throw new Error(

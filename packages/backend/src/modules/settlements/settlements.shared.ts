@@ -1,10 +1,12 @@
 import { and, eq, inArray, or } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import {
-  createJournal,
-  today,
   type Allocation,
+  can,
+  createJournal,
   type JournalLine,
+  type Role,
+  today,
   type Voucher,
 } from "@repo/core";
 import type { SettlementRecord } from "@repo/contracts/src/settlements";
@@ -67,7 +69,8 @@ export async function settlementWrite<T>(
       .for("share");
     if (
       !member ||
-      (member.role !== "owner" && (ownerOnly || member.role !== "accountant"))
+      (member.role !== "owner" &&
+        (ownerOnly || !can(member.role as Role, "accounts")))
     )
       invalid(
         "Your current role cannot authorize this settlement.",

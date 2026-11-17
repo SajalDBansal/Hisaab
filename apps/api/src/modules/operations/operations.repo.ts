@@ -179,7 +179,7 @@ async function current(db: Db, actor: OperationActor, input: OperationInput) {
   try {
     switch (entity) {
       case "vouchers":
-        await requireVoucherRead(db, actor.firmId, actor.role, id);
+        await requireVoucherRead(db, actor.firmId, actor.role, id, actor.id);
         return vouchersService.get(db, actor.firmId, id);
       case "parties":
         return readParty(db, actor.firmId, id, actor.role);

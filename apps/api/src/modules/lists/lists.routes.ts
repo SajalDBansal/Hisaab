@@ -33,6 +33,8 @@ import {
   canReadBooks,
   canReadParty,
   forbiddenRead,
+  onlyOwn,
+  ownVoucherIds,
   readableVoucherTypes,
   requireVoucherTypeRead,
 } from "../../lib/read-permissions";
@@ -162,7 +164,13 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
       const rows = await rowsOf(req, `invoices:${req.query.type}`, () =>
         vouchersService.invoices(db, req.firm.id, req.query.type),
       );
-      const page = invoicePage(rows, req.query);
+      const own = await ownVoucherIds(
+        db,
+        req.firm.id,
+        req.firm.role,
+        req.user.id,
+      );
+      const page = invoicePage(onlyOwn(rows, own), req.query);
       return { ...page, items: page.items.map(listedRow) };
     },
   );
@@ -178,7 +186,13 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
       const rows = await rowsOf(req, `orders:${req.query.type}`, () =>
         vouchersService.orders(db, req.firm.id, req.query.type),
       );
-      const page = orderPage(rows, req.query);
+      const own = await ownVoucherIds(
+        db,
+        req.firm.id,
+        req.firm.role,
+        req.user.id,
+      );
+      const page = orderPage(onlyOwn(rows, own), req.query);
       return { ...page, items: page.items.map(listedRow) };
     },
   );
@@ -196,7 +210,13 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
       const { books, apiVoucher } = await rowsOf(req, "vouchers", () =>
         readBooks(db, req.firm.id),
       );
-      const page = voucherPage(books.vouchers, req.query, {
+      const own = await ownVoucherIds(
+        db,
+        req.firm.id,
+        req.firm.role,
+        req.user.id,
+      );
+      const page = voucherPage(onlyOwn(books.vouchers, own), req.query, {
         readable: readableVoucherTypes(req.firm.role),
         defaultScope: gstModeOf(books.firm) === "off" ? "nongst" : "gst",
         parties: books.parties,

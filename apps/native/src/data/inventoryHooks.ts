@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type { InventoryAdjustmentInput } from "@repo/contracts/src/inventory";
 import { useData } from "./DataProvider";
@@ -17,8 +18,8 @@ export function useInventoryAccess() {
   const { role, services } = useData();
   return {
     connected: !!services.inventoryService,
-    write: role === "owner" || role === "accountant",
-    read: role !== "sales",
+    write: !!role && can(role, "accounts"),
+    read: !!role && can(role, "reports"),
   };
 }
 /** The register screen, a page at a time as the user scrolls. */

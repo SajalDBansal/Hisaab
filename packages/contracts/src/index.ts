@@ -6,6 +6,7 @@ export * from "./recovery";
 export * from "./fieldErrors";
 export * from "./firms";
 export * from "./customFields";
+export * from "./roles";
 export * from "./parties";
 export * from "./items";
 export * from "./ledgers";

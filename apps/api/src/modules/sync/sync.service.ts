@@ -491,7 +491,7 @@ async function createVoucher(
     { entity: "voucher"; operation: "create" }
   >,
 ) {
-  requireRight(ctx.role, mutation.voucherType);
+  requireRight(ctx.role, mutation.voucherType, "create");
   const vctx = voucherCtx(ctx, mutation);
   switch (mutation.voucherType) {
     case "sale":

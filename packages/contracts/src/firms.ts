@@ -113,9 +113,18 @@ export type FirmUpdate = z.infer<typeof FirmUpdate>;
 
 // ---- Who can do what in a firm -------------------------------------------
 
-export const Role = z.enum(["owner", "accountant", "sales", "viewer"]);
-/** Roles an owner can give to someone else. There is one owner per firm for now. */
-export const AssignableRole = z.enum(["accountant", "sales", "viewer"]);
+export const BuiltInRole = z.enum(["owner", "accountant", "sales", "viewer"]);
+/** A custom role's id, "r_<uuid>" (doc 37, T57). */
+export const CustomRoleId = z.custom<`r_${string}`>(
+  (value) => typeof value === "string" && /^r_[0-9a-f-]{36}$/.test(value),
+  "That role isn't valid.",
+);
+export const Role = z.union([BuiltInRole, CustomRoleId]);
+/** Roles an owner can give to someone else: any but owner (one owner per firm). */
+export const AssignableRole = z.union([
+  z.enum(["accountant", "sales", "viewer"]),
+  CustomRoleId,
+]);
 export const Permission = z.enum([
   "sales",
   "purchase",
@@ -170,9 +179,10 @@ export const TransferOwnershipInput = z.object({
 });
 export type TransferOwnershipInput = z.infer<typeof TransferOwnershipInput>;
 
+/** Invitations use a built-in role; the owner can move the person to a custom role after they join. */
 export const InviteInput = z.object({
   email: Email,
-  role: AssignableRole,
+  role: z.enum(["accountant", "sales", "viewer"]),
 });
 /** A pending invitation, as the owner sees it. */
 export const Invitation = z.object({

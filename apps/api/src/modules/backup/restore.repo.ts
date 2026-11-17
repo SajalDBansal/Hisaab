@@ -48,6 +48,7 @@ async function insertRows(
 const first: TableName[] = [
   "firmProfile",
   "customFields",
+  "customRoles",
   "parties",
   "items",
   "units",

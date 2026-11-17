@@ -1,12 +1,23 @@
+import { can, type Role } from "@repo/core";
 import { and, eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import * as c from "@repo/contracts/src/associates";
 import { schema, type Db } from "@repo/backend/db/client";
-import { associates, associateEvents } from "@repo/backend/db/schema/associates";
+import {
+  associates,
+  associateEvents,
+} from "@repo/backend/db/schema/associates";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
-import { rememberAnswer, replayOf, type Idem } from "@repo/backend/modules/vouchers/idempotency";
-import { isUniqueViolation, notFound } from "@repo/backend/modules/masters/shared";
+import {
+  rememberAnswer,
+  replayOf,
+  type Idem,
+} from "@repo/backend/modules/vouchers/idempotency";
+import {
+  isUniqueViolation,
+  notFound,
+} from "@repo/backend/modules/masters/shared";
 
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type Reader = Pick<Db, "select">;
@@ -61,7 +72,7 @@ export async function requireAssociateWriter(
         eq(schema.member.userId, userId),
       ),
     );
-  if (!member || !["owner", "accountant"].includes(member.role))
+  if (!member || !can(member.role as Role, "accounts"))
     throw new AppError(
       "FORBIDDEN",
       "Only an owner or accountant can change associates or commissions.",

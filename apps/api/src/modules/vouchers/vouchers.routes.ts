@@ -1,3 +1,4 @@
+import { roleFlag } from "@repo/core";
 import {
   BankDateInput,
   CancelInput,
@@ -93,6 +94,7 @@ export async function voucherRoutes(
       req.firm.id,
       req.firm.role,
       IdParams.parse(req.params).id,
+      req.user.id,
     );
   typed.post(
     "/sales/split",
@@ -132,6 +134,9 @@ export async function voucherRoutes(
       const rows = await vouchersService.list(db, req.firm.id, {
         ...req.query,
         types,
+        createdBy: roleFlag(req.firm.role, "ownRecordsOnly")
+          ? req.user.id
+          : undefined,
         cursor: dateIdCursor(req.query.cursor),
       });
       return pageByDateId(rows, req.query.limit);

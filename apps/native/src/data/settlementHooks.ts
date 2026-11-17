@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   SettlementInput,
@@ -25,8 +26,8 @@ export function useSettlementAccess() {
   const available: Services & { settlementService?: SettlementService } =
     services;
   return {
-    read: role === "owner" || role === "accountant" || role === "viewer",
-    write: role === "owner" || role === "accountant",
+    read: !!role && can(role, "reports"),
+    write: !!role && can(role, "accounts"),
     owner: role === "owner",
     connected: !!available.settlementService,
   };

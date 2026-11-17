@@ -1,5 +1,6 @@
 import {
   can,
+  canVoucher,
   describeAccount,
   calcInvoice,
   cancelBlocker,
@@ -33,6 +34,7 @@ import {
   partyBills,
   postingTotals,
   returnAmountBasis,
+  roleFlag,
   seriesPrefix,
   setCleared,
   settledAmounts,
@@ -42,6 +44,7 @@ import {
   type InvoiceSettings as InvoiceSettingsCore,
   type Permission,
   type Role,
+  type VoucherAction,
   type Voucher as CoreVoucher,
   type VoucherType,
 } from "@repo/core";
@@ -126,8 +129,16 @@ export const NEEDS: Record<VoucherType, Permission> = {
   journal: "accounts",
 };
 
-export function requireRight(role: Role, type: VoucherType) {
-  if (!can(role, NEEDS[type]))
+/**
+ * The role must allow this action on this voucher type (doc 37, T57). Built-in
+ * roles allow create/edit/cancel exactly where they could change entries before.
+ */
+export function requireRight(
+  role: Role,
+  type: VoucherType,
+  action: VoucherAction = "create",
+) {
+  if (!canVoucher(role, type, action))
     throw new AppError(
       "FORBIDDEN",
       "Your role can't change this kind of entry. Ask the owner of the firm.",
@@ -207,13 +218,24 @@ export async function change(
       const seen = await replayOf<Voucher | Voucher[]>(tx, ctx.id, ctx.idem);
       if (seen) {
         for (const voucher of [seen].flat())
-          requireRight(ctx.role, voucher.type);
+          requireRight(ctx.role, voucher.type, "create");
         return seen;
       }
     }
     const snap = await loadBooks(tx, ctx.firmId, ctx, scope);
     const result = await work(snap, tx);
-    for (const v of [result].flat()) requireRight(member.role as Role, v.type);
+    // New entries need "create", newly cancelled ones "cancel", the rest "edit".
+    for (const v of [result].flat()) {
+      const before = snap.before.get(v.id);
+      const was = before ? (JSON.parse(before) as CoreVoucher) : undefined;
+      const action: VoucherAction = !was
+        ? "create"
+        : v.status === "cancelled" && was.status !== "cancelled"
+          ? "cancel"
+          : "edit";
+      requireRight(member.role as Role, v.type, action);
+      if (was) requireOwnRecord(member.role as Role, ctx, was);
+    }
     const saved = await saveChanges(tx, ctx.firmId, ctx, snap);
     await syncAssociateVouchers(tx, ctx, snap, saved);
     for (const v of [result].flat()) {
@@ -950,9 +972,9 @@ async function money(
 }
 
 /** The voucher named in the URL, if it is in this firm and the caller may change it and saw its latest version. */
-/** Restoring cancelled entries is the owner's (team right) until roles add its own right. */
+/** Restoring cancelled entries needs its own right (the owner by default; doc 37, T47/T57). */
 function requireOwner(role: Role) {
-  if (!can(role, "team"))
+  if (!roleFlag(role, "restoreCancelled"))
     throw new AppError(
       "FORBIDDEN",
       "Only the owner can see and restore cancelled entries.",
@@ -960,10 +982,25 @@ function requireOwner(role: Role) {
     );
 }
 
+/** Roles limited to their own records may only touch entries they created (doc 37, T57). */
+export function requireOwnRecord(
+  role: Role,
+  ctx: { id: string },
+  v: { createdBy?: string },
+) {
+  if (roleFlag(role, "ownRecordsOnly") && v.createdBy !== ctx.id)
+    throw new AppError(
+      "FORBIDDEN",
+      "Your role can only change entries you made yourself.",
+      403,
+    );
+}
+
 function existing(snap: Snapshot, ctx: Ctx, id: string, version: number) {
   const v = snap.books.vouchers.find((x) => x.id === id);
   if (!v) throw notFound("entry");
-  requireRight(ctx.role, v.type);
+  requireRight(ctx.role, v.type, "view");
+  requireOwnRecord(ctx.role, ctx, v);
   if (snap.versions.get(id) !== version) throw editedElsewhere("entry");
   return v;
 }

@@ -1,11 +1,12 @@
 import type { BookScope, InvoiceLine, JournalLine, Voucher } from "../types";
+import { can } from "../permissions";
 import { calcLine } from "./invoice";
 import { acc } from "./accounts";
 import { hasStoredPrecision, isStoredQuantity } from "../precision";
 
 /** Redact private voucher policies in JSON response/cache envelopes, not financial totals. */
 export function associatePayloadForRead<T>(role: string | null, payload: T): T {
-  if (role === "owner" || role === "accountant") return payload;
+  if (can(role, "accounts")) return payload;
   const visit = (value: unknown): unknown => {
     if (Array.isArray(value)) {
       const items = value.map(visit);

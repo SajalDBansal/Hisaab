@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
+import { refreshMemberRole } from "@repo/backend/modules/roles/roles.repo";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -74,6 +75,8 @@ export function registerFirmContext(app: FastifyInstance, db: Db) {
         "You don't have access to this firm.",
         403,
       );
+    // Custom roles are read from this firm on every request (doc 37, T57).
+    await refreshMemberRole(db, parsed.data, row.role);
     req.firm = { id: parsed.data, role: row.role as Role };
   };
 

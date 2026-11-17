@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as c from "@repo/contracts/src/associates";
 import { useData } from "./DataProvider";
@@ -24,8 +25,8 @@ export function useAssociateAccess() {
   const connected: Services & { associateService?: AssociateService } =
     services;
   return {
-    write: role === "owner" || role === "accountant",
-    select: role === "owner" || role === "accountant" || role === "sales",
+    write: !!role && can(role, "accounts"),
+    select: !!role && can(role, "sales"),
     connected: !!connected.associateService,
   };
 }

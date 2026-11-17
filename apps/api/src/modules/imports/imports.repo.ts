@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { gstModeOf, today } from "@repo/core";
+import { can, gstModeOf, today } from "@repo/core";
 import { v7 as uuidv7 } from "uuid";
 import type {
   ImportApplyResult,
@@ -20,7 +20,7 @@ export function requireImportRole(role: string | undefined, financial = false) {
       "Only the firm owner can import financial openings.",
       403,
     );
-  if (role !== "owner" && role !== "accountant")
+  if (!can(role, "accounts"))
     throw new AppError(
       "FORBIDDEN",
       "Only the firm owner or accountant can import masters.",

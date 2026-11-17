@@ -153,6 +153,7 @@ export async function hydrateVouchers(
       delivery: undef(r.delivery),
       commission: undef(r.commission),
       customFields: undef(r.customFields),
+      createdBy: undef(r.createdBy),
       interState: undef(r.interState),
       dueDate: undef(r.dueDate),
       supplierInvoiceNo: undef(r.supplierInvoiceNo),

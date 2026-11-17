@@ -13,7 +13,15 @@ import {
   NewFirmInput,
   IdParams,
 } from "@repo/contracts";
-import { blankBooks, checkNewFirm, ROLES, type Role } from "@repo/core";
+import {
+  blankBooks,
+  checkNewFirm,
+  isCustomRoleId,
+  rightsOf,
+  ROLES,
+  type Role,
+} from "@repo/core";
+import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { and, asc, eq, gt, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
@@ -45,7 +53,9 @@ const toFirm = (name: string, p: Profile) => ({
 });
 
 const toRole = (value: string | null): Role =>
-  ROLES.some((r) => r.role === value) ? (value as Role) : "viewer";
+  ROLES.some((r) => r.role === value) || isCustomRoleId(value ?? "")
+    ? (value as Role)
+    : "viewer";
 
 /** Firms, the people in them, and invitations. */
 export async function firmRoutes(
@@ -158,7 +168,7 @@ export async function firmRoutes(
       return {
         ...toFirm(name, profile),
         role: req.firm.role,
-        permissions: ROLES.find((r) => r.role === req.firm.role)?.can ?? [],
+        permissions: rightsOf(req.firm.role).permissions,
       };
     },
   );
@@ -212,7 +222,7 @@ export async function firmRoutes(
       return {
         ...toFirm(fresh.name, fresh.profile),
         role: req.firm.role,
-        permissions: ROLES.find((r) => r.role === req.firm.role)?.can ?? [],
+        permissions: rightsOf(req.firm.role).permissions,
       };
     },
   );
@@ -280,16 +290,20 @@ export async function firmRoutes(
     },
     async (req) => {
       await loadTarget(req.firm.id, req.params.memberId);
-      await viaAuth(() =>
-        auth.api.updateMemberRole({
-          body: {
-            memberId: req.params.memberId,
-            role: req.body.role,
-            organizationId: req.firm.id,
-          },
-          headers: asCaller(req),
-        }),
-      );
+      // Written directly (as the ownership hand-over does): Better Auth only knows
+      // the built-in roles. The member trigger still sends the live access notice.
+      await withFirmWrite(db, req.firm.id, async (tx) => {
+        await assertRoleInFirm(tx, req.firm.id, req.body.role);
+        await tx
+          .update(schema.member)
+          .set({ role: req.body.role })
+          .where(
+            and(
+              eq(schema.member.id, req.params.memberId),
+              eq(schema.member.organizationId, req.firm.id),
+            ),
+          );
+      });
       return { ok: true as const };
     },
   );
@@ -392,6 +406,7 @@ export async function firmRoutes(
           .update(schema.member)
           .set({ role: "owner" })
           .where(eq(schema.member.id, target.id));
+        await assertRoleInFirm(tx, req.firm.id, req.body.previousOwnerRole);
         await tx
           .update(schema.member)
           .set({ role: req.body.previousOwnerRole })
@@ -585,4 +600,28 @@ export async function firmRoutes(
       return { ok: true as const };
     },
   );
+}
+
+/** A custom role must belong to this firm before anyone is given it (doc 37, T57). */
+async function assertRoleInFirm(
+  tx: Pick<Db, "select">,
+  firmId: string,
+  role: string,
+) {
+  if (!isCustomRoleId(role)) return;
+  const [row] = await tx
+    .select({ id: schema.customRoles.id })
+    .from(schema.customRoles)
+    .where(
+      and(
+        eq(schema.customRoles.firmId, firmId),
+        eq(schema.customRoles.id, role.slice(2)),
+      ),
+    );
+  if (!row)
+    throw new AppError(
+      "INVALID_ROLE",
+      "That role doesn't exist in this firm.",
+      400,
+    );
 }

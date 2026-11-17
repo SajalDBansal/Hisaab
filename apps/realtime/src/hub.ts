@@ -11,6 +11,7 @@ import {
 } from "@repo/contracts";
 import { can } from "@repo/core";
 import { schema, type Db } from "@repo/backend/db/client";
+import { refreshMemberRole } from "@repo/backend/modules/roles/roles.repo";
 import {
   firmVersionKey,
   publishLive,
@@ -105,6 +106,8 @@ export function createLiveHub(options: {
           gt(schema.session.expiresAt, new Date()),
         ),
       );
+    // Custom roles are read from this firm on every lookup (doc 37, T57).
+    if (row?.role) await refreshMemberRole(db, firmId, row.role);
     return row ? { session: true, role: toRole(row.role) } : null;
   }
 

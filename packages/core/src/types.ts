@@ -321,6 +321,8 @@ export interface Allocation {
 }
 
 export interface Voucher {
+  /** The user who made it (for roles limited to their own records, doc 37). */
+  createdBy?: string;
   /** Header custom field values by field key (doc 37, T07). */
   customFields?: CustomFieldValues;
   inventoryAdjustment?: InventoryAdjustment;
@@ -538,7 +540,8 @@ export interface NumberingRule {
   showYear: boolean;
 }
 
-export type Role = "owner" | "accountant" | "sales" | "viewer";
+/** A built-in role, or a custom role's id ("r_<uuid>", doc 37, T57). */
+export type Role = "owner" | "accountant" | "sales" | "viewer" | `r_${string}`;
 
 export interface TeamMember {
   id: ID;

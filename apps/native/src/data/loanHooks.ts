@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import type {
   LoanInput,
   LoanUpdate,
@@ -29,8 +30,8 @@ export function useLoanAccess() {
   const { role, services } = useData();
   const connected: Services & { loanService?: LoanService } = services;
   return {
-    read: role === "owner" || role === "accountant" || role === "viewer",
-    write: role === "owner" || role === "accountant",
+    read: !!role && can(role, "reports"),
+    write: !!role && can(role, "accounts"),
     connected: !!connected.loanService,
   };
 }

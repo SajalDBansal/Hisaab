@@ -67,6 +67,7 @@ export const backupTables = {
   importedOpeningBalances: schema.importedOpeningBalances,
   openingBills: schema.openingBills,
   customFields: schema.customFields,
+  customRoles: schema.customRoles,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 

@@ -67,7 +67,7 @@ async function checkLinks(
     : undefined;
   if (input.voucherId && !voucher) throw notFound("voucher");
   if (voucher) {
-    requireRight(role, voucher.type);
+    requireRight(role, voucher.type, "edit");
     if (input.partyId && input.partyId !== voucher.partyId)
       throw new AppError(
         "INVALID_LINK",
@@ -122,7 +122,7 @@ async function editable(
       row.voucherId,
     );
     if (!voucher) throw notFound("voucher");
-    requireRight(role, voucher.type);
+    requireRight(role, voucher.type, "edit");
   } else if (!can(role, "settings") && !can(role, "accounts")) {
     throw new AppError(
       "FORBIDDEN",
