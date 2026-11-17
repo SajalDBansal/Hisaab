@@ -246,6 +246,40 @@ test(
       assert.deepEqual(detail.voucher.snapshot?.party?.customFields, {
         [area.key]: "South",
       });
+
+      // Logo and signature (doc 37, T16): saved once, printed on the PDF.
+      const logo = "data:image/png;base64,iVBORw0KGgo=";
+      const badImage = await call(
+        owner,
+        "PUT",
+        "/v1/settings/branding",
+        { logo: "https://example.com/logo.png", signature: null },
+        { "if-match": "0" },
+      );
+      assert.equal(badImage.statusCode, 400, badImage.body);
+      const branding = await ok<{ logo: string; version: number }>(
+        owner,
+        "PUT",
+        "/v1/settings/branding",
+        { logo, signature: null },
+        { "if-match": "0" },
+      );
+      assert.equal(branding.version, 1);
+      const salesView = await ok<{ logo: string }>(
+        sales,
+        "GET",
+        "/v1/settings/branding",
+      );
+      assert.equal(salesView.logo, logo);
+      const printed = await ok<{ html: string }>(
+        owner,
+        "GET",
+        `/v1/vouchers/${bill.id}/print`,
+      );
+      assert.ok(printed.html.includes(`src="${logo}"`));
+      // "Area" is marked print; "Vehicle no." is not.
+      assert.ok(printed.html.includes("Area: South"));
+      assert.ok(!printed.html.includes("Vehicle no."));
     } finally {
       await app.close();
       await pool.end();

@@ -80,3 +80,21 @@ export const ReminderSettings = z.object({
 
 export type InvoiceSettings = z.infer<typeof InvoiceSettings>;
 export type ReminderSettings = z.infer<typeof ReminderSettings>;
+
+/** A small PNG or JPEG as a data URI, printed on documents (doc 37, T16). */
+export const BrandingImage = z
+  .string()
+  .max(200_000, "Use an image under about 150 KB.")
+  .regex(
+    /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/,
+    "Use a PNG or JPEG image.",
+  );
+
+/** Firm logo and the authorised signatory's signature or stamp. */
+export const Branding = z.object({
+  logo: BrandingImage.nullable(),
+  signature: BrandingImage.nullable(),
+});
+export const BrandingView = Branding.extend({ version: z.number().int() });
+export type Branding = z.infer<typeof Branding>;
+export type BrandingView = z.infer<typeof BrandingView>;

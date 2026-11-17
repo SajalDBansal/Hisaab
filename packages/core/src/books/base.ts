@@ -27,6 +27,8 @@ export interface Db {
   accounts?: CustomAccount[];
   /** The firm's custom field definitions (doc 37, T07); loaded where values are saved. */
   customFieldDefs?: CustomFieldDef[];
+  /** Logo and signature printed on documents (doc 37, T16); data:image URIs. */
+  branding?: { logo: string | null; signature: string | null; version: number };
   firm: Firm;
   parties: Party[];
   items: Item[];

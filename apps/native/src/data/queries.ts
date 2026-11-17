@@ -651,6 +651,29 @@ export function useCancelVoucher() {
   });
 }
 
+/** Firm logo and signature printed on documents (doc 37, T16). */
+export function useBranding() {
+  return useQuery({
+    queryKey: ["branding"],
+    queryFn: (services) => services.settingsService.branding(),
+  });
+}
+
+export function useSaveBranding() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { logo: string | null; signature: string | null; version: number },
+    ) =>
+      services.settingsService.updateBranding(
+        { logo: args.logo, signature: args.signature },
+        args.version,
+      ),
+    onSuccess: refreshAll,
+  });
+}
+
 /** The firm's custom fields for parties, items and voucher headers (doc 37, T07). */
 export function useCustomFields() {
   return useQuery({

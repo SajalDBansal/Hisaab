@@ -246,6 +246,13 @@
       "when": 1794831310130,
       "tag": "0034_custom_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794897786980,
+      "tag": "0035_firm_branding",
+      "breakpoints": true
     }
   ]
 }

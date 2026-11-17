@@ -1,4 +1,5 @@
 import type { FirmUpdate, Firm, InvoiceSettings, TeamMember } from "../types";
+
 import {
   inviteMember,
   updateFirm,
@@ -7,6 +8,13 @@ import {
   transferOwnership,
 } from "../mock/db";
 import { clone, delay, getDb } from "./client";
+
+/** Logo and signature as data:image URIs, with the saved version. */
+export interface Branding {
+  logo: string | null;
+  signature: string | null;
+  version: number;
+}
 
 export interface InvoiceSettingsView extends InvoiceSettings {
   /** Name of the bank printed on invoices, e.g. "HDFC Current ··4521". */
@@ -49,6 +57,26 @@ export const settingsService = {
   ): Promise<InvoiceSettings> {
     await delay();
     return clone(updateInvoiceSettings(getDb(), patch));
+  },
+
+  /** Logo and signature for documents (doc 37, T16). Real API: GET /settings/branding */
+  async branding(): Promise<Branding> {
+    await delay();
+    return clone(
+      getDb().branding ?? { logo: null, signature: null, version: 0 },
+    );
+  },
+
+  /** Real API: PUT /settings/branding with If-Match. */
+  async updateBranding(
+    input: { logo: string | null; signature: string | null },
+    _version?: number,
+  ): Promise<Branding> {
+    void _version;
+    await delay();
+    const db = getDb();
+    db.branding = { ...input, version: (db.branding?.version ?? 0) + 1 };
+    return clone(db.branding);
   },
 
   /** Real API: http.get<{ members: TeamMember[]; currentUserId: string }>("/team") */

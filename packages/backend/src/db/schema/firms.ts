@@ -75,3 +75,13 @@ export const reminderSettings = pgTable("reminder_settings", {
   minAmount: paise("min_amount"),
   ...stamps,
 });
+
+// Logo and signature images for documents (doc 37, T16). Kept apart from
+// invoice_settings so they are not copied into every voucher's frozen snapshot.
+export const firmBranding = pgTable("firm_branding", {
+  firmId: firmKey(),
+  // data:image/png|jpeg;base64,… (up to about 150 KB each), or null
+  logo: text("logo"),
+  signature: text("signature"),
+  ...stamps,
+});

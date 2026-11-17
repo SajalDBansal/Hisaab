@@ -1,5 +1,6 @@
 import { voucherHtml, voucherShareText } from "@repo/core";
 import { loadCustomFieldDefs } from "../customFields/customFields.repo";
+import { loadBranding } from "../branding/branding.repo";
 import { billAllocations } from "@repo/core/src/accounting/settlements";
 import type { PrintableVoucher } from "@repo/contracts";
 import type { Db } from "../../db/client";
@@ -28,6 +29,7 @@ export async function printVoucher(
     voucher,
     party,
     customFields: await loadCustomFieldDefs(db, firmId),
+    branding: await loadBranding(db, firmId),
     items: books.items.filter((item) => itemIds.has(item.id)),
     settings,
     bankName: books.ledgers.find((l) => l.id === settings.bankLedgerId)?.name,

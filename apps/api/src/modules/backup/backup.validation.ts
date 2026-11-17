@@ -214,6 +214,7 @@ function upgradeVersionFour(input: unknown): unknown {
       items: data.items.map((row) => ({ ...row, customFields: null })),
       vouchers: data.vouchers.map((row) => ({ ...row, customFields: null })),
       customFields: [],
+      firmBranding: null,
     },
   };
   return {

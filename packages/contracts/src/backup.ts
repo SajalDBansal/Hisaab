@@ -29,7 +29,7 @@ import {
 } from "./customFields";
 
 // Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and
-// device; custom field definitions and values.
+// device; custom field definitions and values; logo and signature.
 export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
@@ -77,6 +77,13 @@ export const BackupRows = {
     prefixes: InvoiceSettings.shape.prefixes,
     billOfSupplyPrefix: Text,
     numbering: InvoiceSettings.shape.numbering,
+  }),
+  firmBranding: z.strictObject({
+    ...firm,
+    ...stamps,
+    // data:image URIs, up to about 150 KB each (doc 37, T16)
+    logo: z.string().max(200_000).nullable(),
+    signature: z.string().max(200_000).nullable(),
   }),
   reminderSettings: z.strictObject({
     ...firm,
@@ -398,6 +405,7 @@ export const FirmExportData = z.strictObject({
   firmProfile: BackupRows.firmProfile,
   invoiceSettings: BackupRows.invoiceSettings,
   reminderSettings: BackupRows.reminderSettings,
+  firmBranding: BackupRows.firmBranding.nullable(),
   parties: rows(BackupRows.parties),
   items: rows(BackupRows.items),
   units: rows(BackupRows.units),
@@ -470,7 +478,7 @@ const LegacyDataV4 = FirmExportData.extend({
   parties: rows(BackupRows.parties.omit({ customFields: true })),
   items: rows(BackupRows.items.omit({ customFields: true })),
   vouchers: rows(BackupRows.vouchers.omit({ customFields: true })),
-}).omit({ customFields: true });
+}).omit({ customFields: true, firmBranding: true });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({
     version: z.literal(4),

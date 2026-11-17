@@ -50,6 +50,7 @@ export { accountService } from "./services/accountService";
 export { gstService } from "./services/gstService";
 export {
   settingsService,
+  type Branding,
   type InvoiceSettingsView,
   type TeamPresence,
 } from "./services/settingsService";

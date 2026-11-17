@@ -1,7 +1,8 @@
 import { router } from "expo-router";
 import { backOrReplace } from "@/navigation";
 import { useState } from "react";
-import { Pressable, Switch, View } from "react-native";
+import { Image, Pressable, Switch, View } from "react-native";
+import { pickBrandingImage } from "@/documents/brandingImage";
 import {
   DEFAULT_NUMBERING,
   financialYear,
@@ -27,7 +28,9 @@ import {
 } from "@/components";
 import { voucherTypeLabel } from "@/data/labels";
 import {
+  useBranding,
   useInvoiceSettings,
+  useSaveBranding,
   useLedgers,
   useUpdateInvoiceSettings,
 } from "@/data/queries";
@@ -296,6 +299,8 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
         ) : null}
       </Card>
 
+      <BrandingSection />
+
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Voucher numbering</Txt>
         <View
@@ -487,6 +492,104 @@ function TemplatePreview({ kind }: { kind: InvoiceTemplate }) {
         </>
       )}
       {bar("40%", 5, true)}
+    </View>
+  );
+}
+
+/**
+ * Firm logo and the signatory's signature or stamp, printed on documents
+ * (doc 37, T16). Saved at once, apart from the rest of this screen.
+ */
+function BrandingSection() {
+  const branding = useBranding();
+  const save = useSaveBranding();
+  const [busy, setBusy] = useState<"logo" | "signature" | null>(null);
+  const current = branding.data;
+  const update = async (which: "logo" | "signature", pick: boolean) => {
+    if (!current) return;
+    setBusy(which);
+    try {
+      const image = pick
+        ? await pickBrandingImage(which === "logo" ? 600 : 400)
+        : null;
+      if (pick && !image) return;
+      await save.mutateAsync({
+        logo: which === "logo" ? image : current.logo,
+        signature: which === "signature" ? image : current.signature,
+        version: current.version,
+      });
+    } catch (e) {
+      showError("Couldn't save the image", e);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const row = (which: "logo" | "signature", title: string, note: string) => {
+    const uri = current?.[which];
+    return (
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
+      >
+        <View
+          style={{
+            width: 96,
+            height: 56,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            borderRadius: radius.card,
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
+        >
+          {uri ? (
+            <Image
+              source={{ uri }}
+              accessibilityLabel={title}
+              style={{ width: 92, height: 52 }}
+              resizeMode="contain"
+            />
+          ) : (
+            <Txt variant="caption" tone="body">
+              None
+            </Txt>
+          )}
+        </View>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <Txt variant="bodyStrong">{title}</Txt>
+          <Txt variant="caption" tone="body">
+            {note}
+          </Txt>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <Button
+              label={uri ? "Change" : "Choose image"}
+              size="sm"
+              onPress={() => update(which, true)}
+              loading={busy === which}
+              disabled={!current || busy !== null}
+            />
+            {uri ? (
+              <Button
+                label="Remove"
+                size="sm"
+                onPress={() => update(which, false)}
+                disabled={busy !== null}
+              />
+            ) : null}
+          </View>
+        </View>
+      </View>
+    );
+  };
+  return (
+    <View style={{ gap: space.sm }}>
+      <Txt variant="heading">Logo and signature</Txt>
+      {row("logo", "Logo", "Printed at the top of every bill and order")}
+      {row(
+        "signature",
+        "Signature or stamp",
+        "Printed above Authorised signatory",
+      )}
     </View>
   );
 }

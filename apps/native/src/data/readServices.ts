@@ -1,4 +1,5 @@
 import * as c from "@repo/contracts";
+import { matchVersion } from "./masterServices";
 import { z } from "zod";
 import { PAGE_SIZE } from "@repo/core";
 import { type Client, pageQuery, queryString, statementPageOf } from "./client";
@@ -151,6 +152,13 @@ export function readServices({ request, pages }: Client) {
         request("/settings/invoice", c.InvoiceSettings, {
           method: "PATCH",
           body,
+        }),
+      branding: () => request("/settings/branding", c.BrandingView),
+      updateBranding: (body, version?: number) =>
+        request("/settings/branding", c.BrandingView, {
+          method: "PUT",
+          body,
+          headers: matchVersion(version ?? 0),
         }),
       team,
       updateMember: async (id, patch) => {

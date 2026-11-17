@@ -57,6 +57,7 @@ const first: TableName[] = [
   "openingAccounts",
   "invoiceSettings",
   "reminderSettings",
+  "firmBranding",
   "voucherCounters",
   "masterImportBatches",
   "importedOpeningBalances",

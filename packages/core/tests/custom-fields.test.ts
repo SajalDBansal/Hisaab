@@ -228,3 +228,36 @@ describe("printing custom fields", () => {
     expect(html).not.toContain("secret");
   });
 });
+
+describe("logo and signature on documents (doc 37, T16)", () => {
+  test("PNG/JPEG data URIs print; anything else is dropped", async () => {
+    const { voucherHtml } = await import("../src/print/voucherHtml");
+    const db = books();
+    db.customFieldDefs = [];
+    const sale = createSale(db, {
+      date: "2026-10-10",
+      partyId: "customer",
+      lines: [line],
+    });
+    const html = (branding: { logo?: string; signature?: string }) =>
+      voucherHtml({
+        firm: db.firm,
+        voucher: sale,
+        party: db.parties[0],
+        items: db.items,
+        settings: db.invoiceSettings,
+        branding,
+      }).html;
+    const logo = "data:image/png;base64,iVBORw0KGgo=";
+    const sign = "data:image/jpeg;base64,/9j/4AAQ";
+    const printed = html({ logo, signature: sign });
+    expect(printed).toContain(`src="${logo}"`);
+    expect(printed).toContain(`src="${sign}"`);
+    const hostile = html({
+      logo: 'https://evil.example/x.png" onerror="alert(1)',
+      signature: "data:image/svg+xml;base64,PHN2Zz4=",
+    });
+    expect(hostile).not.toContain("evil.example");
+    expect(hostile).not.toContain("svg+xml");
+  });
+});

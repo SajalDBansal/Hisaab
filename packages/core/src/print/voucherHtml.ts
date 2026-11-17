@@ -58,6 +58,17 @@ export interface PrintInput {
   allocatedTo?: { number: string; amount: number }[];
   /** The firm's custom field definitions; those marked "print" are printed (doc 37, T07). */
   customFields?: CustomFieldDef[];
+  /** Firm logo and signatory's signature as data:image URIs (doc 37, T16). */
+  branding?: { logo?: string | null; signature?: string | null };
+}
+
+/** Only PNG or JPEG data URIs reach the page; anything else is dropped. */
+const safeImage = (uri?: string | null) =>
+  uri && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(uri) ? uri : "";
+
+function signBlock(firmName: string, signature?: string | null) {
+  const image = safeImage(signature);
+  return `<div class="sign small">For <b>${esc(firmName)}</b><br/>${image ? `<img src="${image}" alt="" style="max-height:48px;max-width:160px;display:block;margin:4px 0 2px auto"/>` : "<br/><br/>"}Authorised signatory</div>`;
 }
 
 /** [label, value] pairs of a record's custom fields marked for printing. */
@@ -193,7 +204,8 @@ h1 { font-size: 15px; }
 // Pieces
 // ---------------------------------------------------------------------------
 
-function firmBlock(firm: Firm, compact: boolean) {
+function firmBlock(firm: Firm, compact: boolean, logo?: string | null) {
+  const image = safeImage(logo);
   const lines = [
     [firm.address, firm.city].filter(Boolean).join(", "),
     `${stateName(firm.stateCode)} (${firm.stateCode})`,
@@ -201,7 +213,7 @@ function firmBlock(firm: Firm, compact: boolean) {
     firm.gstin ? `GSTIN ${firm.gstin}` : "",
     !compact && firm.pan ? `PAN ${firm.pan}` : "",
   ].filter(Boolean);
-  return `<h1>${esc(firm.name)}</h1>${lines.map((l) => `<div class="small muted">${esc(l)}</div>`).join("")}`;
+  return `${image ? `<img src="${image}" alt="" style="max-height:${compact ? 40 : 64}px;max-width:${compact ? 120 : 200}px;display:block;margin-bottom:4px"/>` : ""}<h1>${esc(firm.name)}</h1>${lines.map((l) => `<div class="small muted">${esc(l)}</div>`).join("")}`;
 }
 
 function partyBlock(
@@ -430,13 +442,13 @@ ${rates
     (isSale || isQuote) && settings.terms
       ? `<div class="small"><b>Terms</b><br/>${esc(settings.terms)}</div>`
       : "";
-  const sign = `<div class="sign small">For <b>${esc(firm.name)}</b><br/><br/><br/>Authorised signatory</div>`;
+  const sign = signBlock(firm.name, input.branding?.signature);
   const copyTag =
     isSale || isNote ? `<span class="tag">Original for recipient</span>` : "";
 
   if (compact) {
     return `<div class="sheet">
-<div class="sec">${firmBlock(firm, true)}</div>
+<div class="sec">${firmBlock(firm, true, input.branding?.logo)}</div>
 <div class="sec"><div class="title">${esc(title)}</div>${meta}</div>
 <div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div>
 <div class="sec">${itemsTable}</div>
@@ -448,7 +460,7 @@ ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${t
 
   if (template === "modern") {
     return `<div class="sheet">
-<div class="row sec"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right">${copyTag}</div></div>
+<div class="row sec"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right">${copyTag}</div></div>
 <div class="band row"><span class="title">${esc(title)}</span><span>${esc(v.number)}</span></div>
 <div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col card box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
@@ -461,7 +473,7 @@ ${sign}
 
   // classic
   return `<div class="sheet">
-<div class="sec box row"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
+<div class="sec box row"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
 <div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="sec row split"><div class="col box">${taxBreakup}${supplyNote}</div><div class="col box">${totalsTable}</div></div>
@@ -496,7 +508,7 @@ function moneyHtml(input: PrintInput, title: string): string {
     ? `<tr><td>TDS ${esc(v.tds.section)} @ ${v.tds.rate}% kept back</td><td class="num">${inr(v.tds.amount)}</td></tr>`
     : "";
   return `<div class="sheet">
-<div class="sec box">${firmBlock(firm, compact)}</div>
+<div class="sec box">${firmBlock(firm, compact, input.branding?.logo)}</div>
 <div class="sec box row"><div class="col">${partyBlock(v, party, isReceipt ? "Received from" : "Paid to", gstModeOf(firm) !== "off")}</div><div class="col"><div class="title">${esc(title)}</div>${meta}</div></div>
 <div class="sec box">
 <div class="small muted">Amount</div>
@@ -505,7 +517,7 @@ function moneyHtml(input: PrintInput, title: string): string {
 </div>
 ${against || tds ? `<div class="sec box"><table class="totals"><tr><th>Against bill</th><th class="num">Amount</th></tr>${against}${tds}</table></div>` : ""}
 ${v.narration ? `<div class="sec box small">${esc(v.narration)}</div>` : ""}
-<div class="box">${`<div class="sign small">For <b>${esc(firm.name)}</b><br/><br/><br/>Authorised signatory</div>`}</div>
+<div class="box">${signBlock(firm.name, input.branding?.signature)}</div>
 </div>
 <div class="foot">Made with Hisaab</div>`;
 }
@@ -519,7 +531,7 @@ function voucherOnlyHtml(input: PrintInput, title: string): string {
     )
     .join("");
   return `<div class="sheet">
-<div class="sec box">${firmBlock(firm, false)}</div>
+<div class="sec box">${firmBlock(firm, false, input.branding?.logo)}</div>
 <div class="sec box"><div class="title">${esc(title)}</div>${metaRows([
     ["No.", v.number],
     ["Date", formatDate(v.date)],

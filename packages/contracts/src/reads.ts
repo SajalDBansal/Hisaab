@@ -5,7 +5,7 @@ import { z } from "zod";
  * for these paths and a batch may hold only these paths, so the two can't drift.
  */
 export const OFFLINE_READABLE_PATH =
-  /^\/v1\/(parties|items|ledgers|vouchers|reports|accounts|units|gst|inventory|loans|settlements|associates|audit-log|notifications|reminders)(\/|\?|$)|^\/v1\/settings\/(invoice|books|reminders|team|custom-fields)(\/|\?|$)|^\/v1\/firms\/current(\?|$)/;
+  /^\/v1\/(parties|items|ledgers|vouchers|reports|accounts|units|gst|inventory|loans|settlements|associates|audit-log|notifications|reminders)(\/|\?|$)|^\/v1\/settings\/(invoice|books|reminders|team|custom-fields|branding)(\/|\?|$)|^\/v1\/firms\/current(\?|$)/;
 export const BATCH_READABLE_PATH = OFFLINE_READABLE_PATH;
 /** Reads that render files or start work are never batched. */
 export const BATCH_EXCLUDED_PATH =
