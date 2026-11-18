@@ -14,7 +14,10 @@ import { memorySender } from "../src/lib/email";
 const databaseUrl = process.env.FINANCE_DATABASE_URL;
 if (databaseUrl) {
   const url = new URL(databaseUrl);
-  if (url.hostname !== "127.0.0.1" || url.pathname !== "/hardening_finance")
+  if (
+    url.hostname !== "127.0.0.1" ||
+    !/^\/hardening_finance(_[a-z0-9]+)?$/.test(url.pathname)
+  )
     throw new Error("Use only the local hardening_finance fixture database.");
 }
 

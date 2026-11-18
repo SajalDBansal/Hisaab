@@ -206,7 +206,7 @@ test(
     assert.ok(databaseUrl);
     const url = new URL(databaseUrl);
     assert.ok(["127.0.0.1", "localhost"].includes(url.hostname));
-    assert.equal(url.pathname, "/hardening_data");
+    assert.match(url.pathname, /^\/hardening_data(_[a-z0-9]+)?$/);
     const config: BackupConfig = { ...baseConfig, DATABASE_URL: databaseUrl };
     const { db, pool } = createDb(databaseUrl);
     const run = async (

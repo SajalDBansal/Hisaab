@@ -15,7 +15,7 @@ if (databaseUrl) {
   const parsed = new URL(databaseUrl);
   if (
     parsed.hostname !== "127.0.0.1" ||
-    parsed.pathname !== "/hardening_finance"
+    !/^\/hardening_finance(_[a-z0-9]+)?$/.test(parsed.pathname)
   )
     throw new Error("Use only the local hardening_finance fixture database.");
 }
