@@ -6,6 +6,23 @@ import { ledgerSections, trialBalanceSection } from "./ledger";
 import { daybookSection, moneyRegister, tradeRegister } from "./registers";
 import { expenseSection, outstandingSection, stockSection } from "./summaries";
 import {
+  ITC_REVERSE_DAYS,
+  ITC_WARN_DAYS,
+  LOST_CUSTOMER_DAYS,
+  customerTrackingSection,
+  expensesByPartySection,
+  gstr2Sections,
+  interestSection,
+  itcAtRiskSection,
+  orderRegisterSection,
+  taxSummarySection,
+  tFormatBalanceSheetSection,
+  tFormatProfitLossSections,
+  topPartiesSection,
+  tradeByItemSection,
+  tradeByPartySection,
+} from "./insights";
+import {
   REPORTS,
   ReportInputError,
   type ReportBooks,
@@ -31,6 +48,16 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
       `These books begin on ${formatDate(books.firm.fyStart)}.`,
     );
   const definition = REPORTS[request.report];
+  if (request.interestRate !== undefined) {
+    if (request.report !== "interest-calculator")
+      throw new ReportInputError("Only the interest calculator takes a rate.");
+    if (
+      !Number.isFinite(request.interestRate) ||
+      request.interestRate < 0 ||
+      request.interestRate > 60
+    )
+      throw new ReportInputError("Use an interest rate from 0 to 60% a year.");
+  }
   if (request.accountKey && !definition.accounts)
     throw new ReportInputError("This report cannot be filtered by account.");
   if (
@@ -82,6 +109,36 @@ function buildSections(
       return [outstandingSection(books, request)];
     case "stock":
       return [stockSection(books, request)];
+    case "profit-loss-t":
+      return tFormatProfitLossSections(books, request);
+    case "balance-sheet-t":
+      return [tFormatBalanceSheetSection(books, request)];
+    case "itc-at-risk":
+      return [itcAtRiskSection(books, request)];
+    case "interest-calculator":
+      return [interestSection(books, request)];
+    case "customer-tracking":
+      return [customerTrackingSection(books, request)];
+    case "top-customers":
+    case "top-suppliers":
+      return [topPartiesSection(books, request)];
+    case "sales-by-party":
+    case "purchases-by-party":
+      return [tradeByPartySection(books, request)];
+    case "sales-by-item":
+    case "purchases-by-item":
+      return [tradeByItemSection(books, request)];
+    case "expenses-by-party":
+      return [expensesByPartySection(books, request)];
+    case "estimates-register":
+    case "sales-orders-register":
+    case "delivery-notes-register":
+    case "purchase-orders-register":
+      return [orderRegisterSection(books, request)];
+    case "gstr2":
+      return gstr2Sections(books, request);
+    case "tax-summary":
+      return [taxSummarySection(books, request)];
   }
 }
 
@@ -112,6 +169,22 @@ export function buildReport(
   )
     notes.push(
       "Stock uses purchase-lot cost after discounts. Freight remains a period expense. Legacy unassigned movements use FIFO; opening costs use the saved migration baseline.",
+    );
+  if (request.report === "itc-at-risk")
+    notes.push(
+      `Input GST on a supplier bill must be reversed if the bill is not paid within ${ITC_REVERSE_DAYS} days of its date (CGST Act s.16(2)); it can be claimed again once paid. ITC at risk is the bill's GST in proportion to what is still unpaid, as of the report date. Bills from ${ITC_WARN_DAYS} days are shown so they can be paid in time.`,
+    );
+  if (request.report === "interest-calculator")
+    notes.push(
+      "Simple interest on the balance still due, from each invoice's due date to the report date. This is a working figure; it is not posted to the books.",
+    );
+  if (request.report === "customer-tracking")
+    notes.push(
+      `New: first sale in the period. Lost: no sale in the ${LOST_CUSTOMER_DAYS} days before the report's end. Net sales take off returns in the period.`,
+    );
+  if (["gstr2", "tax-summary"].includes(request.report))
+    notes.push(
+      "Book workings from posted entries, including GST on paid expenses; returns are netted off. Not a filed return.",
     );
   if (request.report === "comparative-profit-loss")
     notes.push(

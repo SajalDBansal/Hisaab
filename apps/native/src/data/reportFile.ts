@@ -1,9 +1,14 @@
-import { reportCsv, reportHtml, type ReportDocument } from "@repo/core";
+import {
+  reportCsv,
+  reportHtml,
+  reportXlsx,
+  type ReportDocument,
+} from "@repo/core";
 import { File, Paths } from "expo-file-system";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
-export type ReportFormat = "pdf" | "csv";
+export type ReportFormat = "pdf" | "csv" | "xlsx";
 
 /** Phone exports use the system share sheet so users can choose Files, Drive, email or another app. */
 export async function saveReportFile(
@@ -24,6 +29,9 @@ export async function saveReportFile(
   if (format === "csv") {
     file.create();
     file.write(reportCsv(report));
+  } else if (format === "xlsx") {
+    file.create();
+    file.write(reportXlsx(report));
   } else {
     const landscape = report.sections.some((s) => s.columns.length > 5);
     const pdf = await Print.printToFileAsync({
@@ -43,9 +51,18 @@ export async function saveReportFile(
     }
   }
   await Sharing.shareAsync(file.uri, {
-    mimeType: format === "pdf" ? "application/pdf" : "text/csv",
+    mimeType:
+      format === "pdf"
+        ? "application/pdf"
+        : format === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "text/csv",
     UTI:
-      format === "pdf" ? "com.adobe.pdf" : "public.comma-separated-values-text",
+      format === "pdf"
+        ? "com.adobe.pdf"
+        : format === "xlsx"
+          ? "org.openxmlformats.spreadsheetml.sheet"
+          : "public.comma-separated-values-text",
     dialogTitle: report.title,
   });
 }

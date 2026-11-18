@@ -1,7 +1,7 @@
-import { reportCsv, type ReportDocument } from "@repo/core";
+import { reportCsv, reportXlsx, type ReportDocument } from "@repo/core";
 import { makeReportPdf } from "./reportPdf.web";
 
-export type ReportFormat = "pdf" | "csv";
+export type ReportFormat = "pdf" | "csv" | "xlsx";
 
 /** Web exports download a file directly, without requiring a browser share gesture. */
 export async function saveReportFile(
@@ -11,7 +11,11 @@ export async function saveReportFile(
   const blob =
     format === "csv"
       ? new Blob([reportCsv(report)], { type: "text/csv;charset=utf-8" })
-      : await makeReportPdf(report);
+      : format === "xlsx"
+        ? new Blob([reportXlsx(report) as BlobPart], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          })
+        : await makeReportPdf(report);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

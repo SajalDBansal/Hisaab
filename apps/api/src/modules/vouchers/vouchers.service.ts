@@ -1,5 +1,4 @@
 import {
-  can,
   canVoucher,
   describeAccount,
   calcInvoice,

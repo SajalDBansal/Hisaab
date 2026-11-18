@@ -12,6 +12,8 @@ export const ReportRequest = z
     partyId: Id.optional(),
     includeNarration: z.boolean().default(true),
     includeZeroBalances: z.boolean().default(false),
+    /** Interest calculator only: yearly rate in percent. */
+    interestRate: z.number().min(0).max(60).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

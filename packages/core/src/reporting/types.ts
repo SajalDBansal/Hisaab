@@ -23,6 +23,25 @@ export const REPORT_IDS = [
   "payables",
   "stock",
   "tax-ledgers",
+  // Phase 1 (doc 37)
+  "profit-loss-t",
+  "balance-sheet-t",
+  "itc-at-risk",
+  "interest-calculator",
+  "customer-tracking",
+  "top-customers",
+  "top-suppliers",
+  "sales-by-party",
+  "sales-by-item",
+  "purchases-by-party",
+  "purchases-by-item",
+  "expenses-by-party",
+  "estimates-register",
+  "sales-orders-register",
+  "delivery-notes-register",
+  "purchase-orders-register",
+  "gstr2",
+  "tax-summary",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -129,6 +148,86 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     category: "Tax",
     zeroBalances: true,
   },
+  "profit-loss-t": {
+    title: "Profit and loss (T format)",
+    category: "Financial statements",
+  },
+  "balance-sheet-t": {
+    title: "Balance sheet (T format)",
+    category: "Financial statements",
+    asOf: true,
+  },
+  "itc-at-risk": {
+    title: "ITC at risk (unpaid 150+ days)",
+    category: "Tax",
+    asOf: true,
+    parties: true,
+  },
+  "interest-calculator": {
+    title: "Interest on overdue invoices",
+    category: "Outstanding",
+    asOf: true,
+    parties: true,
+  },
+  "customer-tracking": {
+    title: "Customer tracking",
+    category: "Customers and suppliers",
+    parties: true,
+  },
+  "top-customers": {
+    title: "Most valuable customers",
+    category: "Customers and suppliers",
+  },
+  "top-suppliers": {
+    title: "Most valuable suppliers",
+    category: "Customers and suppliers",
+  },
+  "sales-by-party": {
+    title: "Sales by customer",
+    category: "Trading",
+    parties: true,
+  },
+  "sales-by-item": {
+    title: "Sales by item",
+    category: "Trading",
+    parties: true,
+  },
+  "purchases-by-party": {
+    title: "Purchases by supplier",
+    category: "Trading",
+    parties: true,
+  },
+  "purchases-by-item": {
+    title: "Purchases by item",
+    category: "Trading",
+    parties: true,
+  },
+  "expenses-by-party": {
+    title: "Expenses by supplier",
+    category: "Cash and expenses",
+  },
+  "estimates-register": {
+    title: "Estimates",
+    category: "Orders",
+    parties: true,
+  },
+  "sales-orders-register": {
+    title: "Sales orders",
+    category: "Orders",
+    parties: true,
+  },
+  "delivery-notes-register": {
+    title: "Delivery notes",
+    category: "Orders",
+    parties: true,
+  },
+  "purchase-orders-register": {
+    title: "Purchase orders",
+    category: "Orders",
+    parties: true,
+  },
+  gstr2: { title: "GSTR-2 purchases", category: "Tax" },
+  "tax-summary": { title: "GST summary by rate", category: "Tax" },
 };
 
 export interface ReportRequest {
@@ -140,6 +239,8 @@ export interface ReportRequest {
   partyId?: string;
   includeNarration: boolean;
   includeZeroBalances: boolean;
+  /** Interest calculator: yearly rate in percent (default 18). */
+  interestRate?: number;
 }
 
 export interface ReportColumn {

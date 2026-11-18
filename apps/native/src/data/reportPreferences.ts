@@ -19,7 +19,7 @@ export const SavedReportFilter = z.discriminatedUnion("kind", [
       ...identity,
       kind: z.literal("report"),
       request: ReportRequest,
-      format: z.enum(["pdf", "csv"]),
+      format: z.enum(["pdf", "csv", "xlsx"]),
     })
     .strict(),
   z

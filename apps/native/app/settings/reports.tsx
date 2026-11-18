@@ -26,9 +26,29 @@ import {
   TaxScopeFilter,
   Segmented,
   SelectField,
+  TextField,
   Txt,
   type PickerOption,
 } from "@/components";
+
+/** Reports whose party filter lists only customers, or only suppliers. */
+const CUSTOMER_REPORTS: ReportId[] = [
+  "receivables",
+  "interest-calculator",
+  "customer-tracking",
+  "sales-by-party",
+  "sales-by-item",
+  "estimates-register",
+  "sales-orders-register",
+  "delivery-notes-register",
+];
+const SUPPLIER_REPORTS: ReportId[] = [
+  "payables",
+  "itc-at-risk",
+  "purchases-by-party",
+  "purchases-by-item",
+  "purchase-orders-register",
+];
 import { useChart, useExportReport, useFirm, useParties } from "@/data/queries";
 import { saveReportFile, type ReportFormat } from "@/data/reportFile";
 import { ReportPreferencesControls } from "@/data/reportPreferencesControls";
@@ -91,6 +111,7 @@ function ReportForm({ firm }: { firm: Firm }) {
   });
   const [period, setPeriod] = useState("fy");
   const [format, setFormat] = useState<ReportFormat>("pdf");
+  const [rateText, setRateText] = useState("18");
   const [picker, setPicker] = useState<
     "report" | "period" | "account" | "party" | null
   >(null);
@@ -115,9 +136,9 @@ function ReportForm({ firm }: { firm: Firm }) {
   const partyOptions = (parties.data ?? [])
     .map((p) => p.party)
     .filter((p) =>
-      request.report === "receivables"
+      CUSTOMER_REPORTS.includes(request.report)
         ? p.type === "customer"
-        : request.report === "payables"
+        : SUPPLIER_REPORTS.includes(request.report)
           ? p.type === "supplier"
           : true,
     )
@@ -141,6 +162,11 @@ function ReportForm({ firm }: { firm: Firm }) {
         report: id as ReportId,
         accountKey: undefined,
         partyId: undefined,
+        // Only the interest calculator takes a rate; the server refuses it elsewhere.
+        interestRate:
+          id === "interest-calculator"
+            ? (request.interestRate ?? 18)
+            : undefined,
       });
     if (picker === "account") update({ accountKey: id || undefined });
     if (picker === "party") update({ partyId: id || undefined });
@@ -257,6 +283,20 @@ function ReportForm({ firm }: { firm: Firm }) {
             onPress={() => setPicker("account")}
           />
         )}
+        {request.report === "interest-calculator" && (
+          <TextField
+            label="Interest rate (% a year)"
+            value={rateText}
+            keyboardType="decimal-pad"
+            onChangeText={(text) => {
+              const clean = text.replace(/[^d.]/g, "").slice(0, 5);
+              setRateText(clean);
+              const rate = Number(clean);
+              if (clean && Number.isFinite(rate) && rate <= 60)
+                update({ interestRate: rate });
+            }}
+          />
+        )}
         {definition.parties && (
           <SelectField
             label="Party"
@@ -283,7 +323,8 @@ function ReportForm({ firm }: { firm: Firm }) {
           <Segmented
             options={[
               { value: "pdf", label: "PDF" },
-              { value: "csv", label: "CSV (Excel)" },
+              { value: "xlsx", label: "Excel" },
+              { value: "csv", label: "CSV" },
             ]}
             value={format}
             onChange={setFormat}
