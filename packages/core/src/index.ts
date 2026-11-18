@@ -19,6 +19,7 @@ export * from "./roles";
 export * from "./states";
 export * from "./units";
 export * from "./customFields";
+export * from "./businessProfile";
 
 // Data services — the only way apps should read or write data.
 export { API_BASE_URL, resetDb, setReplicaBooks } from "./services/client";

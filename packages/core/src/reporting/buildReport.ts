@@ -15,6 +15,7 @@ import {
   gstr2Sections,
   interestSection,
   itcAtRiskSection,
+  msmePayablesSection,
   orderRegisterSection,
   taxSummarySection,
   tFormatBalanceSheetSection,
@@ -23,6 +24,7 @@ import {
   tradeByItemSection,
   tradeByPartySection,
 } from "./insights";
+import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
 import {
   REPORTS,
   ReportInputError,
@@ -31,6 +33,9 @@ import {
   type ReportRequest,
   type ReportSection,
 } from "./types";
+
+/** Reports that take a yearly interest rate. */
+const RATE_REPORTS: string[] = ["interest-calculator", "msme-payables"];
 
 function validateRequest(books: ReportBooks, request: ReportRequest) {
   if (!REPORTS[request.report]) throw new ReportInputError("Choose a report.");
@@ -50,8 +55,10 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
     );
   const definition = REPORTS[request.report];
   if (request.interestRate !== undefined) {
-    if (request.report !== "interest-calculator")
-      throw new ReportInputError("Only the interest calculator takes a rate.");
+    if (!RATE_REPORTS.includes(request.report))
+      throw new ReportInputError(
+        "Only the interest calculator and MSME payables take a rate.",
+      );
     if (
       !Number.isFinite(request.interestRate) ||
       request.interestRate < 0 ||
@@ -118,6 +125,8 @@ function buildSections(
       return [itcAtRiskSection(books, request)];
     case "interest-calculator":
       return [interestSection(books, request)];
+    case "msme-payables":
+      return [msmePayablesSection(books, request)];
     case "customer-tracking":
       return [customerTrackingSection(books, request)];
     case "top-customers":
@@ -181,6 +190,12 @@ export function buildReport(
   if (request.report === "interest-calculator")
     notes.push(
       "Simple interest on the balance still due, from each invoice's due date to the report date. This is a working figure; it is not posted to the books.",
+    );
+  if (request.report === "msme-payables")
+    notes.push(
+      `Micro and small suppliers must be paid by the agreed date, at most ${MSME_MAX_DAYS} days from accepting the goods or services, or within ${MSME_NO_AGREEMENT_DAYS} days when no credit period was agreed (MSMED Act s.15). The bill date is taken as the acceptance date and the bill's due date as the agreed date. Medium enterprises are not covered and are not listed.`,
+      "Interest (s.16): compound interest with monthly rests at three times the bank rate notified by the RBI, from the day after the pay-by date to the report date. The default rate assumes a 5.50% bank rate; check the RBI's current bank rate and set the rate on the report. Worked out on what is still unpaid; it is a working figure, not posted to the books.",
+      "Income Tax s.43B(h): an amount due to a micro or small enterprise that is not paid within this time limit is allowed as an expense only in the year it is actually paid. Bills still overdue at the year end are added back to income for that year.",
     );
   if (request.report === "customer-tracking")
     notes.push(

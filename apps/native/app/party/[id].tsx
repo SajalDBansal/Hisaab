@@ -3,6 +3,9 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import {
   canSeeCosts,
+  MSME_LABELS,
+  MSME_MAX_DAYS,
+  msmeCovered,
   formatDate,
   formatINR,
   type PartyDetail,
@@ -164,6 +167,15 @@ function PartyBody({
           {gst.on && p.gstin ? (
             <Txt variant="mono" tone="charcoal">
               GSTIN {p.gstin}
+            </Txt>
+          ) : null}
+          {p.type === "supplier" && p.msmeType ? (
+            <Txt variant="small" tone="charcoal">
+              {MSME_LABELS[p.msmeType]} enterprise (MSME)
+              {p.udyamNumber ? ` · ${p.udyamNumber}` : ""}
+              {msmeCovered(p.msmeType)
+                ? ` · pay within ${MSME_MAX_DAYS} days`
+                : ""}
             </Txt>
           ) : null}
         </View>

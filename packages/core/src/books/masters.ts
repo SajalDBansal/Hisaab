@@ -20,7 +20,34 @@ export function cleanParty(input: PartyInput): PartyInput {
     city: input.city.trim(),
     phone: input.phone.replace(/\D/g, ""),
     gstin: input.gstin?.trim().toUpperCase() || undefined,
+    ...cleanMsme(input),
   };
+}
+
+/**
+ * MSME details are kept for suppliers only (doc 37, T30). Left out = keep the
+ * stored ones; null = not an MSME (and no Udyam number).
+ */
+function cleanMsme(
+  input: PartyInput,
+): Pick<PartyInput, "msmeType" | "udyamNumber"> {
+  if (input.type !== "supplier") return { msmeType: null, udyamNumber: null };
+  if (input.msmeType === undefined) return {};
+  if (!input.msmeType) return { msmeType: null, udyamNumber: null };
+  return {
+    msmeType: input.msmeType,
+    udyamNumber:
+      input.udyamNumber?.trim().toUpperCase().replace(/s+/g, "") || null,
+  };
+}
+
+/** Puts cleaned MSME details on a stored party: null removes, left out keeps. */
+function applyMsme(party: Party, p: PartyInput) {
+  if (p.msmeType === undefined) return;
+  if (p.msmeType) party.msmeType = p.msmeType;
+  else delete party.msmeType;
+  if (p.udyamNumber) party.udyamNumber = p.udyamNumber;
+  else delete party.udyamNumber;
 }
 
 export function createParty(db: Db, input: PartyInput, date: ISODate): Party {
@@ -32,11 +59,13 @@ export function createParty(db: Db, input: PartyInput, date: ISODate): Party {
     "party",
     p.customFields,
   );
+  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
   const party: Party = {
     id: newId(p.type === "customer" ? "c" : "s"),
-    ...p,
+    ...rest,
     openingDate: date,
   };
+  applyMsme(party, p);
   db.parties.push(party);
   return party;
 }
@@ -57,7 +86,9 @@ export function updateParty(db: Db, id: ID, input: PartyInput): Party {
       `This party already has entries, so it can't be changed to a ${p.type}.`,
     );
   }
-  Object.assign(party, p);
+  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
+  Object.assign(party, rest);
+  applyMsme(party, p);
   return party;
 }
 

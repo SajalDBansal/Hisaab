@@ -11,6 +11,7 @@ import {
   calcLine,
   type LineTotals,
 } from "../accounting/invoice";
+import { udyamLabel } from "../businessProfile";
 import { voucherPostings } from "../accounting/postings";
 import { lineQtyText } from "../accounting/stock";
 import { docTypeLabel, lineTaxType, taxTypeLabel } from "../accounting/taxType";
@@ -211,9 +212,26 @@ function firmBlock(firm: Firm, compact: boolean, logo?: string | null) {
   const lines = [
     [firm.address, firm.city].filter(Boolean).join(", "),
     `${stateName(firm.stateCode)} (${firm.stateCode})`,
-    [firm.phone && `Ph ${firm.phone}`, firm.email].filter(Boolean).join(" · "),
+    [firm.phone && `Ph ${firm.phone}`, firm.email, !compact && firm.website]
+      .filter(Boolean)
+      .join(" · "),
     firm.gstin ? `GSTIN ${firm.gstin}` : "",
-    !compact && firm.pan ? `PAN ${firm.pan}` : "",
+    // Statutory numbers (doc 37, T61): food and drug licences go on every
+    // bill (FSSAI and drug rules); CIN, PAN and Udyam on full-size bills.
+    !compact
+      ? [firm.pan && `PAN ${firm.pan}`, firm.cin && `CIN ${firm.cin}`]
+          .filter(Boolean)
+          .join(" · ")
+      : "",
+    [
+      firm.fssai && `FSSAI Lic. No. ${firm.fssai}`,
+      firm.drugLicence && `D.L. No. ${firm.drugLicence}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    !compact && firm.msmeType && firm.udyamNumber
+      ? `Udyam Reg. No. ${udyamLabel(firm)}`
+      : "",
   ].filter(Boolean);
   return `${image ? `<img src="${image}" alt="" style="max-height:${compact ? 40 : 64}px;max-width:${compact ? 120 : 200}px;display:block;margin-bottom:4px"/>` : ""}<h1>${esc(firm.name)}</h1>${lines.map((l) => `<div class="small muted">${esc(l)}</div>`).join("")}`;
 }

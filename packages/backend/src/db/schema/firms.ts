@@ -29,6 +29,28 @@ export const invoiceTemplate = pgEnum("invoice_template", [
   "compact",
 ]);
 
+// Business profile and MSME (doc 37, T61 and T30).
+export const msmeType = pgEnum("msme_type", ["micro", "small", "medium"]);
+export const ownershipType = pgEnum("ownership_type", [
+  "proprietorship",
+  "partnership",
+  "llp",
+  "private-limited",
+  "public-limited",
+  "one-person-company",
+  "huf",
+  "trust-society",
+  "other",
+]);
+export const businessType = pgEnum("business_type", [
+  "retail",
+  "wholesale",
+  "distribution",
+  "manufacturing",
+  "services",
+  "other",
+]);
+
 const firmKey = () =>
   uuid("firm_id")
     .primaryKey()
@@ -49,6 +71,18 @@ export const firmProfile = pgTable("firm_profile", {
   phone: text("phone"),
   email: text("email"),
   pan: text("pan"),
+  // Optional statutory details (doc 37, T61); null when not given.
+  ownershipType: ownershipType("ownership_type"),
+  businessType: businessType("business_type"),
+  industry: text("industry"),
+  cin: text("cin"),
+  tan: text("tan"),
+  udyamNumber: text("udyam_number"),
+  msmeType: msmeType("msme_type"),
+  iec: text("iec"),
+  fssai: text("fssai"),
+  drugLicence: text("drug_licence"),
+  website: text("website"),
   ...stamps,
 });
 

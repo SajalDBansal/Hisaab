@@ -3,6 +3,7 @@
  * Each function returns the first problem as a sentence the user can act on, or null if all is well.
  */
 import type { Bill } from "./accounting/bills";
+import { checkMsme } from "./businessProfile";
 import { formatINR } from "./money";
 import { stateFromGstin } from "./states";
 import type {
@@ -157,7 +158,14 @@ export function checkFirm(
 
 export type PartyErrors = Partial<
   Record<
-    "name" | "phone" | "gstin" | "stateCode" | "creditDays" | "creditLimit",
+    | "name"
+    | "phone"
+    | "gstin"
+    | "stateCode"
+    | "creditDays"
+    | "creditLimit"
+    | "msmeType"
+    | "udyamNumber",
     string
   >
 >;
@@ -191,6 +199,14 @@ export function checkParty(
   if (!Number.isInteger(p.creditDays) || p.creditDays < 0 || p.creditDays > 365)
     e.creditDays = "Credit days should be 0 to 365.";
   if (p.creditLimit < 0) e.creditLimit = "Credit limit can't be negative.";
+  if (p.type === "supplier")
+    Object.assign(
+      e,
+      checkMsme({
+        msmeType: p.msmeType ?? undefined,
+        udyamNumber: p.udyamNumber ?? undefined,
+      }),
+    );
   return e;
 }
 

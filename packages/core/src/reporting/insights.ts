@@ -3,7 +3,6 @@
  * posted entries in the firm's books, through the same helpers as the other
  * reports; nothing is filed or sent anywhere.
  */
-import { isPosted, partyBills } from "../accounting/bills";
 import {
   ITC_REVERSE_DAYS,
   ITC_WARN_DAYS,
@@ -12,6 +11,15 @@ import {
   itcAtRiskBills,
   rankParties,
 } from "../accounting/insightRules";
+import { collectionBills, isPosted, partyBills } from "../accounting/bills";
+import {
+  DEFAULT_MSME_INTEREST_RATE,
+  MSME_DUE_SOON_DAYS,
+  msmeCovered,
+  msmeInterest,
+  msmePayBy,
+} from "../accounting/msme";
+import { MSME_LABELS } from "../businessProfile";
 import { periodProfitAndLoss } from "../accounting/generalLedger";
 import { calcInvoice } from "../accounting/invoice";
 import { orderStatus } from "../accounting/orders";
@@ -163,6 +171,78 @@ export function interestSection(
       numberColumn("Days overdue"),
       moneyColumn("Balance due"),
       moneyColumn("Interest"),
+      moneyColumn("With interest"),
+    ],
+    rows,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// MSME payables (T30)
+// ---------------------------------------------------------------------------
+
+/**
+ * Unpaid bills of micro and small suppliers with the date they must be paid
+ * by (MSMED Act s.15) and, once late, s.16 interest at the chosen yearly rate
+ * (compound, monthly rests). On-account payments are set against the oldest
+ * bills first, as on the party screen.
+ */
+export function msmePayablesSection(
+  books: ReportBooks,
+  request: ReportRequest,
+): ReportSection {
+  const asOf = request.to;
+  const rate = request.interestRate ?? DEFAULT_MSME_INTEREST_RATE;
+  const rows: ReportRow[] = [];
+  for (const supplier of books.parties) {
+    if (supplier.type !== "supplier" || !msmeCovered(supplier.msmeType))
+      continue;
+    if (request.partyId && supplier.id !== request.partyId) continue;
+    for (const bill of collectionBills(supplier, books.vouchers, asOf)) {
+      if (bill.pending <= 0) continue;
+      const voucher = books.vouchers.find((v) => v.id === bill.id);
+      const payBy = msmePayBy(bill.date, bill.dueDate);
+      const late = daysBetween(payBy, asOf);
+      const { interest } = msmeInterest(bill.pending, payBy, asOf, rate);
+      rows.push(
+        reportRow(
+          late > 0
+            ? "Overdue"
+            : -late <= MSME_DUE_SOON_DAYS
+              ? "Due soon"
+              : "Not due",
+          bill.number,
+          voucher?.supplierInvoiceNo ?? "",
+          (voucher && voucherParty(books, voucher)?.name) ?? supplier.name,
+          MSME_LABELS[supplier.msmeType!],
+          formatDate(bill.date),
+          formatDate(payBy),
+          Math.max(late, 0),
+          bill.pending,
+          interest,
+          bill.pending + interest,
+        ),
+      );
+    }
+  }
+  rows.sort(
+    (a, b) =>
+      Number(b.cells[7]) - Number(a.cells[7]) ||
+      String(a.cells[1]).localeCompare(String(b.cells[1])),
+  );
+  return appendTotals({
+    title: `${REPORTS["msme-payables"].title}, interest at ${rate}% a year`,
+    columns: [
+      textColumn("Status"),
+      textColumn("Bill"),
+      textColumn("Supplier invoice"),
+      textColumn("Supplier"),
+      textColumn("MSME"),
+      textColumn("Bill date"),
+      textColumn("Pay by"),
+      numberColumn("Days overdue"),
+      moneyColumn("Unpaid"),
+      moneyColumn("Interest (s.16)"),
       moneyColumn("With interest"),
     ],
     rows,

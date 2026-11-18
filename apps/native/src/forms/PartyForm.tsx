@@ -17,7 +17,11 @@ import {
   type PartyInput,
   type PartyType,
   fieldsFor,
+  MSME_LABELS,
+  MSME_MAX_DAYS,
+  MSME_TYPES,
   type CustomFieldValues,
+  type MsmeType,
 } from "@repo/core";
 import {
   AmountField,
@@ -92,6 +96,11 @@ export function PartyForm({
         ? "give"
         : "get",
   );
+  // Suppliers' MSME class (doc 37, T30); "" = not an MSME.
+  const [msmeType, setMsmeType] = useState<MsmeType | "">(
+    party?.msmeType ?? "",
+  );
+  const [udyam, setUdyam] = useState(party?.udyamNumber ?? "");
   const [pickState, setPickState] = useState(false);
   const customDefs = useCustomFields().data;
   const [customValues, setCustomValues] = useState<CustomFieldValues>(
@@ -117,6 +126,12 @@ export function PartyForm({
     creditLimit: parseRupees(limitText) ?? 0,
     openingBalance: openingSide === "get" ? opening : -opening,
     customFields: customValues,
+    ...(type === "supplier"
+      ? {
+          msmeType: msmeType || null,
+          udyamNumber: (msmeType && udyam) || null,
+        }
+      : {}),
   };
   const errors = checkParty(
     input,
@@ -292,6 +307,47 @@ export function PartyForm({
           error={err("creditLimit")}
         />
       </Card>
+
+      {type === "supplier" ? (
+        <Card style={{ gap: space.md }}>
+          <View>
+            <Txt variant="bodyStrong">MSME supplier</Txt>
+            <Txt variant="caption" tone="body">
+              Micro and small enterprises must be paid within {MSME_MAX_DAYS}{" "}
+              days (MSMED Act s.15). Check their Udyam certificate.
+            </Txt>
+          </View>
+          <View
+            style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
+          >
+            <Chip
+              label="Not MSME"
+              selected={!msmeType}
+              onPress={() => setMsmeType("")}
+            />
+            {MSME_TYPES.map((t) => (
+              <Chip
+                key={t}
+                label={MSME_LABELS[t]}
+                selected={msmeType === t}
+                onPress={() => setMsmeType(t)}
+              />
+            ))}
+          </View>
+          {msmeType ? (
+            <TextField
+              label="Udyam registration number (optional)"
+              value={udyam}
+              onChangeText={(t) =>
+                setUdyam(t.toUpperCase().replace(/s/g, "").slice(0, 19))
+              }
+              placeholder="UDYAM-UP-09-0012345"
+              mono
+              error={err("udyamNumber")}
+            />
+          ) : null}
+        </Card>
+      ) : null}
 
       {fieldsFor(customDefs, "party").length ||
       Object.keys(customValues).length ? (

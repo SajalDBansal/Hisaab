@@ -3,6 +3,8 @@ import { useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { ReportRequest as RequestSchema } from "@repo/contracts";
 import {
+  DEFAULT_INTEREST_RATE,
+  DEFAULT_MSME_INTEREST_RATE,
   REPORT_IDS,
   REPORTS,
   addDays,
@@ -32,6 +34,12 @@ import {
   type PickerOption,
 } from "@/components";
 
+/** Reports that take a yearly interest rate, with the rate they start at. */
+const RATE_DEFAULTS: Partial<Record<ReportId, number>> = {
+  "interest-calculator": DEFAULT_INTEREST_RATE,
+  "msme-payables": DEFAULT_MSME_INTEREST_RATE,
+};
+
 /** Reports whose party filter lists only customers, or only suppliers. */
 const CUSTOMER_REPORTS: ReportId[] = [
   "receivables",
@@ -47,6 +55,7 @@ const CUSTOMER_REPORTS: ReportId[] = [
 const SUPPLIER_REPORTS: ReportId[] = [
   "payables",
   "itc-at-risk",
+  "msme-payables",
   "purchases-by-party",
   "purchases-by-item",
   "purchase-orders-register",
@@ -169,12 +178,11 @@ function ReportForm({ firm }: { firm: Firm }) {
         report: id as ReportId,
         accountKey: undefined,
         partyId: undefined,
-        // Only the interest calculator takes a rate; the server refuses it elsewhere.
-        interestRate:
-          id === "interest-calculator"
-            ? (request.interestRate ?? 18)
-            : undefined,
+        // Only these reports take a rate; the server refuses it elsewhere.
+        interestRate: RATE_DEFAULTS[id as ReportId],
       });
+    if (picker === "report" && RATE_DEFAULTS[id as ReportId] !== undefined)
+      setRateText(String(RATE_DEFAULTS[id as ReportId]));
     if (picker === "account") update({ accountKey: id || undefined });
     if (picker === "party") update({ partyId: id || undefined });
     if (picker === "period") {
@@ -228,6 +236,8 @@ function ReportForm({ firm }: { firm: Firm }) {
         onLoad={(filter) => {
           if (filter.kind !== "report") return;
           setRequest(filter.request);
+          if (filter.request.interestRate !== undefined)
+            setRateText(String(filter.request.interestRate));
           setFormat(filter.format);
           setPeriod("custom");
           setPreview(null);
@@ -290,13 +300,17 @@ function ReportForm({ firm }: { firm: Firm }) {
             onPress={() => setPicker("account")}
           />
         )}
-        {request.report === "interest-calculator" && (
+        {RATE_DEFAULTS[request.report] !== undefined && (
           <TextField
-            label="Interest rate (% a year)"
+            label={
+              request.report === "msme-payables"
+                ? "Interest rate (% a year, 3 × RBI bank rate)"
+                : "Interest rate (% a year)"
+            }
             value={rateText}
             keyboardType="decimal-pad"
             onChangeText={(text) => {
-              const clean = text.replace(/[^d.]/g, "").slice(0, 5);
+              const clean = text.replace(/[^0-9.]/g, "").slice(0, 5);
               setRateText(clean);
               const rate = Number(clean);
               if (clean && Number.isFinite(rate) && rate <= 60)
