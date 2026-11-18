@@ -133,6 +133,8 @@ export function sendAttachmentDraft(
       return service.createDebitNote(body as c.NewNoteInput);
     case "/orders/estimate":
       return service.createOrder("estimate", body as c.NewOrderInput);
+    case "/orders/proforma":
+      return service.createOrder("proforma", body as c.NewOrderInput);
     case "/orders/sales-order":
       return service.createOrder("sales-order", body as c.NewOrderInput);
     case "/orders/purchase-order":

@@ -39,6 +39,7 @@ const CUSTOMER_REPORTS: ReportId[] = [
   "sales-by-party",
   "sales-by-item",
   "estimates-register",
+  "proformas-register",
   "sales-orders-register",
   "delivery-notes-register",
 ];

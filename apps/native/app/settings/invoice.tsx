@@ -52,6 +52,7 @@ const TYPES: VoucherType[] = [
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",

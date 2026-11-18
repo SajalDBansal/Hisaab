@@ -35,12 +35,14 @@ export const VoucherType = z.enum([
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
 ]);
 export const OrderType = z.enum([
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -495,6 +497,7 @@ export const VoucherDetail = Voucher.extend({
       "sale",
       "purchase",
       "estimate",
+      "proforma",
       "sales-order",
       "delivery-note",
       "purchase-order",

@@ -55,6 +55,7 @@ const creates: Record<
   "/credit-notes": { schema: c.NewNoteInput, permissions: ["sales"] },
   "/debit-notes": { schema: c.NewNoteInput, permissions: ["purchase"] },
   "/orders/estimate": { schema: c.NewOrderInput, permissions: ["sales"] },
+  "/orders/proforma": { schema: c.NewOrderInput, permissions: ["sales"] },
   "/orders/sales-order": { schema: c.NewOrderInput, permissions: ["sales"] },
   "/orders/purchase-order": {
     schema: c.NewOrderInput,

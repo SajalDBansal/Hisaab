@@ -40,6 +40,7 @@ export const voucherType = pgEnum("voucher_type", [
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",

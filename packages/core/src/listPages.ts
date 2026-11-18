@@ -33,6 +33,7 @@ export const VOUCHER_TYPES: readonly VoucherType[] = [
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",

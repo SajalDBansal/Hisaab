@@ -32,6 +32,7 @@ async function everyPage(
 const SCOPES = ["all", "gst", "nongst"] as const;
 const ORDER_TYPES: OrderType[] = [
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -69,7 +70,13 @@ export async function downloadOfflineBooks(
         .filter((type) => can(role, type === "sale" ? "sales" : "purchase"))
         .map((type) => services.voucherService.listInvoices(type)),
       ...(
-        ["estimate", "sales-order", "purchase-order", "delivery-note"] as const
+        [
+          "estimate",
+          "proforma",
+          "sales-order",
+          "purchase-order",
+          "delivery-note",
+        ] as const
       )
         .filter(
           (type) =>

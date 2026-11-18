@@ -243,6 +243,8 @@ export type VoucherType =
   // Documents that don't touch the books until they become a bill:
   /** Quotation for a customer. */
   | "estimate"
+  /** Priced invoice sent before the sale, for an advance or approval. Not a tax invoice. */
+  | "proforma"
   /** Customer's confirmed order. */
   | "sales-order"
   /** Goods sent before the invoice (delivery challan). Moves stock until it is billed. */
@@ -252,7 +254,7 @@ export type VoucherType =
 
 /** Estimates and orders: they turn into a bill (or another document) later. */
 export type OrderType =
-  "estimate" | "sales-order" | "delivery-note" | "purchase-order";
+  "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
 
 export type VoucherStatus = "draft" | "posted" | "cancelled";
 

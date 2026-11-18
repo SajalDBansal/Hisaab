@@ -131,6 +131,7 @@ function buildSections(
     case "expenses-by-party":
       return [expensesByPartySection(books, request)];
     case "estimates-register":
+    case "proformas-register":
     case "sales-orders-register":
     case "delivery-notes-register":
     case "purchase-orders-register":

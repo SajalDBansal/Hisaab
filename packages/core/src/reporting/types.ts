@@ -37,6 +37,7 @@ export const REPORT_IDS = [
   "purchases-by-item",
   "expenses-by-party",
   "estimates-register",
+  "proformas-register",
   "sales-orders-register",
   "delivery-notes-register",
   "purchase-orders-register",
@@ -211,6 +212,11 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     category: "Orders",
     parties: true,
   },
+  "proformas-register": {
+    title: "Proforma invoices",
+    category: "Orders",
+    parties: true,
+  },
   "sales-orders-register": {
     title: "Sales orders",
     category: "Orders",
@@ -280,6 +286,7 @@ export const ENTRY_LABELS: Record<VoucherType, string> = {
   "credit-note": "Credit note",
   "debit-note": "Debit note",
   estimate: "Estimate",
+  proforma: "Proforma invoice",
   "sales-order": "Sales order",
   "purchase-order": "Purchase order",
   "delivery-note": "Delivery note",

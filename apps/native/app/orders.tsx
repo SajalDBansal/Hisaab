@@ -29,6 +29,7 @@ import { space } from "@/theme";
 
 const TABS: { value: OrderType; label: string }[] = [
   { value: "estimate", label: "Estimates" },
+  { value: "proforma", label: "Proforma" },
   { value: "sales-order", label: "Orders" },
   { value: "delivery-note", label: "Challans" },
   { value: "purchase-order", label: "POs" },

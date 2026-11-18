@@ -14,7 +14,7 @@ import type { CommissionPolicy } from "./associates";
 import type { PrintableDelivery } from "../print/associateDelivery";
 
 export type FulfillmentTarget =
-  "sale" | "purchase" | "sales-order" | "delivery-note";
+  "sale" | "purchase" | "proforma" | "sales-order" | "delivery-note";
 export interface FulfillmentInvoiceLine extends InvoiceLine {
   orderLineId?: string;
   orderSourceLineId?: string;

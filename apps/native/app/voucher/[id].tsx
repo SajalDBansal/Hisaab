@@ -8,6 +8,7 @@ import { VoucherAttachments } from "@/documents/VoucherAttachments";
 const CONVERT_LABEL: Record<string, string> = {
   sale: "Make sale invoice",
   purchase: "Make purchase bill",
+  proforma: "Make proforma invoice",
   "sales-order": "Make sales order",
   "delivery-note": "Make delivery challan",
 };

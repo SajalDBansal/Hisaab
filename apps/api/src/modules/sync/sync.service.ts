@@ -509,6 +509,7 @@ async function createVoucher(
     case "contra":
       return vouchersService.contra(db, vctx, mutation.data);
     case "estimate":
+    case "proforma":
     case "sales-order":
     case "delivery-note":
     case "purchase-order":

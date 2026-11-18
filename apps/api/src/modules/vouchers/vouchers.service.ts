@@ -117,6 +117,7 @@ export const NEEDS: Record<VoucherType, Permission> = {
   "credit-note": "sales",
   receipt: "sales",
   estimate: "sales",
+  proforma: "sales",
   "sales-order": "sales",
   "delivery-note": "sales",
   purchase: "purchase",
@@ -908,7 +909,7 @@ export const vouchersService = {
 };
 
 type OrderKind =
-  "estimate" | "sales-order" | "delivery-note" | "purchase-order";
+  "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
 
 async function invoice(
   db: Db,

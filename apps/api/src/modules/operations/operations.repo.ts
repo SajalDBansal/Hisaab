@@ -116,6 +116,13 @@ async function apply(
         "estimate",
         c.NewOrderInput.parse(body),
       );
+    case "/orders/proforma":
+      return vouchersService.order(
+        db,
+        actor,
+        "proforma",
+        c.NewOrderInput.parse(body),
+      );
     case "/orders/sales-order":
       return vouchersService.order(
         db,

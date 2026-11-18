@@ -30,6 +30,7 @@ export const CUSTOM_FIELD_VOUCHER_TYPES: VoucherType[] = [
   "sale",
   "purchase",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",

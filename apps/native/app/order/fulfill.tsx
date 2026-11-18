@@ -39,6 +39,7 @@ import { colors, space } from "@/theme";
 const labels = {
   sale: "Sale invoice",
   purchase: "Purchase bill",
+  proforma: "Proforma invoice",
   "sales-order": "Sales order",
   "delivery-note": "Delivery note",
 };

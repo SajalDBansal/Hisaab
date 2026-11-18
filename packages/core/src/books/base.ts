@@ -79,6 +79,7 @@ export const DEFAULT_PREFIXES: Record<VoucherType, string> = {
   "debit-note": "DN",
   contra: "CT",
   estimate: "EST",
+  proforma: "PF",
   "sales-order": "SO",
   "delivery-note": "DC",
   "purchase-order": "PO",

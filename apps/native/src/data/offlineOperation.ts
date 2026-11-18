@@ -105,6 +105,12 @@ const definitions: Record<string, Definition> = {
     permissions: ["sales"],
     label: "Estimate",
   },
+  "/orders/proforma": {
+    input: c.NewOrderInput,
+    output: c.Voucher,
+    permissions: ["sales"],
+    label: "Proforma invoice",
+  },
   "/orders/sales-order": {
     input: c.NewOrderInput,
     output: c.Voucher,

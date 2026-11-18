@@ -81,6 +81,7 @@ export function sideOf(type: VoucherType): Side | null {
       "sale",
       "credit-note",
       "estimate",
+      "proforma",
       "sales-order",
       "delivery-note",
     ].includes(type)

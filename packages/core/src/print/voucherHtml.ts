@@ -136,6 +136,8 @@ export function printTitle(v: Voucher): string {
       return "CONTRA VOUCHER";
     case "estimate":
       return "ESTIMATE";
+    case "proforma":
+      return "PROFORMA INVOICE";
     case "sales-order":
       return "SALES ORDER";
     case "delivery-note":
@@ -301,7 +303,8 @@ function billHtml(input: PrintInput, title: string): string {
   const showHsn = mode !== "off";
   const isSale = v.type === "sale";
   const isNote = v.type === "credit-note" || v.type === "debit-note";
-  const isQuote = v.type === "estimate" || v.type === "sales-order";
+  const isQuote =
+    v.type === "estimate" || v.type === "proforma" || v.type === "sales-order";
   const isChallan = v.type === "delivery-note";
   const partyLabel =
     v.type === "purchase" ||
@@ -316,6 +319,7 @@ function billHtml(input: PrintInput, title: string): string {
     "debit-note": "Note no.",
     purchase: "Voucher no.",
     estimate: "Estimate no.",
+    proforma: "Proforma no.",
     "sales-order": "Order no.",
     "purchase-order": "PO no.",
     "delivery-note": "Challan no.",
@@ -435,7 +439,9 @@ ${rates
 
   const bank = settings.bankAccount;
   const bankBlock =
-    (isSale || v.type === "estimate") && settings.showBankDetails && bank
+    (isSale || v.type === "estimate" || v.type === "proforma") &&
+    settings.showBankDetails &&
+    bank
       ? `<div class="small"><b>Bank details</b><br/>${esc(input.bankName ?? "")}<br/>A/c ${esc(bank.accountName)} · ${esc(bank.accountNumber)}<br/>IFSC ${esc(bank.ifsc)}${bank.upiId ? `<br/>UPI ${esc(bank.upiId)}` : ""}</div>`
       : "";
   const terms =
@@ -569,6 +575,7 @@ export function voucherHtml(input: PrintInput): Printable {
     v.type === "credit-note" ||
     v.type === "debit-note" ||
     v.type === "estimate" ||
+    v.type === "proforma" ||
     v.type === "sales-order" ||
     v.type === "delivery-note" ||
     v.type === "purchase-order"

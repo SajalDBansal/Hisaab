@@ -126,6 +126,7 @@ export const SyncPushMutation = z.union([
     entity: z.literal("voucher"),
     voucherType: z.enum([
       "estimate",
+      "proforma",
       "sales-order",
       "delivery-note",
       "purchase-order",

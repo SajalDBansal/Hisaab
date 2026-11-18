@@ -139,6 +139,17 @@ const TEXT = {
     saveLabel: "Save estimate",
     priceKey: "salePrice",
   },
+  proforma: {
+    title: "New Proforma Invoice",
+    numberLabel: "Proforma no.",
+    partyLabel: "Bill to",
+    partyWord: "customer",
+    paidHeading: "",
+    paidAmountLabel: "",
+    ledgerLabel: "",
+    saveLabel: "Save proforma",
+    priceKey: "salePrice",
+  },
   "sales-order": {
     title: "New Sales Order",
     numberLabel: "Order no.",

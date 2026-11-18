@@ -66,6 +66,7 @@ export const VOUCHER_MODULE: Record<VoucherType, Permission> = {
   "credit-note": "sales",
   receipt: "sales",
   estimate: "sales",
+  proforma: "sales",
   "sales-order": "sales",
   "delivery-note": "sales",
   purchase: "purchase",
@@ -85,6 +86,7 @@ const SALES_READ_TYPES: VoucherType[] = [
   "receipt",
   "credit-note",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
 ];

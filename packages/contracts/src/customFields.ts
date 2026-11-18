@@ -14,6 +14,7 @@ export const CUSTOM_FIELD_VOUCHER_TYPES = [
   "sale",
   "purchase",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",

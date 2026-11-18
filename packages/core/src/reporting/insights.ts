@@ -449,6 +449,7 @@ export function expensesByPartySection(
 
 const ORDER_REPORT_TYPE: Record<string, VoucherType> = {
   "estimates-register": "estimate",
+  "proformas-register": "proforma",
   "sales-orders-register": "sales-order",
   "delivery-notes-register": "delivery-note",
   "purchase-orders-register": "purchase-order",

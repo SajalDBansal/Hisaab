@@ -37,6 +37,7 @@ const labels: Record<FinancialAttachmentPath, string> = {
   "/credit-notes": "Credit note",
   "/debit-notes": "Debit note",
   "/orders/estimate": "Estimate",
+  "/orders/proforma": "Proforma invoice",
   "/orders/sales-order": "Sales order",
   "/orders/purchase-order": "Purchase order",
   "/orders/delivery-note": "Delivery note",

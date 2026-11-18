@@ -42,11 +42,13 @@ const BEFORE: Record<string, Permission[]> = {
   viewer: ["reports"],
 };
 const ALL: Permission[] = BEFORE.owner;
+// Proforma invoices (Phase 1) are sales documents like estimates.
 const SALES_READ: VoucherType[] = [
   "sale",
   "receipt",
   "credit-note",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
 ];
