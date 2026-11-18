@@ -175,6 +175,14 @@ export function readServices({ request, pages }: Client) {
           body,
           headers: matchVersion(version ?? 0),
         }),
+      salesControls: () =>
+        request("/settings/sales-controls", c.SalesControlsView),
+      updateSalesControls: (body, version?: number) =>
+        request("/settings/sales-controls", c.SalesControlsView, {
+          method: "PUT",
+          body,
+          headers: matchVersion(version ?? 0),
+        }),
       team,
       updateMember: async (id, patch) => {
         const target = (await team()).members.find(

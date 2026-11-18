@@ -267,6 +267,13 @@
       "when": 1794983789498,
       "tag": "0037_proforma",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794992102013,
+      "tag": "0038_sales_controls",
+      "breakpoints": true
     }
   ]
 }

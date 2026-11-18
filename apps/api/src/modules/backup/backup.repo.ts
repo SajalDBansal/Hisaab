@@ -24,6 +24,7 @@ export const backupTables = {
   invoiceSettings: schema.invoiceSettings,
   reminderSettings: schema.reminderSettings,
   firmBranding: schema.firmBranding,
+  salesControls: schema.salesControls,
   parties: schema.parties,
   items: schema.items,
   units: schema.units,
@@ -241,6 +242,7 @@ export async function readFirmExport(db: Reader, firmId: string) {
       "invoiceSettings",
       "reminderSettings",
       "firmBranding",
+      "salesControls",
       "bookControls",
     ].includes(name);
     data[name] = single ? (rows[0] ?? null) : rows;

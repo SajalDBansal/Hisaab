@@ -88,6 +88,19 @@ export const firmBranding = pgTable("firm_branding", {
   ...stamps,
 });
 
+// Credit control for sales (doc 37, T11). The credit limit itself is on each
+// party; this holds what overdue bills do to a new sale: off, warn or block.
+export const overdueSalesPolicy = pgEnum("overdue_sales_policy", [
+  "off",
+  "warn",
+  "block",
+]);
+export const salesControls = pgTable("sales_controls", {
+  firmId: firmKey(),
+  overdueSales: overdueSalesPolicy("overdue_sales").notNull().default("warn"),
+  ...stamps,
+});
+
 // Custom roles (doc 37, T57). A member's `role` holds "r_<id>" for these; the
 // built-in roles stay fixed in code. Rights: { permissions, vouchers, flags }.
 export const customRoles = pgTable(

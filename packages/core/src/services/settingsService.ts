@@ -8,6 +8,16 @@ import {
   transferOwnership,
 } from "../mock/db";
 import { clone, delay, getDb } from "./client";
+import {
+  DEFAULT_OVERDUE_SALES_POLICY,
+  type OverdueSalesPolicy,
+} from "../accounting/creditControl";
+
+/** Credit control (doc 37, T11), with the saved version. */
+export interface SalesControlsView {
+  overdueSales: OverdueSalesPolicy;
+  version: number;
+}
 
 /** Logo and signature as data:image URIs, with the saved version. */
 export interface Branding {
@@ -77,6 +87,32 @@ export const settingsService = {
     const db = getDb();
     db.branding = { ...input, version: (db.branding?.version ?? 0) + 1 };
     return clone(db.branding);
+  },
+
+  /** Credit control (doc 37, T11). Real API: GET /settings/sales-controls */
+  async salesControls(): Promise<SalesControlsView> {
+    await delay();
+    return clone(
+      getDb().salesControls ?? {
+        overdueSales: DEFAULT_OVERDUE_SALES_POLICY,
+        version: 0,
+      },
+    );
+  },
+
+  /** Real API: PUT /settings/sales-controls with If-Match. */
+  async updateSalesControls(
+    input: { overdueSales: OverdueSalesPolicy },
+    _version?: number,
+  ): Promise<SalesControlsView> {
+    void _version;
+    await delay();
+    const db = getDb();
+    db.salesControls = {
+      ...input,
+      version: (db.salesControls?.version ?? 0) + 1,
+    };
+    return clone(db.salesControls);
   },
 
   /** Real API: http.get<{ members: TeamMember[]; currentUserId: string }>("/team") */

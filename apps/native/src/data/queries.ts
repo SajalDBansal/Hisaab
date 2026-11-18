@@ -43,6 +43,7 @@ import {
   type VoucherType,
   registerRoles,
   type RoleDefinition,
+  type OverdueSalesPolicy,
 } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
@@ -713,6 +714,29 @@ export function useSaveBranding() {
     ) =>
       services.settingsService.updateBranding(
         { logo: args.logo, signature: args.signature },
+        args.version,
+      ),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Credit control: what overdue bills do to a new sale (doc 37, T11). */
+export function useSalesControls() {
+  return useQuery({
+    queryKey: ["sales-controls"],
+    queryFn: (services) => services.settingsService.salesControls(),
+  });
+}
+
+export function useSaveSalesControls() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { overdueSales: OverdueSalesPolicy; version: number },
+    ) =>
+      services.settingsService.updateSalesControls(
+        { overdueSales: args.overdueSales },
         args.version,
       ),
     onSuccess: refreshAll,

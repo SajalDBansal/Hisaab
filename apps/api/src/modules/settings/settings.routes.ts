@@ -4,6 +4,8 @@ import {
   InvoiceSettings,
   InvoiceSettingsUpdate,
   InvoiceSettingsView,
+  SalesControls,
+  SalesControlsView,
   TeamView,
   Role,
 } from "@repo/contracts";
@@ -15,6 +17,7 @@ import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
 import { loadBranding } from "@repo/backend/modules/branding/branding.repo";
+import { loadSalesControls } from "@repo/backend/modules/salesControls/salesControls.repo";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { expectedVersion } from "@repo/backend/modules/masters/shared";
 
@@ -65,6 +68,48 @@ export async function settingsRoutes(
       });
     },
   );
+  // Credit control (doc 37, T11): every member reads it (the sale form needs it).
+  typed.get(
+    "/settings/sales-controls",
+    {
+      preHandler: app.inFirm(),
+      schema: { response: { 200: SalesControlsView } },
+    },
+    async (req) => loadSalesControls(db, req.firm.id),
+  );
+
+  typed.put(
+    "/settings/sales-controls",
+    {
+      preHandler: app.inFirm("settings"),
+      schema: { body: SalesControls, response: { 200: SalesControlsView } },
+    },
+    async (req) => {
+      const version = expectedVersion(req.headers["if-match"]);
+      return withFirmWrite(db, req.firm.id, async (tx) => {
+        const current = await loadSalesControls(tx, req.firm.id);
+        if (current.version !== version)
+          throw new AppError(
+            "EDITED_ELSEWHERE",
+            "Someone changed credit control. Reload and try again.",
+            409,
+          );
+        await tx
+          .insert(schema.salesControls)
+          .values({ firmId: req.firm.id, ...req.body })
+          .onConflictDoUpdate({
+            target: schema.salesControls.firmId,
+            set: {
+              ...req.body,
+              version: sql`${schema.salesControls.version} + 1`,
+              updatedAt: new Date(),
+            },
+          });
+        return loadSalesControls(tx, req.firm.id);
+      });
+    },
+  );
+
   typed.patch(
     "/settings/invoice",
     {

@@ -215,6 +215,7 @@ function upgradeVersionFour(input: unknown): unknown {
       vouchers: data.vouchers.map((row) => ({ ...row, customFields: null })),
       customFields: [],
       firmBranding: null,
+      salesControls: null,
       customRoles: [],
     },
   };

@@ -10,6 +10,7 @@ export * from "./paging";
 export * from "./replica";
 export * from "./listPages";
 export * from "./accounting/tradeRates";
+export * from "./accounting/creditControl";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";

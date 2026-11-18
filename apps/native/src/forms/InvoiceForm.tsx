@@ -82,6 +82,8 @@ import {
   useNextNumber,
   useParties,
   useParty,
+  useSalesControls,
+  usePartyItems,
 } from "@/data/queries";
 import { takePicked } from "@/data/picked";
 import { colors, space } from "@/theme";
@@ -221,6 +223,8 @@ export function InvoiceForm({
   const [associates, setAssociates] = useState<InvoiceAssociatesInput>({});
   const [creditReason, setCreditReason] = useState("");
   const approveCredit = useApproveSaleCredit();
+  const salesControls = useSalesControls();
+  const overduePolicy = salesControls.data?.overdueSales ?? "warn";
   const updateInvoice = useUpdateInvoice(editing?.id ?? "", version);
 
   // ---- Data -------------------------------------------------------------------
@@ -253,6 +257,11 @@ export function InvoiceForm({
   const [partyId, setPartyId] = useState<string | undefined>(
     prefill?.partyId ?? initialPartyId,
   );
+  // The rate on this party's latest bill for each item (doc 37, T11). Supplier
+  // rates are costs, so they are asked for only by roles that may see costs.
+  const partyItems = usePartyItems(partyId ?? "", side === "sale" || showCosts);
+  const lastRate = (itemId: string) =>
+    partyItems.data?.rows.find((row) => row.itemId === itemId);
   const [date, setDate] = useState(editing?.date ?? today());
   // A saved bill may move only within its own financial year (its number carries it).
   const dateRange = editing
@@ -654,14 +663,21 @@ export function InvoiceForm({
     (party?.balance ?? 0) +
     totals.grandTotal -
     (editing ? replacedAmount : paidNow);
-  const needsCreditApproval =
+  const overLimit =
     kind === "sale" &&
     (party?.party.creditLimit ?? 0) > 0 &&
     projectedBalance > (party?.party.creditLimit ?? 0);
+  // Under the firm's "block" policy a new sale to a customer with overdue
+  // bills needs the owner's approval too (doc 37, T11); edits are not blocked.
+  const showOverdue =
+    overduePolicy !== "off" && (detail?.overdueAmount ?? 0) > 0;
+  const overdueBlocks =
+    kind === "sale" && !editing && overduePolicy === "block" && showOverdue;
+  const needsCreditApproval = overLimit || overdueBlocks;
   const showCreditWarning =
     kind === "sale" &&
     !!detail &&
-    (needsCreditApproval || detail.overLimitBy > 0 || detail.overdueAmount > 0);
+    (needsCreditApproval || detail.overLimitBy > 0 || showOverdue);
 
   return (
     <Screen
@@ -772,15 +788,19 @@ export function InvoiceForm({
         {showCreditWarning && detail ? (
           <Notice
             text={`${detail.overLimitBy > 0 ? `Over credit limit by ${formatINR(detail.overLimitBy)}. ` : ""}${
-              detail.overdueAmount > 0
+              showOverdue
                 ? `${formatINR(detail.overdueAmount)} overdue (oldest ${count(detail.maxOverdueDays, "day")}). `
                 : ""
-            }Sales above the credit limit need owner approval.`}
+            }${
+              overdueBlocks
+                ? "New sales to customers with overdue bills need the owner's approval."
+                : "Sales above the credit limit need owner approval."
+            }`}
           />
         ) : null}
         {needsCreditApproval && role === "owner" ? (
           <TextField
-            label="Credit-limit approval reason"
+            label="Owner approval reason"
             value={creditReason}
             onChangeText={setCreditReason}
             maxLength={500}
@@ -941,6 +961,35 @@ export function InvoiceForm({
                   />
                 )}
               </View>
+              {(() => {
+                const last = lastRate(l.itemId);
+                if (!last) return null;
+                const typed = (last.typedRate / 100).toFixed(2);
+                const canUse =
+                  !l.inAlt && parseRupees(l.rate) !== last.typedRate;
+                return (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: space.sm,
+                    }}
+                  >
+                    <Txt variant="caption" tone="body" num style={{ flex: 1 }}>
+                      Last {side === "sale" ? "sold" : "bought"} at{" "}
+                      {formatINR(last.typedRate)} / {last.unit} on{" "}
+                      {formatDate(last.lastDate)} · {last.lastNumber}
+                    </Txt>
+                    {canUse ? (
+                      <Button
+                        label="Use"
+                        size="sm"
+                        onPress={() => updateLine(l.key, { rate: typed })}
+                      />
+                    ) : null}
+                  </View>
+                );
+              })()}
               {l.inAlt && item && alt ? (
                 <Txt variant="caption" tone="body" num>
                   {lineQtyText(invoiceLines[i], item.unit).main} ={" "}

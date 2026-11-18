@@ -18,6 +18,7 @@ import {
 import {
   creditRequestHash,
   enforceCreditForPostedSales,
+  overdueBlockingNewSale,
   saveCreditApproval,
 } from "./credit.service";
 import {
@@ -83,6 +84,7 @@ export async function approveOrderCredit(
       if ((source.lines ?? []).some((l) => snapshot.deleted.has(l.itemId)))
         invalid("An order item is archived.");
       let plan: OrderFulfillmentPlan;
+      let created: { id: string }[] = [];
       try {
         plan = planOrderFulfillment({
           source,
@@ -102,19 +104,27 @@ export async function approveOrderCredit(
             stockLots(item, snapshot.books.vouchers, input.fulfillment.date),
           ),
         });
-        createPlannedFulfillments(snapshot.books, plan);
+        created = createPlannedFulfillments(snapshot.books, plan);
       } catch (error) {
         invalid(
           error instanceof Error ? error.message : "Invalid order fulfillment.",
         );
       }
+      const customer = required(
+        snapshot.books.parties.find((p) => p.id === party.id),
+        "Customer not found.",
+      );
       const projected = partyBalance(
-        required(
-          snapshot.books.parties.find((p) => p.id === party.id),
-          "Customer not found.",
-        ),
+        customer,
         snapshot.books.vouchers,
         today(),
+      );
+      const blockingOverdue = await overdueBlockingNewSale(
+        tx,
+        actor.firmId,
+        customer,
+        snapshot.books.vouchers,
+        created.map((v) => v.id),
       );
       return saveCreditApproval(
         tx,
@@ -123,6 +133,7 @@ export async function approveOrderCredit(
         projected,
         orderCreditHash(plan),
         input.reason,
+        blockingOverdue,
       );
     },
     true,
@@ -145,6 +156,7 @@ export async function enforcePlannedSaleCredit(
       partyId: required(plan.source.partyId, "Customer not found."),
       saleHash: orderCreditHash(plan),
       creditOverrideId,
+      newSale: true,
     },
     saved,
   );

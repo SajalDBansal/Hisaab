@@ -96,5 +96,13 @@ export const Branding = z.object({
   signature: BrandingImage.nullable(),
 });
 export const BrandingView = Branding.extend({ version: z.number().int() });
+/** Credit control (doc 37, T11): what overdue bills do to a new sale. */
+export const OverdueSalesPolicy = z.enum(["off", "warn", "block"]);
+export const SalesControls = z.object({ overdueSales: OverdueSalesPolicy });
+export const SalesControlsView = SalesControls.extend({
+  version: z.number().int(),
+});
+export type SalesControls = z.infer<typeof SalesControls>;
+export type SalesControlsView = z.infer<typeof SalesControlsView>;
 export type Branding = z.infer<typeof Branding>;
 export type BrandingView = z.infer<typeof BrandingView>;

@@ -160,6 +160,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "team",
       },
       {
+        title: "Credit control",
+        note: "What overdue bills do to a new sale",
+        icon: "alert-octagon",
+        href: "/settings/credit",
+        needs: "settings",
+      },
+      {
         title: "Invoice and numbering",
         note: "Print format, terms, bank details, prefixes",
         icon: "file-text",
