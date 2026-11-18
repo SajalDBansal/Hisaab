@@ -115,6 +115,164 @@ export const Gstr1 = z.object({
     .merge(NoTaxValues),
 });
 
+// ---- GSTR-1 upload file (doc 37, T31) ----------------------------------------
+// Key order follows the GST offline tool; amounts are rupees with 2 decimals.
+const Rupees = z.number().finite();
+const ItemDetail = z.object({
+  rt: z.number(),
+  txval: Rupees,
+  iamt: Rupees.optional(),
+  camt: Rupees.optional(),
+  samt: Rupees.optional(),
+  csamt: Rupees,
+});
+const PortalItem = z.object({ num: z.number().int(), itm_det: ItemDetail });
+const DocNumber = z.string().min(1);
+const PortalDate = z.string().regex(/^\d{2}-\d{2}-\d{4}$/);
+const StateCode = z.string();
+const HsnRow = z.object({
+  num: z.number().int(),
+  hsn_sc: z.string(),
+  desc: z.string(),
+  uqc: z.string(),
+  qty: z.number(),
+  rt: z.number(),
+  txval: Rupees,
+  iamt: Rupees,
+  camt: Rupees,
+  samt: Rupees,
+  csamt: Rupees,
+});
+
+export const Gstr1PortalJson = z.object({
+  gstin: z.string(),
+  fp: z.string().regex(/^\d{6}$/),
+  version: z.string(),
+  hash: z.literal("hash"),
+  b2b: z
+    .array(
+      z.object({
+        ctin: z.string(),
+        inv: z.array(
+          z.object({
+            inum: DocNumber,
+            idt: PortalDate,
+            val: Rupees,
+            pos: StateCode,
+            rchrg: z.literal("N"),
+            inv_typ: z.literal("R"),
+            itms: z.array(PortalItem),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  b2cl: z
+    .array(
+      z.object({
+        pos: StateCode,
+        inv: z.array(
+          z.object({
+            inum: DocNumber,
+            idt: PortalDate,
+            val: Rupees,
+            itms: z.array(PortalItem),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  b2cs: z
+    .array(
+      z.object({
+        sply_ty: z.enum(["INTER", "INTRA"]),
+        pos: StateCode,
+        typ: z.literal("OE"),
+        rt: z.number(),
+        txval: Rupees,
+        iamt: Rupees.optional(),
+        camt: Rupees.optional(),
+        samt: Rupees.optional(),
+        csamt: Rupees,
+      }),
+    )
+    .optional(),
+  cdnr: z
+    .array(
+      z.object({
+        ctin: z.string(),
+        nt: z.array(
+          z.object({
+            ntty: z.literal("C"),
+            nt_num: DocNumber,
+            nt_dt: PortalDate,
+            val: Rupees,
+            pos: StateCode,
+            rchrg: z.literal("N"),
+            inv_typ: z.literal("R"),
+            itms: z.array(PortalItem),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  cdnur: z
+    .array(
+      z.object({
+        typ: z.literal("B2CL"),
+        ntty: z.literal("C"),
+        nt_num: DocNumber,
+        nt_dt: PortalDate,
+        val: Rupees,
+        pos: StateCode,
+        itms: z.array(PortalItem),
+      }),
+    )
+    .optional(),
+  nil: z
+    .object({
+      inv: z.array(
+        z.object({
+          sply_ty: z.enum(["INTRB2B", "INTRAB2B", "INTRB2C", "INTRAB2C"]),
+          nil_amt: Rupees,
+          expt_amt: Rupees,
+          ngsup_amt: Rupees,
+        }),
+      ),
+    })
+    .optional(),
+  hsn: z
+    .object({ hsn_b2b: z.array(HsnRow), hsn_b2c: z.array(HsnRow) })
+    .optional(),
+  doc_issue: z
+    .object({
+      doc_det: z.array(
+        z.object({
+          doc_num: z.number().int(),
+          docs: z.array(
+            z.object({
+              num: z.number().int(),
+              from: z.string(),
+              to: z.string(),
+              totnum: z.number().int(),
+              cancel: z.number().int(),
+              net_issue: z.number().int(),
+            }),
+          ),
+        }),
+      ),
+    })
+    .optional(),
+});
+
+/** The file plus what to fix before uploading it. */
+export const Gstr1Export = z.object({
+  month: z.string(),
+  fileName: z.string(),
+  warnings: z.array(z.string()),
+  json: Gstr1PortalJson,
+});
+
 export const Gstr3b = z.object({
   month: z.string(),
   title: z.string(),
@@ -148,4 +306,5 @@ export const CompositionQuarter = z.object({
 export type GstMonth = z.infer<typeof GstMonth>;
 export type Gstr1 = z.infer<typeof Gstr1>;
 export type Gstr3b = z.infer<typeof Gstr3b>;
+export type Gstr1Export = z.infer<typeof Gstr1Export>;
 export type CompositionQuarter = z.infer<typeof CompositionQuarter>;

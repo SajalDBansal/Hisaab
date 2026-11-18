@@ -124,6 +124,8 @@ export function readServices({ request, pages }: Client) {
       months: (count) =>
         request(`/gst/months${queryString({ count })}`, z.array(c.GstMonth)),
       gstr1: (month) => request(`/gst/gstr1${queryString({ month })}`, c.Gstr1),
+      gstr1Json: (month) =>
+        request(`/gst/gstr1/download${queryString({ month })}`, c.Gstr1Export),
       gstr3b: (month) =>
         request(`/gst/gstr3b${queryString({ month })}`, c.Gstr3b),
       compositionQuarters: (count) =>

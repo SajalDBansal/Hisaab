@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { MockDb } from "@repo/core";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { addDays, type AuditEntry, type MockDb } from "@repo/core";
+import { and, asc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
@@ -18,7 +18,13 @@ const {
   items,
   vouchers,
   openingAccounts,
+  auditLog,
 } = schema;
+
+/** Days of the edit log to read with the books (Indian dates, inclusive). */
+export type AuditDays = { from: string; to: string };
+/** More rows than any report may hold (buildReport refuses above 20,000). */
+const AUDIT_ROW_CAP = 20_001;
 
 const undef = <T>(value: T | null | undefined): T | undefined =>
   value ?? undefined;
@@ -27,12 +33,59 @@ const undef = <T>(value: T | null | undefined): T | undefined =>
 export function loadReportSnapshot(
   db: Db,
   firmId: string,
-  options: { includeDeleted?: boolean } = {},
+  options: { includeDeleted?: boolean; audit?: AuditDays } = {},
 ) {
-  return db.transaction((tx) => loadReportBooks(tx, firmId, options), {
-    isolationLevel: "repeatable read",
-    accessMode: "read only",
-  });
+  return db.transaction(
+    async (tx) => {
+      const books = await loadReportBooks(tx, firmId, options);
+      if (!options.audit) return books;
+      return {
+        ...books,
+        auditLog: await loadAuditDays(tx, firmId, options.audit),
+      };
+    },
+    {
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    },
+  );
+}
+
+/**
+ * Edit-log entries made on these Indian days, with IP address and device.
+ * Callers decide who may see those two (the audit right).
+ */
+export async function loadAuditDays(
+  db: Pick<Db, "select">,
+  firmId: string,
+  days: AuditDays,
+): Promise<AuditEntry[]> {
+  const rows = await db
+    .select()
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.firmId, firmId),
+        gte(auditLog.at, new Date(`${days.from}T00:00:00+05:30`)),
+        lt(auditLog.at, new Date(`${addDays(days.to, 1)}T00:00:00+05:30`)),
+      ),
+    )
+    .orderBy(asc(auditLog.at), asc(auditLog.id))
+    .limit(AUDIT_ROW_CAP);
+  return rows.map((row) => ({
+    id: row.id,
+    voucherId: row.voucherId,
+    number: row.number,
+    voucherType: row.voucherType,
+    action: row.action,
+    at: row.at.toISOString(),
+    userId: row.userId,
+    userName: row.userName,
+    changes: (row.changes ?? []) as AuditEntry["changes"],
+    note: undef(row.note),
+    ipAddress: undef(row.ipAddress),
+    device: undef(row.device),
+  }));
 }
 
 /** Books already read during one batch of reads, by firm and deletion scope. */

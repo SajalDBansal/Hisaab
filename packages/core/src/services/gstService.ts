@@ -7,6 +7,7 @@ import {
   type Gstr1,
   type Gstr3b,
 } from "../accounting/gst";
+import { gstr1Json, type Gstr1Export } from "../accounting/gstr1Json";
 import {
   compositionQuarter,
   type CompositionQuarter,
@@ -31,6 +32,13 @@ export const gstService = {
     await delay();
     const { vouchers, parties, items, units } = getDb();
     return clone(gstr1(vouchers, parties, items, month, units));
+  },
+
+  /** The GSTR-1 upload file. Real API: http.get<Gstr1Export>(`/gst/gstr1/json?month=${month}`) */
+  async gstr1Json(month: string): Promise<Gstr1Export> {
+    await delay();
+    const { vouchers, parties, items, units, firm } = getDb();
+    return clone(gstr1Json({ firm, vouchers, parties, items, units }, month));
   },
 
   /**

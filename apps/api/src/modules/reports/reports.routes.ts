@@ -33,7 +33,12 @@ export async function reportRoutes(app: FastifyInstance, options: { db: Db }) {
     },
     async (req, reply) => {
       reply.header("Cache-Control", "no-store");
-      return reportsService.exportReport(db, req.firm.id, req.body);
+      return reportsService.exportReport(
+        db,
+        req.firm.id,
+        req.body,
+        req.firm.role,
+      );
     },
   );
 

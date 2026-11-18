@@ -10,6 +10,21 @@ import * as Sharing from "expo-sharing";
 
 export type ReportFormat = "pdf" | "csv" | "xlsx";
 
+/** A JSON file (the GSTR-1 upload file) through the share sheet. */
+export async function saveJsonFile(fileName: string, data: unknown) {
+  if (!(await Sharing.isAvailableAsync()))
+    throw new Error("File sharing is unavailable on this device.");
+  const file = new File(Paths.cache, `${fileName}.json`);
+  if (file.exists) file.delete();
+  file.create();
+  file.write(JSON.stringify(data));
+  await Sharing.shareAsync(file.uri, {
+    mimeType: "application/json",
+    UTI: "public.json",
+    dialogTitle: fileName,
+  });
+}
+
 /** Phone exports use the system share sheet so users can choose Files, Drive, email or another app. */
 export async function saveReportFile(
   report: ReportDocument,

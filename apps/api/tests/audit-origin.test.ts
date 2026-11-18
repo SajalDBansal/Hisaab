@@ -129,13 +129,11 @@ test(
           gstRegistration: "unregistered",
         })
       ).id;
-      await db
-        .insert(schema.member)
-        .values({
-          organizationId: firmId,
-          userId: accountant.id,
-          role: "accountant",
-        });
+      await db.insert(schema.member).values({
+        organizationId: firmId,
+        userId: accountant.id,
+        role: "accountant",
+      });
       const customer = await call<{ id: string }>(
         owner,
         "POST",
@@ -202,6 +200,39 @@ test(
         assert.equal(seen.ipAddress, undefined, path);
         assert.equal(seen.device, undefined, path);
       }
+
+      // The audit trail report (T55): IP and device columns for the owner only.
+      type Doc = {
+        sections: {
+          columns: { label: string }[];
+          rows: { cells: unknown[] }[];
+        }[];
+      };
+      const exportAs = (who: { cookie: string }) =>
+        call<Doc>(who, "POST", "/v1/reports/export", {
+          report: "audit-trail",
+          from: today(),
+          to: today(),
+          includeNarration: false,
+          includeZeroBalances: false,
+        });
+      const ownerDoc = await exportAs(owner);
+      assert.deepEqual(
+        ownerDoc.sections[0].columns.slice(-2).map((c) => c.label),
+        ["IP address", "Device"],
+      );
+      assert.ok(
+        ownerDoc.sections[0].rows.some(
+          (r) => r.cells.includes(IP) && r.cells.includes("Owner Phone (App)"),
+        ),
+      );
+      const accountantDoc = await exportAs(accountant);
+      assert.equal(
+        accountantDoc.sections[0].rows.length,
+        ownerDoc.sections[0].rows.length,
+      );
+      assert.ok(!JSON.stringify(accountantDoc).includes(IP));
+      assert.ok(!JSON.stringify(accountantDoc).includes("Owner Phone"));
     } finally {
       await app.close();
       await pool.end();

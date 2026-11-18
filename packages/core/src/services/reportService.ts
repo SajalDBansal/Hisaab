@@ -14,11 +14,18 @@ import type { PartyType, TaxScope } from "../types";
 import { buildReport, type ReportRequest } from "../reporting";
 import { clone, delay, getDb } from "./client";
 import { scopeBooks } from "../accounting/bookScope";
+import { roleFlag } from "../roles";
 
 export const reportService = {
   async exportReport(request: ReportRequest) {
     await delay();
-    return buildReport(getDb(), request);
+    const db = getDb();
+    const role =
+      db.team.find((m) => m.id === db.currentUserId)?.role ?? "owner";
+    return buildReport(
+      { ...db, auditOrigin: roleFlag(role, "viewAudit") },
+      request,
+    );
   },
 
   /** Everything the Home screen shows. Real API: http.get<DashboardData>("/reports/dashboard") */

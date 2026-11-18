@@ -287,6 +287,11 @@ export const useGstr1 = (month: string) =>
     queryFn: (services) => services.gstService.gstr1(month),
     enabled: !!month,
   });
+/** The GSTR-1 upload file for a month, made when asked for. */
+export const useGstr1Json = () =>
+  useMutation({
+    mutationFn: (s, month: string) => s.gstService.gstr1Json(month),
+  });
 export const useGstr3b = (month: string) =>
   useQuery({
     queryKey: keys.gstr3b(month),

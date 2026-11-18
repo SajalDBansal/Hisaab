@@ -10,6 +10,7 @@ export * from "./financing";
 export * from "./loanSchedule";
 export * from "./generalLedger";
 export * from "./gst";
+export * from "./gstr1Json";
 export * from "./analysis";
 export * from "./taxType";
 export * from "./orders";

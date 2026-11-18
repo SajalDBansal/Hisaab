@@ -3,3 +3,4 @@ export * from "./buildReport";
 export * from "./format";
 export * from "./insights";
 export * from "./xlsx";
+export * from "./audit";

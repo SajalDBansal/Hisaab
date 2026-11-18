@@ -61,8 +61,9 @@ export function monthTitle(month: string): string {
 }
 
 /** In the month's GST returns: posted, and saved while the firm was regular (composition and no-GST bills never count). */
-const inMonth = (v: Voucher, month: string) =>
+export const inGstMonth = (v: Voucher, month: string) =>
   isPosted(v) && voucherMode(v) === "regular" && yearMonth(v.date) === month;
+const inMonth = inGstMonth;
 
 /** GST rates that actually carry tax. */
 type TaxedRate = 5 | 18 | 40;
@@ -313,6 +314,23 @@ export const TABLE8_LABELS: Record<Table8Row, string> = {
   "intra-unregistered": "Within state · unregistered",
 };
 
+/** The buyer as on the bill: the frozen snapshot, else today's party. */
+export const billParty = (v: Voucher, parties: Party[]): Party | undefined =>
+  v.snapshot ? v.snapshot.party : parties.find((p) => p.id === v.partyId);
+
+/**
+ * Which GSTR-1 table the GST-charged part of a sale goes in: registered buyers
+ * B2B, large interstate bills to unregistered buyers B2C Large, the rest B2C Small.
+ */
+export function gstr1Table(
+  v: Voucher,
+  party: Party | undefined,
+): "b2b" | "b2cl" | "b2cs" {
+  if (party?.gstin) return "b2b";
+  if (v.interState && v.amount > B2CL_LIMIT) return "b2cl";
+  return "b2cs";
+}
+
 export interface Gstr1 {
   month: string;
   title: string;
@@ -462,8 +480,9 @@ export function gstr1(
     totals.nonGst += free.nonGst;
 
     // Taxable part
+    const table = gstr1Table(v, party);
     if (taxed.taxable > 0) {
-      if (party?.gstin) {
+      if (table === "b2b" && party?.gstin) {
         const key = `${party.id}|${party.gstin}`;
         const row = b2b.get(key) ?? {
           partyId: party.id,
@@ -479,7 +498,7 @@ export function gstr1(
         row.taxable += taxed.taxable;
         row.tax += tax;
         b2b.set(key, row);
-      } else if (v.interState && v.amount > B2CL_LIMIT) {
+      } else if (table === "b2cl") {
         b2cl.push({
           voucherId: v.id,
           number: v.number,

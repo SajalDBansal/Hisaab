@@ -3,6 +3,8 @@ import {
   compositionQuarter,
   gstMonth,
   gstr1,
+  gstr1Json,
+  Gstr1JsonError,
   gstr3b,
   lastMonths,
   today,
@@ -10,6 +12,7 @@ import {
 } from "@repo/core";
 import type { Db } from "@repo/backend/db/client";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
+import { AppError } from "@repo/backend/lib/app-error";
 
 export const gstService = {
   /** Summary cards for the last few GST months, newest first. */
@@ -27,6 +30,21 @@ export const gstService = {
       firmId,
     );
     return gstr1(vouchers, parties, items, month, units);
+  },
+
+  /** GSTR-1 upload file (portal / offline tool JSON) for one month. */
+  async gstr1Json(db: Db, firmId: string, month: string) {
+    const { vouchers, parties, items, units, firm } = await loadReportBooks(
+      db,
+      firmId,
+    );
+    try {
+      return gstr1Json({ firm, vouchers, parties, items, units }, month);
+    } catch (error) {
+      if (error instanceof Gstr1JsonError)
+        throw new AppError("INVALID_REPORT", error.message);
+      throw error;
+    }
   },
 
   /** GSTR-3B report figures for one month. */

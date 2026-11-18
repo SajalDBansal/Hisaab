@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import { Share, View } from "react-native";
 import { formatINR, type Gstr1, count } from "@repo/core";
 import {
@@ -15,7 +16,8 @@ import {
   Txt,
 } from "@/components";
 import { stateName } from "@/data/labels";
-import { useGstr1 } from "@/data/queries";
+import { useGstr1, useGstr1Json } from "@/data/queries";
+import { saveJsonFile } from "@/data/reportFile";
 import { colors, fonts, radius, space } from "@/theme";
 
 const box = {
@@ -33,6 +35,29 @@ const summaryScope =
 export default function Gstr1Screen() {
   const { month = "" } = useLocalSearchParams<{ month: string }>();
   const data = useGstr1(month);
+  const file = useGstr1Json();
+  const [download, setDownload] = useState<{
+    warnings: string[];
+    problem?: string;
+    fileName?: string;
+  } | null>(null);
+
+  const downloadJson = async () => {
+    setDownload(null);
+    try {
+      const made = await file.mutateAsync(month);
+      await saveJsonFile(made.fileName, made.json);
+      setDownload({ warnings: made.warnings, fileName: made.fileName });
+    } catch (error) {
+      setDownload({
+        warnings: [],
+        problem:
+          error instanceof Error
+            ? error.message
+            : "Couldn't make the file. Please try again.",
+      });
+    }
+  };
 
   const share = async (g: Gstr1) => {
     const text = [
@@ -88,7 +113,44 @@ export default function Gstr1Screen() {
                 message={`There are no posted sales saved under Regular GST for ${g.title}.`}
               />
             ) : (
-              <Body g={g} />
+              <>
+                <Card style={{ gap: space.sm }}>
+                  <Txt variant="heading">File for the GST portal</Txt>
+                  <Txt variant="caption" tone="body">
+                    A GSTR-1 JSON file made from these figures, invoice by
+                    invoice. Upload it yourself on the GST portal (Returns →
+                    GSTR-1 → Prepare offline) or open it in the GST Offline
+                    Tool. Check it there before filing.
+                  </Txt>
+                  <Button
+                    label="Download JSON"
+                    icon="download"
+                    block
+                    loading={file.isPending}
+                    disabled={file.isPending}
+                    onPress={() => void downloadJson()}
+                  />
+                  {download?.problem ? (
+                    <Txt variant="small" tone="give">
+                      {download.problem}
+                    </Txt>
+                  ) : null}
+                  {download?.fileName ? (
+                    <Txt variant="caption" tone="body">
+                      Saved {download.fileName}.json
+                    </Txt>
+                  ) : null}
+                  {download?.warnings.length ? (
+                    <Notice
+                      text={[
+                        "Check before uploading:",
+                        ...download.warnings.map((w) => `• ${w}`),
+                      ].join("\n")}
+                    />
+                  ) : null}
+                </Card>
+                <Body g={g} />
+              </>
             )}
           </>
         )}
