@@ -1,4 +1,5 @@
 import { formatDate } from "../dates";
+import { auditTrailSection } from "./audit";
 import { scopeBooks } from "../accounting/bookScope";
 import { balanceSheetSections, profitLossSection } from "./financial";
 import { cashMovementSections, comparativeProfitSection } from "./management";
@@ -140,6 +141,8 @@ function buildSections(
       return gstr2Sections(books, request);
     case "tax-summary":
       return [taxSummarySection(books, request)];
+    case "audit-trail":
+      return [auditTrailSection(books, request)];
   }
 }
 
@@ -194,6 +197,12 @@ export function buildReport(
   if (request.report === "cash-movement")
     notes.push(
       "Management summary of posted cash and bank movements, not a statutory cash-flow statement or forecast. Internal transfers are excluded. Posting dates, not bank-clearing dates, determine the period.",
+    );
+  if (request.report === "audit-trail")
+    notes.push(
+      books.auditOrigin
+        ? "Every entry created, edited, cancelled, converted or restored in the period (Indian time). The log can't be switched off or changed. Amount now is the entry's current total."
+        : "Every entry created, edited, cancelled, converted or restored in the period (Indian time). The log can't be switched off or changed. Amount now is the entry's current total. IP address and device are shown only to roles with the audit right.",
     );
   if (request.report === "tax-ledgers")
     notes.push(

@@ -1,4 +1,10 @@
-import type { Firm, ISODate, VoucherType, TaxScope } from "../types";
+import type {
+  AuditEntry,
+  Firm,
+  ISODate,
+  VoucherType,
+  TaxScope,
+} from "../types";
 import type { Books } from "../accounting/generalLedger";
 
 export const REPORT_IDS = [
@@ -43,6 +49,7 @@ export const REPORT_IDS = [
   "purchase-orders-register",
   "gstr2",
   "tax-summary",
+  "audit-trail",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -234,6 +241,7 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
   },
   gstr2: { title: "GSTR-2 purchases", category: "Tax" },
   "tax-summary": { title: "GST summary by rate", category: "Tax" },
+  "audit-trail": { title: "Audit trail (edit log)", category: "Audit" },
 };
 
 export interface ReportRequest {
@@ -273,7 +281,13 @@ export interface ReportDocument {
   notes: string[];
   sections: ReportSection[];
 }
-export type ReportBooks = Books & { firm: Firm };
+export type ReportBooks = Books & {
+  firm: Firm;
+  /** Edit log for the audit trail report; the API loads it only for that report. */
+  auditLog?: AuditEntry[];
+  /** The reader may see each change's IP address and device. */
+  auditOrigin?: boolean;
+};
 
 export const ENTRY_LABELS: Record<VoucherType, string> = {
   sale: "Sale",

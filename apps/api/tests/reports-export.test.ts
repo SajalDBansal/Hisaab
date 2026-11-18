@@ -191,6 +191,67 @@ test(
         "interest",
       );
 
+      // The owner sees where changes came from (entries: audit-origin.test.ts).
+      assert.ok(text("audit-trail").includes("IP address"), "audit-trail");
+
+      // GSTR-1 upload file (T31): the small sale to an unregistered buyer is B2C Small.
+      type Gstr1File = {
+        fileName: string;
+        warnings: string[];
+        json: {
+          gstin: string;
+          fp: string;
+          b2b?: unknown[];
+          b2cs?: {
+            sply_ty: string;
+            pos: string;
+            rt: number;
+            txval: number;
+            camt?: number;
+            samt?: number;
+          }[];
+          hsn?: {
+            hsn_b2c: {
+              hsn_sc: string;
+              uqc: string;
+              qty: number;
+              txval: number;
+            }[];
+          };
+          doc_issue?: {
+            doc_det: { doc_num: number; docs: { totnum: number }[] }[];
+          };
+        };
+      };
+      const month = today.slice(0, 7);
+      const file = await ok<Gstr1File>(
+        "GET",
+        `/v1/gst/gstr1/download?month=${month}`,
+      );
+      assert.equal(file.json.gstin, "07AAAAA0000A1Z4");
+      assert.equal(file.json.fp, `${month.slice(5)}${month.slice(0, 4)}`);
+      assert.equal(file.json.b2b, undefined);
+      assert.deepEqual(file.json.b2cs, [
+        {
+          sply_ty: "INTRA",
+          pos: "07",
+          typ: "OE",
+          rt: 5,
+          txval: 300,
+          camt: 7.5,
+          samt: 7.5,
+          csamt: 0,
+        },
+      ]);
+      assert.deepEqual(
+        file.json.hsn?.hsn_b2c.map((r) => [r.hsn_sc, r.uqc, r.qty, r.txval]),
+        [["1006", "PCS", 2, 300]],
+      );
+      assert.equal(file.json.doc_issue?.doc_det[0].docs[0].totnum, 1);
+      assert.deepEqual(file.warnings, []);
+      const badMonth = await call("GET", "/v1/gst/gstr1/download?month=2026-1");
+      assert.equal(badMonth.statusCode, 400, badMonth.body);
+
       // A rate on any other report is refused.
       const refused = await call("POST", "/v1/reports/export", {
         report: "sales-register",
