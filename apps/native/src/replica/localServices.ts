@@ -1,4 +1,4 @@
-import { can, PERMISSIONS, type Role } from "@repo/core";
+import { can, canSeeCosts, PERMISSIONS, type Role } from "@repo/core";
 import { demoServices, type Services } from "@/data/services";
 import { OfflineWriteError } from "@/data/offlineOperation";
 
@@ -41,6 +41,13 @@ export function localServices(role: Role): Services {
         can(role, key),
       ),
     }),
+  });
+  // Same rights as the server's dashboard: no stock value without cost rights.
+  const reports = demoServices.reportService;
+  services.reportService = readOnly({
+    ...reports,
+    dashboard: (tax?: Parameters<typeof reports.dashboard>[0]) =>
+      reports.dashboard(tax, { costs: canSeeCosts(role) }),
   });
   // Kept on the server only.
   services.bookControlService = {
@@ -85,7 +92,13 @@ const PHONE_READS: Record<string, string[]> = {
     "statementPage",
     "pickable",
   ],
-  reportService: ["dashboard", "outstanding", "tradeSummary", "expenses", "stock"],
+  reportService: [
+    "dashboard",
+    "outstanding",
+    "tradeSummary",
+    "expenses",
+    "stock",
+  ],
   gstService: ["months", "gstr1", "gstr3b", "compositionQuarters"],
   unitService: ["list"],
   settingsService: ["invoice"],

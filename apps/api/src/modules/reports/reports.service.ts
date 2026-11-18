@@ -1,4 +1,5 @@
 import {
+  canSeeCosts,
   computeDashboard,
   buildReport,
   ReportInputError,
@@ -16,6 +17,7 @@ import {
   type ISODate,
   type PartyType,
   type PeriodKey,
+  type Role,
   type TaxScope,
 } from "@repo/core";
 import type { Db } from "@repo/backend/db/client";
@@ -41,8 +43,11 @@ export const reportsService = {
     }
   },
 
-  /** Everything the Home screen needs, calculated from the firm's live books. */
-  async dashboard(db: Db, firmId: string, tax: TaxScope = "all") {
+  /**
+   * Everything the Home screen needs, calculated from the firm's live books in
+   * one read. Stock value is left at 0 for roles that may not see costs.
+   */
+  async dashboard(db: Db, firmId: string, tax: TaxScope = "all", role?: Role) {
     const b = await books(db, firmId, tax);
     return computeDashboard({
       parties: b.parties,
@@ -51,6 +56,7 @@ export const reportsService = {
       vouchers: b.vouchers,
       asOf: today(),
       firm: b.firm,
+      costs: role === undefined || canSeeCosts(role),
     });
   },
 

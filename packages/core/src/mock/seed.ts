@@ -750,6 +750,8 @@ export function buildSeed(asOf: string = today()): Db {
     ["i5", 4],
   ]);
   receive("c1", 160, "all", "upi", "hdfc");
+  // Still partly unpaid: shows on ITC at risk (T26) as the 180-day limit nears
+  purchase("s3", 158, [["i7", 30]], "SE/702");
   purchase("s2", 155, [["i1", 48]], "MOM/401");
   sale("c6", 150, [
     ["i1", 24],

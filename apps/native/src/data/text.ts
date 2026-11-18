@@ -5,6 +5,8 @@ const singular: Record<string, string> = {
   "{n} items": "{n} item",
   "{amount} overdue · {n} days": "{amount} overdue · {n} day",
   "{n} days": "{n} day",
+  "{n} bills": "{n} bill",
+  "Last sale {date} · {n} days ago": "Last sale {date} · {n} day ago",
 };
 
 // Fill English count labels without a language preference or translation lookup.
