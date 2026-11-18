@@ -1,5 +1,11 @@
 import { z } from "zod";
 import {
+  BUSINESS_TYPES,
+  checkFirmStatutory,
+  MSME_TYPES,
+  OWNERSHIP_TYPES,
+} from "@repo/core";
+import {
   Email,
   Gstin,
   IsoDate,
@@ -16,22 +22,42 @@ export const GstRegistration = z.enum([
   "unregistered",
 ]);
 export const CompositionType = z.enum(["trader", "restaurant", "services"]);
+export const MsmeType = z.enum(MSME_TYPES);
+export const OwnershipType = z.enum(OWNERSHIP_TYPES);
+export const BusinessType = z.enum(BUSINESS_TYPES);
 
-export const Firm = z.object({
-  id: Id,
-  name: z.string(),
-  city: z.string(),
-  state: z.string(),
-  stateCode: StateCode,
-  gstin: z.string(),
-  gstRegistration: GstRegistration,
-  compositionType: CompositionType.optional(),
-  fyStart: IsoDate,
-  address: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  pan: z.string().optional(),
+/** Optional statutory details (doc 37, T61), as stored and sent back. */
+export const FirmStatutory = z.object({
+  ownershipType: OwnershipType.optional(),
+  businessType: BusinessType.optional(),
+  industry: z.string().optional(),
+  cin: z.string().optional(),
+  tan: z.string().optional(),
+  udyamNumber: z.string().optional(),
+  msmeType: MsmeType.optional(),
+  iec: z.string().optional(),
+  fssai: z.string().optional(),
+  drugLicence: z.string().optional(),
+  website: z.string().optional(),
 });
+
+export const Firm = z
+  .object({
+    id: Id,
+    name: z.string(),
+    city: z.string(),
+    state: z.string(),
+    stateCode: StateCode,
+    gstin: z.string(),
+    gstRegistration: GstRegistration,
+    compositionType: CompositionType.optional(),
+    fyStart: IsoDate,
+    address: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().optional(),
+    pan: z.string().optional(),
+  })
+  .extend(FirmStatutory.shape);
 
 /** GST rules shared by creating and editing a firm. */
 const gstRules = (
@@ -104,8 +130,30 @@ export const FirmUpdate = z
     pan: Pan.or(z.literal("")),
     gstRegistration: GstRegistration,
     compositionType: CompositionType,
+    // Statutory details (doc 37, T61): "" clears one. Shapes are checked below.
+    ownershipType: OwnershipType.or(z.literal("")),
+    businessType: BusinessType.or(z.literal("")),
+    industry: z.string().max(100),
+    cin: z.string().max(30),
+    tan: z.string().max(20),
+    udyamNumber: z.string().max(30),
+    msmeType: MsmeType.or(z.literal("")),
+    iec: z.string().max(20),
+    fssai: z.string().max(20),
+    drugLicence: z.string().max(100),
+    website: z.string().max(100),
   })
-  .partial();
+  .partial()
+  .superRefine((patch, ctx) => {
+    // Only fields sent are checked here; the server checks the merged profile.
+    const sent = Object.fromEntries(
+      Object.entries(patch).filter(([, v]) => v !== undefined && v !== ""),
+    );
+    const problems = checkFirmStatutory(sent);
+    for (const [key, message] of Object.entries(problems))
+      if (key in sent && message)
+        ctx.addIssue({ code: "custom", path: [key], message });
+  });
 
 export type Firm = z.infer<typeof Firm>;
 export type NewFirmInput = z.infer<typeof NewFirmInput>;

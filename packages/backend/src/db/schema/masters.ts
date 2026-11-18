@@ -17,6 +17,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
+import { msmeType } from "./firms";
 import { moment, paise, primaryId, quantity, stamps } from "./columns";
 
 export const partyType = pgEnum("party_type", ["customer", "supplier"]);
@@ -55,6 +56,9 @@ export const parties = pgTable(
     deletedAt: moment("deleted_at"),
     // Custom field values by field key (doc 37, T07); null when none.
     customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
+    // Suppliers' MSME class and Udyam number (doc 37, T30); null = not an MSME.
+    msmeType: msmeType("msme_type"),
+    udyamNumber: text("udyam_number"),
     ...stamps,
   },
   (t) => [

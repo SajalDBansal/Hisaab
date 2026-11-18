@@ -1,3 +1,4 @@
+import { partyMsme } from "@repo/backend/lib/business-profile";
 import type { PartyInput, PartyRow } from "@repo/contracts";
 import {
   checkParty,
@@ -36,6 +37,7 @@ export const toPartyRow = (r: PartyRecord): PartyRow => ({
   openingDate: r.openingDate,
   openingBills: r.openingBills,
   ...(r.customFields ? { customFields: r.customFields } : {}),
+  ...partyMsme(r),
   version: r.version,
   balance: Number(r.balance),
 });
@@ -56,6 +58,8 @@ async function validated(
       gstin: o.gstin ?? undefined,
       openingGstBalance: o.openingGstBalance ?? undefined,
       customFields: o.customFields ?? undefined,
+      msmeType: o.msmeType ?? undefined,
+      udyamNumber: o.udyamNumber ?? undefined,
     })),
     exceptId,
   );
@@ -90,6 +94,10 @@ const columnsOf = (
   creditDays: p.creditDays,
   creditLimit: p.creditLimit,
   openingBalance: p.openingBalance,
+  // MSME (doc 37, T30): undefined (older app) leaves stored values alone; null clears.
+  ...(p.msmeType === undefined
+    ? {}
+    : { msmeType: p.msmeType, udyamNumber: p.udyamNumber ?? null }),
   // undefined leaves stored values alone on update; null clears them.
   ...(p.storedCustomFields === undefined
     ? {}

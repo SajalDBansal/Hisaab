@@ -7,7 +7,13 @@ import {
   Percentage,
   Quantity,
 } from "./common";
-import { CompositionType, GstRegistration } from "./firms";
+import {
+  BusinessType,
+  CompositionType,
+  GstRegistration,
+  MsmeType,
+  OwnershipType,
+} from "./firms";
 import {
   BankAccount,
   GstMode,
@@ -30,7 +36,8 @@ import {
 } from "./customFields";
 
 // Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and
-// device; custom field definitions and values; logo and signature; custom roles; credit control (optional).
+// device; custom field definitions and values; logo and signature; custom roles; credit control,
+// business profile and MSME suppliers (optional).
 export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
@@ -66,6 +73,18 @@ export const BackupRows = {
     phone: Text.nullable(),
     email: Text.nullable(),
     pan: Text.nullable(),
+    // Business profile (doc 37, T61); optional in version 5 files made before it.
+    ownershipType: OwnershipType.nullable().optional(),
+    businessType: BusinessType.nullable().optional(),
+    industry: Text.nullable().optional(),
+    cin: Text.nullable().optional(),
+    tan: Text.nullable().optional(),
+    udyamNumber: Text.nullable().optional(),
+    msmeType: MsmeType.nullable().optional(),
+    iec: Text.nullable().optional(),
+    fssai: Text.nullable().optional(),
+    drugLicence: Text.nullable().optional(),
+    website: Text.nullable().optional(),
   }),
   invoiceSettings: z.strictObject({
     ...firm,
@@ -117,6 +136,9 @@ export const BackupRows = {
     openingDate: IsoDate,
     deletedAt: IsoDateTime.nullable(),
     customFields: CustomFieldValues.nullable(),
+    // MSME suppliers (doc 37, T30); optional in version 5 files made before it.
+    msmeType: MsmeType.nullable().optional(),
+    udyamNumber: Text.nullable().optional(),
   }),
   items: z.strictObject({
     ...row,
@@ -489,10 +511,29 @@ export type FirmExportFile = z.infer<typeof FirmExportFile>;
 
 // Older files are checked against their exact original schema before a lossless upgrade.
 const invoiceSettingsV4 = BackupRows.invoiceSettings.omit({ numbering: true });
+const firmProfileV4 = BackupRows.firmProfile.omit({
+  ownershipType: true,
+  businessType: true,
+  industry: true,
+  cin: true,
+  tan: true,
+  udyamNumber: true,
+  msmeType: true,
+  iec: true,
+  fssai: true,
+  drugLicence: true,
+  website: true,
+});
+const partiesV4 = BackupRows.parties.omit({
+  customFields: true,
+  msmeType: true,
+  udyamNumber: true,
+});
 const LegacyDataV4 = FirmExportData.extend({
+  firmProfile: firmProfileV4,
   invoiceSettings: invoiceSettingsV4,
   auditLog: rows(BackupRows.auditLog.omit({ ipAddress: true, device: true })),
-  parties: rows(BackupRows.parties.omit({ customFields: true })),
+  parties: rows(partiesV4),
   items: rows(BackupRows.items.omit({ customFields: true })),
   vouchers: rows(BackupRows.vouchers.omit({ customFields: true })),
 }).omit({

@@ -28,6 +28,7 @@ export const REPORT_IDS = [
   "balance-sheet-t",
   "itc-at-risk",
   "interest-calculator",
+  "msme-payables",
   "customer-tracking",
   "top-customers",
   "top-suppliers",
@@ -170,6 +171,12 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     asOf: true,
     parties: true,
   },
+  "msme-payables": {
+    title: "MSME payables (45-day rule)",
+    category: "Outstanding",
+    asOf: true,
+    parties: true,
+  },
   "customer-tracking": {
     title: "Customer tracking",
     category: "Customers and suppliers",
@@ -245,7 +252,7 @@ export interface ReportRequest {
   partyId?: string;
   includeNarration: boolean;
   includeZeroBalances: boolean;
-  /** Interest calculator: yearly rate in percent (default 18). */
+  /** Interest calculator (default 18) and MSME payables (default 16.5): yearly rate in percent. */
   interestRate?: number;
 }
 

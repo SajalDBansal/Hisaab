@@ -1,3 +1,4 @@
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
 import type { Item, MockDb, Party, Voucher } from "@repo/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
@@ -80,6 +81,7 @@ export const notificationsRepo = {
         phone: undef(p.phone),
         email: undef(p.email),
         pan: undef(p.pan),
+        ...firmStatutory(p),
       },
       parties: partyRows.map((row) => ({
         id: row.id,
@@ -95,6 +97,7 @@ export const notificationsRepo = {
         openingGstBalance: undef(row.openingGstBalance),
         openingDate: row.openingDate,
         openingBills: partyOpeningBills.get(row.id),
+        ...partyMsme(row),
       })),
       items: itemRows.map((row) => ({
         id: row.id,

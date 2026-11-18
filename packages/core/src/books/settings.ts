@@ -17,6 +17,11 @@ import type {
 } from "../types";
 import { checkUnit } from "../units";
 import { checkNewFirm } from "../validation";
+import {
+  checkFirmStatutory,
+  cleanStatutory,
+  STATUTORY_KEYS,
+} from "../businessProfile";
 import type { Db } from "./base";
 import { findParty, logAudit, newId } from "./base";
 // ---------------------------------------------------------------------------
@@ -26,7 +31,23 @@ import { findParty, logAudit, newId } from "./base";
 export function updateFirm(db: Db, patch: FirmUpdate): Firm {
   if (patch.name !== undefined && !patch.name.trim())
     throw new Error("Firm name can't be empty.");
-  const next = { ...db.firm, ...patch };
+  const statutory = cleanStatutory(
+    Object.fromEntries(
+      STATUTORY_KEYS.filter((k) => patch[k] !== undefined).map((k) => [
+        k,
+        patch[k],
+      ]),
+    ) as Record<string, string>,
+  );
+  const merged: Record<string, string | undefined> = {};
+  for (const k of STATUTORY_KEYS) merged[k] = db.firm[k];
+  Object.assign(merged, statutory);
+  const statutoryProblem = Object.values(checkFirmStatutory(merged))[0];
+  if (statutoryProblem) throw new Error(statutoryProblem);
+  const next = { ...db.firm, ...patch, ...statutory } as Firm &
+    Record<string, unknown>;
+  // Empty text clears an optional detail.
+  for (const k of STATUTORY_KEYS) if (next[k] === "") delete next[k];
   // GST setting: a GSTIN is needed for regular and composition, and none without GST.
   // New bills follow the new setting; bills already saved keep theirs.
   if (patch.gstRegistration !== undefined || patch.gstin !== undefined) {

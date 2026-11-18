@@ -38,7 +38,56 @@ export type GstMode = "regular" | "composition" | "off";
 /** Composition rate depends on the business: traders/manufacturers 1%, restaurants 5%, other services 6%. */
 export type CompositionType = "trader" | "restaurant" | "services";
 
-export interface Firm {
+/** MSME enterprise class on the Udyam registration (MSMED Act 2006, s.7). */
+export type MsmeType = "micro" | "small" | "medium";
+
+/** How the business is owned (doc 37, T61). */
+export type OwnershipType =
+  | "proprietorship"
+  | "partnership"
+  | "llp"
+  | "private-limited"
+  | "public-limited"
+  | "one-person-company"
+  | "huf"
+  | "trust-society"
+  | "other";
+
+/** What the business mainly does (doc 37, T61). */
+export type BusinessType =
+  | "retail"
+  | "wholesale"
+  | "distribution"
+  | "manufacturing"
+  | "services"
+  | "other";
+
+/**
+ * Optional statutory details of the firm (doc 37, T61). Empty fields are left
+ * out. Some are printed on bills (FSSAI, drug licence, CIN, Udyam).
+ */
+export interface FirmStatutory {
+  ownershipType?: OwnershipType;
+  businessType?: BusinessType;
+  /** Free text, e.g. "Pharmacy" or "Building material". */
+  industry?: string;
+  /** Company CIN (21 characters) or LLPIN (AAA-0000). */
+  cin?: string;
+  /** TDS/TCS account number, e.g. DELA12345B. */
+  tan?: string;
+  /** Udyam registration number, e.g. UDYAM-UP-09-0012345. */
+  udyamNumber?: string;
+  msmeType?: MsmeType;
+  /** Importer-exporter code (10 characters). */
+  iec?: string;
+  /** FSSAI licence or registration number (14 digits). */
+  fssai?: string;
+  /** Drug licence number(s), free text, e.g. "20B/UP/123, 21B/UP/124". */
+  drugLicence?: string;
+  website?: string;
+}
+
+export interface Firm extends FirmStatutory {
   id: ID;
   name: string;
   city: string;
@@ -72,7 +121,10 @@ export type FirmUpdate = Partial<
     | "gstRegistration"
     | "compositionType"
   >
->;
+> & {
+  /** Statutory details: "" clears a field. */
+  [K in keyof FirmStatutory]?: FirmStatutory[K] | "";
+};
 
 // ---------------------------------------------------------------------------
 // Parties (customers and suppliers)
@@ -106,13 +158,31 @@ export interface Party {
   openingDate: ISODate;
   /** Immutable bill-wise partition of the net opening; never an additional balance. */
   openingBills?: OpeningBill[];
+  /**
+   * Suppliers only (doc 37, T30): the supplier's MSME class from its Udyam
+   * registration. Missing = not an MSME. Micro and small suppliers must be paid
+   * within 45 days (MSMED Act s.15).
+   */
+  msmeType?: MsmeType;
+  /** The supplier's Udyam registration number, when known. */
+  udyamNumber?: string;
 }
 
 /** What the party form sends when adding or editing a party. */
 export type PartyInput = Omit<
   Party,
-  "id" | "version" | "openingDate" | "openingGstBalance" | "openingBills"
->;
+  | "id"
+  | "version"
+  | "openingDate"
+  | "openingGstBalance"
+  | "openingBills"
+  | "msmeType"
+  | "udyamNumber"
+> & {
+  /** Left out = keep what is stored (older apps); null = not an MSME. */
+  msmeType?: MsmeType | null;
+  udyamNumber?: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Items

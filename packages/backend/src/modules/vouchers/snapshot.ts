@@ -1,3 +1,4 @@
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
 import type { MockDb, Voucher, VoucherType } from "@repo/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
@@ -347,6 +348,7 @@ export async function loadBooks(
       phone: undef(p.phone),
       email: undef(p.email),
       pan: undef(p.pan),
+      ...firmStatutory(p),
     },
     parties: partyRows.map((r) => ({
       id: r.id,
@@ -363,6 +365,7 @@ export async function loadBooks(
       openingDate: r.openingDate,
       openingBills: partyOpeningBills.get(r.id),
       customFields: undef(r.customFields),
+      ...partyMsme(r),
     })),
     items: itemRows.map((r) => ({
       id: r.id,

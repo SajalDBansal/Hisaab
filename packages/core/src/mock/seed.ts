@@ -219,6 +219,9 @@ export function buildSeed(asOf: string = today()): Db {
       creditDays: 30,
       creditLimit: 0,
       openingBalance: -rupees(25000),
+      // MSME suppliers (doc 37, T30) for the MSME payables report
+      msmeType: "micro",
+      udyamNumber: "UDYAM-UP-01-0012345",
     }),
     supplier({
       id: "s2",
@@ -241,6 +244,7 @@ export function buildSeed(asOf: string = today()): Db {
       creditDays: 30,
       creditLimit: 0,
       openingBalance: 0,
+      msmeType: "small",
     }),
     supplier({
       id: "s4",

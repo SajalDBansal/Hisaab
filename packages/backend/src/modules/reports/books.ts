@@ -1,3 +1,4 @@
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { MockDb } from "@repo/core";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
@@ -222,6 +223,7 @@ async function readReportBooks(
       phone: undef(profile.phone),
       email: undef(profile.email),
       pan: undef(profile.pan),
+      ...firmStatutory(profile),
     },
     parties: partyRows.map((row) => ({
       id: row.id,
@@ -239,6 +241,7 @@ async function readReportBooks(
       openingDate: row.openingDate,
       openingBills: partyOpeningBills.get(row.id),
       customFields: undef(row.customFields),
+      ...partyMsme(row),
     })),
     items: itemRows.map((row) => ({
       id: row.id,

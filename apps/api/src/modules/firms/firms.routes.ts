@@ -1,3 +1,4 @@
+import { firmStatutory } from "@repo/backend/lib/business-profile";
 import {
   FirmDetail,
   FirmListRow,
@@ -15,7 +16,10 @@ import {
 } from "@repo/contracts";
 import {
   blankBooks,
+  checkFirmStatutory,
   checkNewFirm,
+  cleanStatutory,
+  STATUTORY_KEYS,
   isCustomRoleId,
   rightsOf,
   ROLES,
@@ -51,6 +55,7 @@ const toFirm = (name: string, p: Profile) => ({
   ...(p.phone ? { phone: p.phone } : {}),
   ...(p.email ? { email: p.email } : {}),
   ...(p.pan ? { pan: p.pan } : {}),
+  ...firmStatutory(p),
 });
 
 const toRole = (value: string | null): Role =>
@@ -218,6 +223,19 @@ export async function firmRoutes(
         gstin: patch.gstin ?? profile.gstin,
         gstRegistration: patch.gstRegistration ?? profile.gstRegistration,
       });
+      // Statutory details (doc 37, T61): check the profile as it will be saved.
+      const statutory = cleanStatutory(
+        Object.fromEntries(
+          STATUTORY_KEYS.filter((k) => patch[k] !== undefined).map((k) => [
+            k,
+            patch[k],
+          ]),
+        ) as Record<string, string>,
+      );
+      const merged: Record<string, string | undefined> = {};
+      for (const k of STATUTORY_KEYS) merged[k] = profile[k] ?? undefined;
+      Object.assign(merged, statutory);
+      Object.assign(problems, checkFirmStatutory(merged));
       if (Object.keys(problems).length > 0)
         throw new AppError(
           "INVALID_INPUT",
@@ -225,6 +243,10 @@ export async function firmRoutes(
           400,
           problems as Record<string, string>,
         );
+      // "" clears a detail.
+      const statutoryColumns = Object.fromEntries(
+        Object.entries(statutory).map(([k, v]) => [k, v || null]),
+      ) as Partial<typeof schema.firmProfile.$inferInsert>;
 
       await db.transaction(async (tx) => {
         if (patch.name !== undefined)
@@ -232,11 +254,17 @@ export async function firmRoutes(
             .update(schema.organization)
             .set({ name: patch.name.trim() })
             .where(eq(schema.organization.id, req.firm.id));
-        const { name: _name, ...rest } = patch;
+        const { name: _name, ...all } = patch;
+        const rest = Object.fromEntries(
+          Object.entries(all).filter(
+            ([k]) => !(STATUTORY_KEYS as readonly string[]).includes(k),
+          ),
+        ) as Omit<typeof all, (typeof STATUTORY_KEYS)[number]>;
         await tx
           .update(schema.firmProfile)
           .set({
             ...rest,
+            ...statutoryColumns,
             ...(patch.gstRegistration === "composition"
               ? {}
               : patch.gstRegistration
