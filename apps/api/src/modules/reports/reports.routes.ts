@@ -51,7 +51,8 @@ export async function reportRoutes(app: FastifyInstance, options: { db: Db }) {
         response: { 200: DashboardData },
       },
     },
-    async (req) => reportsService.dashboard(db, req.firm.id, req.query.tax),
+    async (req) =>
+      reportsService.dashboard(db, req.firm.id, req.query.tax, req.firm.role),
   );
 
   typed.get(

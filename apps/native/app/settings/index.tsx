@@ -85,6 +85,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "reports",
       },
       {
+        title: "Customise dashboard",
+        note: "Choose and order the cards on Home",
+        icon: "sliders",
+        href: "/settings/dashboard",
+        needs: "reports",
+      },
+      {
         title: "Cash forecast",
         note: "Expected collections and payments",
         icon: "trending-up",

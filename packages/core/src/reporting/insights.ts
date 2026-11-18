@@ -4,11 +4,19 @@
  * reports; nothing is filed or sent anywhere.
  */
 import { isPosted, partyBills } from "../accounting/bills";
+import {
+  ITC_REVERSE_DAYS,
+  ITC_WARN_DAYS,
+  LOST_CUSTOMER_DAYS,
+  isQuietCustomer,
+  itcAtRiskBills,
+  rankParties,
+} from "../accounting/insightRules";
 import { periodProfitAndLoss } from "../accounting/generalLedger";
 import { calcInvoice } from "../accounting/invoice";
 import { orderStatus } from "../accounting/orders";
 import { baseQty } from "../accounting/stockInputs";
-import { addDays, daysBetween, formatDate } from "../dates";
+import { daysBetween, formatDate } from "../dates";
 import type { Voucher, VoucherType } from "../types";
 import { balanceSheetSections } from "./financial";
 import {
@@ -27,12 +35,7 @@ import {
   type ReportSection,
 } from "./types";
 
-/** Unpaid supplier bills older than this lose their input credit (CGST Act s.16(2), second proviso). */
-export const ITC_REVERSE_DAYS = 180;
-/** Bills this old are flagged so they can be paid in time. */
-export const ITC_WARN_DAYS = 150;
-/** A customer with no sale for this many days before the report's end is "Lost". */
-export const LOST_CUSTOMER_DAYS = 90;
+export { ITC_REVERSE_DAYS, ITC_WARN_DAYS, LOST_CUSTOMER_DAYS };
 /** Interest rate used when the report request gives none (per year). */
 export const DEFAULT_INTEREST_RATE = 18;
 
@@ -76,35 +79,26 @@ export function itcAtRiskSection(
   books: ReportBooks,
   request: ReportRequest,
 ): ReportSection {
-  const asOf = request.to;
-  const rows: ReportRow[] = [];
-  for (const supplier of books.parties) {
-    if (supplier.type !== "supplier") continue;
-    if (request.partyId && supplier.id !== request.partyId) continue;
-    for (const bill of partyBills(supplier, books.vouchers, asOf)) {
-      if (bill.pending <= 0 || bill.ageDays < ITC_WARN_DAYS) continue;
-      const voucher = books.vouchers.find((v) => v.id === bill.id);
-      if (!voucher) continue; // opening balances carry no ITC
-      const tax = totalsOf(voucher).tax;
-      if (tax <= 0) continue;
-      const atRisk = Math.round((tax * bill.pending) / bill.amount);
-      rows.push(
-        reportRow(
-          bill.ageDays >= ITC_REVERSE_DAYS ? "Reverse now" : "Due soon",
-          voucher.number,
-          voucher.supplierInvoiceNo ?? "",
-          voucherParty(books, voucher)?.name ?? supplier.name,
-          formatDate(bill.date),
-          formatDate(addDays(bill.date, ITC_REVERSE_DAYS)),
-          bill.ageDays,
-          bill.amount,
-          bill.pending,
-          tax,
-          atRisk,
-        ),
-      );
-    }
-  }
+  const rows: ReportRow[] = itcAtRiskBills(
+    books.parties,
+    books.vouchers,
+    request.to,
+    { partyId: request.partyId },
+  ).map(({ supplier, voucher, bill, tax, atRisk, reverseNow, limit }) =>
+    reportRow(
+      reverseNow ? "Reverse now" : "Due soon",
+      voucher.number,
+      voucher.supplierInvoiceNo ?? "",
+      voucherParty(books, voucher)?.name ?? supplier.name,
+      formatDate(bill.date),
+      formatDate(limit),
+      bill.ageDays,
+      bill.amount,
+      bill.pending,
+      tax,
+      atRisk,
+    ),
+  );
   rows.sort((a, b) => Number(b.cells[6]) - Number(a.cells[6]));
   return appendTotals({
     title: REPORTS["itc-at-risk"].title,
@@ -184,7 +178,6 @@ export function customerTrackingSection(
   books: ReportBooks,
   request: ReportRequest,
 ): ReportSection {
-  const lostBefore = addDays(request.to, -LOST_CUSTOMER_DAYS);
   const sales = books.vouchers.filter(
     (v) => isPosted(v) && v.type === "sale" && v.date <= request.to,
   );
@@ -207,7 +200,11 @@ export function customerTrackingSection(
         v.date <= request.to,
     );
     const status =
-      first >= request.from ? "New" : last < lostBefore ? "Lost" : "Regular";
+      first >= request.from
+        ? "New"
+        : isQuietCustomer(last, request.to)
+          ? "Lost"
+          : "Regular";
     rows.push(
       reportRow(
         customer.name,
@@ -248,25 +245,14 @@ export function topPartiesSection(
   request: ReportRequest,
 ): ReportSection {
   const customers = request.report === "top-customers";
-  const types: VoucherType[] = customers
-    ? ["sale", "credit-note"]
-    : ["purchase", "debit-note"];
-  const byParty = new Map<
-    string,
-    { name: string; bills: number; value: number }
-  >();
-  for (const v of posted(books, types, request)) {
-    if (!v.partyId) continue;
-    const row = byParty.get(v.partyId) ?? {
-      name: voucherParty(books, v)?.name ?? "",
-      bills: 0,
-      value: 0,
-    };
-    if (signOf(v) > 0) row.bills += 1;
-    row.value += signOf(v) * v.amount;
-    byParty.set(v.partyId, row);
-  }
-  const ranked = [...byParty.values()].sort((a, b) => b.value - a.value);
+  const ranked = rankParties(
+    books.vouchers,
+    customers ? "customer" : "supplier",
+    request.from,
+    request.to,
+    (v) => voucherParty(books, v)?.name ?? "",
+    request.partyId,
+  );
   const total = ranked.reduce((s, r) => s + r.value, 0);
   return appendTotals({
     title: REPORTS[request.report].title,

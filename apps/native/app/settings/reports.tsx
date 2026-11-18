@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { ReportRequest as RequestSchema } from "@repo/contracts";
 import {
@@ -96,7 +97,12 @@ export default function DownloadReportsScreen() {
   );
 }
 
+const isReportId = (id: string | undefined): id is ReportId =>
+  !!id && (REPORT_IDS as readonly string[]).includes(id);
+
 function ReportForm({ firm }: { firm: Firm }) {
+  // Opened from a Home card with ?report=… (doc 37, T63)
+  const params = useLocalSearchParams<{ report?: string }>();
   const chart = useChart();
   const parties = useParties();
   const exporter = useExportReport();
@@ -104,7 +110,7 @@ function ReportForm({ firm }: { firm: Firm }) {
   const initial = periods.find((p) => p.id === "fy")!;
   const [request, setRequest] = useState<ReportRequest>({
     tax: "all",
-    report: "trial-balance",
+    report: isReportId(params.report) ? params.report : "trial-balance",
     from: initial.from,
     to: initial.to,
     includeNarration: true,
