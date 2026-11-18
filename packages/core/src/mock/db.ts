@@ -12,7 +12,13 @@ export {
   logAudit,
 } from "../books/base";
 export type { Db, Series } from "../books/base";
-export { createSale, createPurchase, createSales } from "../books/invoices";
+export {
+  createSale,
+  createPurchase,
+  createSales,
+  draftSaleMargin,
+  type SaleMarginInput,
+} from "../books/invoices";
 export {
   createReceipt,
   createPayment,

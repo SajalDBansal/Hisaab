@@ -1,5 +1,10 @@
 import {
+  canSeeCosts,
   canVoucher,
+  draftSaleMargin,
+  withoutCosts,
+  type SaleMargin,
+  type SaleMarginInput,
   describeAccount,
   calcInvoice,
   cancelBlocker,
@@ -443,6 +448,24 @@ export const vouchersService = {
   },
   async sale(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "sale", input);
+  },
+
+  /**
+   * Profit margin of a sale being made (doc 37, T12), from the stock saving it
+   * would take. Read only; the cost itself only for roles that may see costs.
+   */
+  async saleMargin(
+    db: Db,
+    firmId: string,
+    role: Role,
+    input: SaleMarginInput,
+  ): Promise<SaleMargin> {
+    const books = await db.transaction((tx) => loadReportBooks(tx, firmId), {
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    });
+    const result = core(() => draftSaleMargin(books, input));
+    return canSeeCosts(role) ? result : withoutCosts(result);
   },
   async purchase(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "purchase", input);

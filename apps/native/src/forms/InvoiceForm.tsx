@@ -44,7 +44,10 @@ import {
   type BookScope,
   financialYear,
   canSeeCosts,
+  roleFlag,
   type CustomFieldValues,
+  type SaleMargin,
+  type SaleMarginInput,
 } from "@repo/core";
 import {
   AmountField,
@@ -84,7 +87,10 @@ import {
   useParty,
   useSalesControls,
   usePartyItems,
+  useSaleMargin,
 } from "@/data/queries";
+import { useDebounced } from "@/data/useDebounced";
+import { useOfflineBooks } from "@/data/useOfflineBooks";
 import { takePicked } from "@/data/picked";
 import { colors, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
@@ -460,6 +466,46 @@ export function InvoiceForm({
       party: party?.party.name ?? (side === "sale" ? "Customer" : "Supplier"),
     },
   );
+
+  // Profit margin (doc 37, T12): on sales only, for roles with the "see profit
+  // margin" right (never sales staff), worked out by the server from the stock
+  // the sale would take. Asked for once typing pauses; hidden while it loads,
+  // while lines are incomplete and offline.
+  const showMargin = kind === "sale" && roleFlag(role, "viewProfitMargin");
+  const { online } = useOfflineBooks();
+  const marginDraft: SaleMarginInput | null =
+    showMargin &&
+    online &&
+    invoiceLines.length > 0 &&
+    invoiceLines.every((l) => l.qty > 0 && l.rate > 0)
+      ? {
+          date,
+          lines: invoiceLines,
+          sourceId: source?.id,
+          editingId: editing?.id,
+        }
+      : null;
+  const marginWanted = marginDraft ? JSON.stringify(marginDraft) : "";
+  const marginAsked = useDebounced(marginWanted, 500);
+  const marginQuery = useSaleMargin(
+    marginAsked ? (JSON.parse(marginAsked) as SaleMarginInput) : null,
+  );
+  const margin: SaleMargin | undefined =
+    marginWanted &&
+    marginAsked === marginWanted &&
+    marginQuery.isSuccess &&
+    !marginQuery.isFetching
+      ? marginQuery.data
+      : undefined;
+  const marginText = (row: {
+    margin: number | null;
+    marginPercent: number | null;
+  }) =>
+    `${formatINR(row.margin ?? 0)}${
+      row.marginPercent === null
+        ? ""
+        : ` · ${row.marginPercent < 0 ? "−" : ""}${Math.abs(row.marginPercent)}%`
+    }`;
 
   // ---- Actions ------------------------------------------------------------------
   const addItem = (item: Item) =>
@@ -1022,6 +1068,16 @@ export function InvoiceForm({
                   style={{ fontWeight: "600" }}
                 />
               </View>
+              {(() => {
+                const row = margin?.lines[i];
+                if (!row || row.margin === null) return null;
+                return (
+                  <Badge
+                    label={`Margin ${marginText(row)}`}
+                    tone={row.margin < 0 ? "bad" : "ok"}
+                  />
+                );
+              })()}
             </Card>
           );
         })}
@@ -1069,6 +1125,39 @@ export function InvoiceForm({
         <Txt variant="caption" tone="body" style={{ paddingTop: space.sm }}>
           {amountInWords(totals.grandTotal)}
         </Txt>
+        {margin && margin.total.margin !== null ? (
+          <View
+            style={{
+              marginTop: space.sm,
+              paddingTop: space.xs,
+              borderTopWidth: 1,
+              borderTopColor: colors.hairlineSoft,
+            }}
+          >
+            <KeyValue
+              label="Profit margin"
+              value={
+                <Txt
+                  variant="small"
+                  num
+                  style={{
+                    fontWeight: "600",
+                    color: margin.total.margin < 0 ? colors.give : colors.get,
+                  }}
+                >
+                  {marginText(margin.total)}
+                </Txt>
+              }
+            />
+            <Txt variant="caption" tone="body">
+              On the taxable value of the items, less their stock cost (oldest
+              stock first). Not printed.
+              {margin.missing > 0
+                ? ` Leaves out ${count(margin.missing, "line")} without stock.`
+                : ""}
+            </Txt>
+          </View>
+        ) : null}
       </Card>
 
       {/* Money received or paid now (not when editing: record payments separately) */}

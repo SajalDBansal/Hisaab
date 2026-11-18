@@ -13,7 +13,10 @@ import {
   assertLotsAvailable,
   purchaseLineCost,
   selectStockLines,
+  stockLotsFor,
 } from "../accounting/stockLots";
+import { saleMargin, type SaleMargin } from "../accounting/saleMargin";
+import { bookScopeOf } from "../accounting/bookScope";
 import { checkSupplierInvoice } from "../accounting/supplierInvoices";
 import {
   itemTaxType,
@@ -26,6 +29,7 @@ import { addDays } from "../dates";
 import type {
   GstMode,
   ID,
+  ISODate,
   InvoiceLine,
   NewInvoiceInput,
   Voucher,
@@ -123,13 +127,56 @@ export function createSales(
 /** A converted challan releases its stock to the replacement invoice. */
 export function stockForInvoice(
   db: Db,
-  input: NewInvoiceInput,
+  input: Pick<NewInvoiceInput, "sourceId">,
   excludeId?: string,
 ) {
   return db.vouchers.filter(
     (v) =>
       v.id !== excludeId &&
       !(v.id === input.sourceId && v.type === "delivery-note"),
+  );
+}
+
+/** A sale being made, for its profit margin (doc 37, T12). */
+export interface SaleMarginInput {
+  date: ISODate;
+  /** Each line may name its book (GST / non-GST) or a stock batch. */
+  lines: InvoiceLine[];
+  /** The order or challan the sale is made from. */
+  sourceId?: ID;
+  /** A saved sale being edited: its own stock is free for the new lines. */
+  editingId?: ID;
+}
+
+/**
+ * Profit margin of a sale not yet saved, from the stock saving it would take:
+ * the same lots, oldest first, as createSales (or updateInvoice for an edit).
+ */
+export function draftSaleMargin(db: Db, input: SaleMarginInput): SaleMargin {
+  const editing = input.editingId
+    ? db.vouchers.find((v) => v.id === input.editingId && v.type === "sale")
+    : undefined;
+  if (input.editingId && !editing) throw new Error("Bill not found");
+  const lines = input.lines.map((l, index) => {
+    if (!editing) return l;
+    // As in updateInvoice: a row keeps its saved batch while it is the same item.
+    const saved = editing.lines?.[index];
+    const stockLotId =
+      l.stockLotId ??
+      (saved?.itemId === l.itemId ? saved.stockLotId : undefined);
+    return {
+      ...l,
+      stockLotId,
+      bookScope: stockLotId ? l.bookScope : bookScopeOf(editing),
+    };
+  });
+  const lots = stockLotsFor(
+    db.items,
+    stockForInvoice(db, input, editing?.id),
+    input.date,
+  ).flat();
+  return saleMargin(lots, lines, (line) =>
+    savedLineDetails(db, line, editing?.lines ?? []),
   );
 }
 

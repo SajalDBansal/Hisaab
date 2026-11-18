@@ -57,6 +57,9 @@ export function voucherServices({ request, pages }: Client) {
         body: input,
         headers: pendingWriteHeaders(input, "/sales/split"),
       }),
+    // A read: nothing is saved, so no request key and never queued offline.
+    saleMargin: (input) =>
+      request("/sales/margin", c.SaleMargin, { method: "POST", body: input }),
     createPurchase: (input) => create("/purchases", input),
     createReceipt: (input) => create("/receipts", input),
     createPayment: (input) => create("/payments", input),

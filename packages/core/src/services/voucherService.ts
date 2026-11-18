@@ -30,6 +30,8 @@ import {
   createReceipt,
   createSale,
   createSales,
+  draftSaleMargin,
+  type SaleMarginInput,
   cancelBlocker,
   cancelVoucher,
   createNote,
@@ -61,6 +63,7 @@ import type {
   VoucherType,
 } from "../types";
 import { clone, delay, getDb } from "./client";
+import type { SaleMargin } from "../accounting/saleMargin";
 import { gstModeOf } from "../accounting/gstMode";
 import {
   VOUCHER_TYPES,
@@ -337,6 +340,15 @@ export const voucherService = {
   async createSales(input: NewInvoiceInput): Promise<Voucher[]> {
     await delay();
     return clone(createSales(getDb(), input));
+  },
+
+  /**
+   * Profit margin of a sale being made (doc 37, T12). The demo user is the
+   * owner. Real API: POST /sales/margin (needs the "see profit margin" right).
+   */
+  async saleMargin(input: SaleMarginInput): Promise<SaleMargin> {
+    await delay();
+    return clone(draftSaleMargin(getDb(), input));
   },
 
   /** Real API: http.post<Voucher>("/vouchers/purchases", input) */

@@ -1,4 +1,4 @@
-import { roleFlag } from "@repo/core";
+import { canVoucher, roleFlag } from "@repo/core";
 import {
   BankDateInput,
   CancelInput,
@@ -22,6 +22,8 @@ import {
   PrintableVoucher,
   PrintableVoucherQuery,
   ReturnableBill,
+  SaleMargin,
+  SaleMarginInput,
   Voucher,
   VoucherDetail,
   VoucherListParams,
@@ -106,6 +108,34 @@ export async function voucherRoutes(
       reply
         .code(201)
         .send(await vouchersService.sales(db, createCtx(req), req.body)),
+  );
+
+  // Profit margin while making a sale (doc 37, T12): only with the "see profit
+  // margin" right, which sales staff never have (doc 33 R1). Saves nothing.
+  typed.post(
+    "/sales/margin",
+    {
+      preHandler: app.inFirm("sales"),
+      schema: { body: SaleMarginInput, response: { 200: SaleMargin } },
+    },
+    async (req) => {
+      const role = req.firm.role;
+      if (
+        !roleFlag(role, "viewProfitMargin") ||
+        !(
+          canVoucher(role, "sale", "create") || canVoucher(role, "sale", "edit")
+        )
+      )
+        throw new AppError(
+          "FORBIDDEN",
+          "Your role can't see profit margins. Ask the owner of the firm.",
+          403,
+        );
+      for (const id of [req.body.editingId, req.body.sourceId])
+        if (id)
+          await requireVoucherRead(db, req.firm.id, role, id, req.user.id);
+      return vouchersService.saleMargin(db, req.firm.id, role, req.body);
+    },
   );
 
   typed.get(

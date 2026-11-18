@@ -543,3 +543,35 @@ export const VoucherListParams = VoucherListQuery.extend({
 
 /** `/orders/:type` — estimate, sales-order, delivery-note or purchase-order. */
 export const OrderParams = z.object({ type: OrderType });
+
+/**
+ * `POST /sales/margin` (doc 37, T12): the sale being made, as the sale form
+ * would send it, for its profit margin. Nothing is saved.
+ */
+export const SaleMarginInput = z.object({
+  date: IsoDate,
+  lines: z
+    .array(NewInvoiceInput.shape.lines.element)
+    .min(1, "Add at least one item.")
+    .max(300),
+  sourceId: Id.optional(),
+  /** A saved sale being edited: its own stock is free for the new lines. */
+  editingId: Id.optional(),
+});
+
+const MarginFigures = z.object({
+  taxable: Paise,
+  /** Null when unknown, and always for roles that may not see costs. */
+  cost: Paise.nullable(),
+  margin: Paise.nullable(),
+  marginPercent: z.number().nullable(),
+});
+
+/** Margin = taxable value (after discount, before GST) less FIFO stock cost. */
+export const SaleMargin = z.object({
+  lines: z.array(MarginFigures.extend({ problem: z.string().optional() })),
+  total: MarginFigures,
+  missing: z.number().int().min(0),
+});
+export type SaleMarginInput = z.infer<typeof SaleMarginInput>;
+export type SaleMargin = z.infer<typeof SaleMargin>;

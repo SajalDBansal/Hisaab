@@ -44,6 +44,7 @@ import {
   registerRoles,
   type RoleDefinition,
   type OverdueSalesPolicy,
+  type SaleMarginInput,
 } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
@@ -463,6 +464,18 @@ export function useCreateSales() {
     onSuccess: refreshAll,
   });
 }
+/**
+ * Profit margin of the sale being made (doc 37, T12). Pass null to ask for
+ * nothing (no right to see margins, incomplete lines, offline).
+ */
+export const useSaleMargin = (input: SaleMarginInput | null) =>
+  useQuery({
+    queryKey: ["sale-margin", input],
+    queryFn: (services) => services.voucherService.saleMargin(input!),
+    enabled: !!input,
+    staleTime: 15_000,
+  });
+
 export const useStockLots = (date?: string) =>
   useQuery({
     queryKey: ["stockLots", date],
