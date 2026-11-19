@@ -174,6 +174,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "settings",
       },
       {
+        title: "Charges on bills",
+        note: "Packing, insurance, loading: GST and ledger",
+        icon: "package",
+        href: "/settings/charges",
+        needs: "settings",
+      },
+      {
         title: "Invoice and numbering",
         note: "Print format, terms, bank details, prefixes",
         icon: "file-text",

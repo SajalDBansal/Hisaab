@@ -1,4 +1,5 @@
 export * from "./invoice";
+export * from "./chargeHeads";
 export * from "./returnAmounts";
 export * from "./bills";
 export * from "./postings";

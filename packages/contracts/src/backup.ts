@@ -17,6 +17,7 @@ import {
 import {
   BankAccount,
   GstMode,
+  ChargeHead,
   InvoiceSettings,
   InvoiceTemplate,
 } from "./settings";
@@ -97,6 +98,7 @@ export const BackupRows = {
     prefixes: InvoiceSettings.shape.prefixes,
     billOfSupplyPrefix: Text,
     numbering: InvoiceSettings.shape.numbering,
+    chargeHeads: z.array(ChargeHead).max(30).default([]),
   }),
   firmBranding: z.strictObject({
     ...firm,
@@ -246,6 +248,9 @@ export const BackupRows = {
     delivery: DeliverySnapshot.strict().nullable(),
     commission: CommissionSnapshot.strict().nullable(),
     customFields: CustomFieldValues.nullable(),
+    // Subtotal discount (doc 37, T09); older version 5 files have none.
+    billDiscountPercent: Percentage.nullable().default(null),
+    billDiscountAmount: Paise.default(0),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -256,6 +261,7 @@ export const BackupRows = {
     perFactor: Quantity.nullable(),
     discountPercent: Percentage.nullable(),
     discountAmount: Paise,
+    billDiscount: Paise.default(0),
     gstRate: Count,
     taxType: z.enum(["taxable", "nil", "exempt", "nongst"]).nullable(),
     sourceLine: Count.nullable(),
@@ -271,6 +277,14 @@ export const BackupRows = {
     name: Text,
     amount: Paise,
     gstRate: Count,
+    // Charge heads (doc 37, T09); older version 5 files have none.
+    headId: Text.nullable().default(null),
+    taxType: z
+      .enum(["taxable", "nil", "exempt", "nongst"])
+      .nullable()
+      .default(null),
+    sac: Text.nullable().default(null),
+    account: Text.nullable().default(null),
   }),
   journalLines: z.strictObject({
     ...entry,

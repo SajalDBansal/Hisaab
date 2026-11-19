@@ -5,7 +5,7 @@
  * Every bill line is sorted by its tax type (see taxType.ts):
  *   taxable → B2B / B2CL / B2CS and the tax tables
  *   nil, exempt, non-GST → GSTR-1 table 8, GSTR-3B 3.1(c) / 3.1(e) and table 5
- * Freight and other charges are always taxable.
+ * Free-typed charges (freight) are taxable; charges from a charge head follow its tax type.
  */
 import { addDays, monthLabel, yearMonth } from "../dates";
 import type {
@@ -99,8 +99,11 @@ export function billTaxSplit(v: Voucher) {
     if (type === "taxable") addTaxed(t, line.gstRate);
     else free[NO_TAX_KEY[type]] += t.taxable;
   }
-  for (const c of v.charges ?? [])
-    addTaxed(calcCharge(c, interState), c.gstRate);
+  for (const c of v.charges ?? []) {
+    const t = calcCharge(c, interState);
+    if (!c.taxType || c.taxType === "taxable") addTaxed(t, c.gstRate);
+    else free[NO_TAX_KEY[c.taxType]] += t.taxable;
+  }
   return {
     taxed,
     byRate: [...byRate.values()] as {
@@ -439,14 +442,16 @@ function addHsn(
       calcLine(line, !!v.interState),
     );
   }
-  for (const charge of v.charges ?? [])
+  for (const charge of v.charges ?? []) {
+    if (charge.taxType === "nongst") continue;
     add(
-      "9965",
-      "Freight and transport",
+      charge.sac ?? "9965",
+      charge.headId ? charge.name : "Freight and transport",
       "OTH",
       0,
       calcCharge(charge, !!v.interState),
     );
+  }
 }
 
 export function gstr1(

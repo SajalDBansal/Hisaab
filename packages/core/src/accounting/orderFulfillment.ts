@@ -1,6 +1,12 @@
-import type { ExtraCharge, InvoiceLine, OrderType, Voucher } from "../types";
+import type {
+  BillDiscountInput,
+  ExtraCharge,
+  InvoiceLine,
+  OrderType,
+  Voucher,
+} from "../types";
 import { isStoredQuantity } from "../precision";
-import { calcLine, lineGross } from "./invoice";
+import { calcLine, lineGross, splitBillDiscount } from "./invoice";
 import { checkInvoiceNumbers } from "./invoiceValidation";
 import { CONVERTS_TO, isOrderType } from "./orders";
 import {
@@ -64,6 +70,8 @@ export interface FulfillmentBatch {
   bookScope: "gst" | "nongst";
   lines: FulfillmentInvoiceLine[];
   charges: ExtraCharge[];
+  /** The order's subtotal discount for these lines (doc 37, T09). */
+  billDiscount?: BillDiscountInput;
 }
 export interface OrderFulfillmentPlan {
   source: FulfillmentVoucher;
@@ -313,19 +321,85 @@ function sliceLine(
   return line;
 }
 
+/**
+ * The part of an order-level amount (a charge, or a flat subtotal discount) that
+ * goes with the selected quantities: spread over the lines by value, then by
+ * quantity, so converting the whole order in parts adds up to the full amount.
+ */
+function partialAmount(
+  balances: OrderLineBalance[],
+  selections: FulfillmentSelection[],
+  shares: bigint[],
+  total: bigint,
+  full: number,
+) {
+  let cumulative = 0n;
+  let assigned = 0;
+  return balances.reduce((sum, row, i) => {
+    cumulative += shares[i];
+    const next = ratio(full, cumulative, total);
+    const budget = next - assigned;
+    assigned = next;
+    const before = Math.min(row.line.qty, row.grossConsumedQty);
+    const after = Math.min(
+      row.line.qty,
+      q(before + (selections.find((s) => s.sourceLineId === row.id)?.qty ?? 0)),
+    );
+    return (
+      sum +
+      prorate(budget, after, row.line.qty) -
+      prorate(budget, before, row.line.qty)
+    );
+  }, 0);
+}
+
+function lineWeights(
+  balances: OrderLineBalance[],
+  value: (line: InvoiceLine) => number,
+) {
+  const weights = balances.map((b) => value(b.line));
+  const hasValue = weights.some((weight) => weight > 0);
+  const shares = weights.map((weight, i) =>
+    hasValue ? BigInt(weight) : quantityUnits(balances[i].line.qty),
+  );
+  return { shares, total: shares.reduce((sum, weight) => sum + weight, 0n) };
+}
+
+/** Subtotal discount for the converted lines: the same percentage, or the flat amount's share. */
+function partialBillDiscount(
+  source: Voucher,
+  balances: OrderLineBalance[],
+  selections: FulfillmentSelection[],
+): BillDiscountInput | undefined {
+  const discount = source.billDiscount;
+  if (!discount?.amount) return undefined;
+  if (discount.percent) return { percent: discount.percent };
+  const { shares, total } = lineWeights(
+    balances,
+    (line) =>
+      calcLine({ ...line, billDiscountShare: undefined }, false).taxable,
+  );
+  if (!total) return undefined;
+  const amount = partialAmount(
+    balances,
+    selections,
+    shares,
+    total,
+    discount.amount,
+  );
+  return amount > 0 ? { amount } : undefined;
+}
+
 function partialCharges(
   source: Voucher,
   balances: OrderLineBalance[],
   selections: FulfillmentSelection[],
 ) {
-  const weights = balances.map(
-    (b) => calcLine(b.line, !!source.interState).taxable,
+  // Legacy weighting: value after every discount.
+  const { shares, total } = lineWeights(
+    balances,
+    (line) => calcLine(line, !!source.interState).taxable,
   );
-  const hasValue = weights.some((weight) => weight > 0);
-  const shares = weights.map((weight, i) =>
-    hasValue ? BigInt(weight) : quantityUnits(balances[i].line.qty),
-  );
-  const total = shares.reduce((sum, weight) => sum + weight, 0n);
   if (!total) return [];
   return (source.charges ?? [])
     .map((charge) => {
@@ -455,23 +529,32 @@ export function planOrderFulfillment(input: {
   });
   const charges = partialCharges(source, balances, selections);
   checkInvoiceNumbers(lines, charges);
-  const batches = (["gst", "nongst"] as const).flatMap((bookScope) => {
-    const grouped = lines.filter(
-      (line) =>
-        (line.bookScope ??
-          (source.taxMode === "off" || line.taxType === "nongst"
-            ? "nongst"
-            : "gst")) === bookScope,
-    );
-    return grouped.length
-      ? [
-          {
-            bookScope,
-            lines: grouped.map((l) => ({ ...l, bookScope })),
-            charges: [] as ExtraCharge[],
-          },
-        ]
-      : [];
+  const batches: FulfillmentBatch[] = (["gst", "nongst"] as const).flatMap(
+    (bookScope) => {
+      const grouped = lines.filter(
+        (line) =>
+          (line.bookScope ??
+            (source.taxMode === "off" || line.taxType === "nongst"
+              ? "nongst"
+              : "gst")) === bookScope,
+      );
+      return grouped.length
+        ? [
+            {
+              bookScope,
+              lines: grouped.map((l) => ({ ...l, bookScope })),
+              charges: [] as ExtraCharge[],
+            },
+          ]
+        : [];
+    },
+  );
+  const discounts = splitBillDiscount(
+    partialBillDiscount(source, balances, selections),
+    batches.map((batch) => batch.lines),
+  );
+  batches.forEach((batch, index) => {
+    if (discounts[index]) batch.billDiscount = discounts[index];
   });
   // Shared invoice creation already assigns freight to one split bill. Keep that policy.
   batches[0].charges = charges.map((charge) => ({
@@ -542,6 +625,7 @@ export function createPlannedFulfillments(
       date: plan.date,
       lines: batch.lines,
       charges: batch.charges,
+      billDiscount: batch.billDiscount,
       bookScope: batch.bookScope,
       supplierInvoiceNo: plan.supplierInvoiceNo,
       narration: plan.narration,

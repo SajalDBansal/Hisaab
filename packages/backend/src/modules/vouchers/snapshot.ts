@@ -183,6 +183,12 @@ export async function hydrateVouchers(
             amount: r.tdsAmount,
           }
         : undefined,
+      billDiscount: r.billDiscountAmount
+        ? {
+            percent: undef(r.billDiscountPercent),
+            amount: r.billDiscountAmount,
+          }
+        : undefined,
       lines: lines?.map((l) => ({
         itemId: l.itemId,
         qty: l.qty ?? 0,
@@ -193,6 +199,7 @@ export async function hydrateVouchers(
             : undefined,
         discountPercent: undef(l.discountPercent),
         discountAmount: l.discountAmount || undefined,
+        billDiscountShare: l.billDiscount || undefined,
         gstRate: l.gstRate as 0 | 5 | 18 | 40,
         taxType: undef(l.taxType),
         sourceLine: undef(l.sourceLine),
@@ -206,6 +213,10 @@ export async function hydrateVouchers(
         name: c.name,
         amount: c.amount,
         gstRate: c.gstRate as 0 | 5 | 18 | 40,
+        headId: undef(c.headId),
+        taxType: undef(c.taxType),
+        sac: undef(c.sac),
+        account: undef(c.account),
       })),
       journalLines: journal?.map((j) => ({
         account: j.account,
@@ -417,6 +428,8 @@ export async function loadBooks(
       prefixes: prefixes as MockDb["invoiceSettings"]["prefixes"],
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
       numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
+      chargeHeads:
+        settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
     },
     team: [
       {

@@ -281,6 +281,13 @@
       "when": 1795017795727,
       "tag": "0039_business_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795063824634,
+      "tag": "0040_discounts_charges",
+      "breakpoints": true
     }
   ]
 }

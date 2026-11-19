@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Id, NonNegativePaise } from "./common";
+import { GstRate, Id, NonNegativePaise } from "./common";
 import { Role } from "./firms";
 
 export const GstMode = z.enum(["regular", "composition", "off"]);
@@ -39,6 +39,21 @@ export const NumberingRule = z.strictObject({
   showYear: z.boolean(),
 });
 
+/** A charge the firm picks on bills: packing, insurance, loading (doc 37, T09). */
+export const ChargeHead = z.object({
+  id: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,40}$/, "A charge head has an invalid id."),
+  name: z.string().trim().min(1, "Name the charge.").max(60),
+  taxType: z.enum(["taxable", "exempt", "nongst"]),
+  gstRate: GstRate,
+  sac: z.string().max(8).optional(),
+  salesLedger: z.string().max(60).optional(),
+  purchaseLedger: z.string().max(60).optional(),
+  active: z.boolean(),
+});
+export type ChargeHead = z.infer<typeof ChargeHead>;
+
 export const InvoiceSettings = z.object({
   template: InvoiceTemplate,
   terms: z.string().max(1000),
@@ -49,6 +64,7 @@ export const InvoiceSettings = z.object({
   billOfSupplyPrefix: Prefix,
   // Keyed by voucher type (core rejects unknown types; vouchers.ts imports this file).
   numbering: z.record(z.string(), NumberingRule),
+  chargeHeads: z.array(ChargeHead).max(30).optional(),
 });
 
 export const InvoiceSettingsUpdate = InvoiceSettings.partial();

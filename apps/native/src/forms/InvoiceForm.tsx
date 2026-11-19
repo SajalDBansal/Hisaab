@@ -48,6 +48,9 @@ import {
   type CustomFieldValues,
   type SaleMargin,
   type SaleMarginInput,
+  exclusiveRate,
+  inclusiveRate,
+  type BillDiscountInput,
 } from "@repo/core";
 import {
   AmountField,
@@ -88,6 +91,7 @@ import {
   useSalesControls,
   usePartyItems,
   useSaleMargin,
+  useInvoiceSettings,
 } from "@/data/queries";
 import { useDebounced } from "@/data/useDebounced";
 import { useOfflineBooks } from "@/data/useOfflineBooks";
@@ -107,8 +111,11 @@ import {
   lotsWithoutBill,
   stockPartsByLine,
   invoiceDraftCharges,
+  headCharges,
+  withBillDiscount,
   type LineDraft,
 } from "./invoiceDraft";
+import { InvoiceExtras } from "./InvoiceExtras";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -306,6 +313,37 @@ export function InvoiceForm({
   const [freight, setFreight] = useState(
     editFreight ? String(editFreight.amount / 100) : "",
   );
+  // Discounts and charges (doc 37, T09)
+  const chargeHeads = useInvoiceSettings().data?.chargeHeads;
+  const [headAmounts, setHeadAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (prefill?.charges ?? [])
+        .filter((c) => c.headId)
+        .map((c) => [c.headId!, String(c.amount / 100)]),
+    ),
+  );
+  const [discountIn, setDiscountIn] = useState<"percent" | "amount">(
+    prefill?.billDiscount && !prefill.billDiscount.percent
+      ? "amount"
+      : "percent",
+  );
+  const [discountText, setDiscountText] = useState(
+    prefill?.billDiscount?.percent
+      ? String(prefill.billDiscount.percent)
+      : prefill?.billDiscount
+        ? String(prefill.billDiscount.amount / 100)
+        : "",
+  );
+  const billDiscount: BillDiscountInput | undefined =
+    discountIn === "percent"
+      ? Number(discountText) > 0
+        ? { percent: Math.min(Number(discountText), 100) }
+        : undefined
+      : (parseRupees(discountText) ?? 0) > 0
+        ? { amount: parseRupees(discountText)! }
+        : undefined;
+  // Rates typed with GST included; lines save the rate before GST.
+  const [ratesWithGst, setRatesWithGst] = useState(false);
   const [paid, setPaid] = useState<Paid>("none");
   const [paidText, setPaidText] = useState("");
   const [mode, setMode] = useState<PaymentMode>("cash");
@@ -346,7 +384,11 @@ export function InvoiceForm({
     return invoiceDraftLine(l, itemFor(l), bookScope);
   });
   // Composition sales and firms without GST: no GST on the bill
-  const invoiceLines = applyGstMode(rawLines, taxMode, side);
+  const invoiceLines = applyGstMode(rawLines, taxMode, side).map((l) =>
+    ratesWithGst && l.gstRate
+      ? { ...l, rate: exclusiveRate(l.rate, l.gstRate) }
+      : l,
+  );
   // The rows the server will save: each lot a line draws on, as in allocateStock.
   let stockError: string | undefined;
   let stockLines = invoiceLines;
@@ -360,6 +402,7 @@ export function InvoiceForm({
     } catch (err) {
       stockError = err instanceof Error ? err.message : String(err);
     }
+  stockLines = withBillDiscount(stockLines, billDiscount, kind === "sale");
   const linesByEntry = stockPartsByLine(invoiceLines, stockLines);
   const carriesGst =
     billsCarryGst(taxMode, side) &&
@@ -368,7 +411,23 @@ export function InvoiceForm({
       : stockLines.some((l) => l.bookScope !== "nongst"));
   const freightPaise = parseRupees(freight) ?? 0;
   const charges: ExtraCharge[] = applyGstMode(
-    invoiceDraftCharges(freightPaise, prefill?.charges),
+    [
+      ...invoiceDraftCharges(
+        freightPaise,
+        prefill?.charges?.filter((c) => !c.headId),
+      ),
+      ...headCharges(
+        Object.fromEntries(
+          Object.entries(headAmounts).map(([id, t]) => [
+            id,
+            parseRupees(t) ?? 0,
+          ]),
+        ),
+        chargeHeads,
+        side,
+        prefill?.charges,
+      ),
+    ],
     carriesGst ? taxMode : "off",
     side,
   );
@@ -515,7 +574,11 @@ export function InvoiceForm({
         key: Date.now(),
         itemId: item.id,
         qty: "1",
-        rate: (item[text.priceKey] / 100).toFixed(2),
+        rate: (
+          (ratesWithGst && carriesGst && item.gstRate
+            ? inclusiveRate(item[text.priceKey], item.gstRate)
+            : item[text.priceKey]) / 100
+        ).toFixed(2),
         discountPercent: "",
         inAlt: false,
       },
@@ -615,6 +678,7 @@ export function InvoiceForm({
           date,
           lines: invoiceLines,
           charges,
+          billDiscount,
         };
         const approval =
           kind === "sale" && needsCreditApproval && creditReason.trim()
@@ -641,6 +705,7 @@ export function InvoiceForm({
             date,
             lines: invoiceLines,
             charges,
+            billDiscount,
             sourceId: source?.id,
             ...associates,
             customFields: customValues,
@@ -656,6 +721,7 @@ export function InvoiceForm({
           sourceId: source?.id,
           lines: invoiceLines,
           charges,
+          billDiscount,
           paidNow:
             paidNow > 0 ? { amount: paidNow, mode, ledgerId } : undefined,
         };
@@ -688,6 +754,7 @@ export function InvoiceForm({
             sourceId: source?.id,
             lines: invoiceLines,
             charges,
+            billDiscount,
             paidNow:
               paidNow > 0 ? { amount: paidNow, mode, ledgerId } : undefined,
           },
@@ -892,6 +959,28 @@ export function InvoiceForm({
       {/* Items */}
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Items · {lines.length}</Txt>
+        {carriesGst ? (
+          <Checkbox
+            label="Rates include GST"
+            note="Type the rate with GST; the bill saves the rate before GST, to the paisa."
+            checked={ratesWithGst}
+            onChange={(on) => {
+              // Keep each line total: show the same rate with or without GST.
+              setLines((prev) =>
+                prev.map((l, i) => {
+                  const gstRate = invoiceLines[i]?.gstRate ?? 0;
+                  const rate = parseRupees(l.rate) ?? 0;
+                  if (!gstRate) return l;
+                  const next = on
+                    ? inclusiveRate(rate, gstRate)
+                    : exclusiveRate(rate, gstRate);
+                  return { ...l, rate: (next / 100).toFixed(2) };
+                }),
+              );
+              setRatesWithGst(on);
+            }}
+          />
+        ) : null}
         {needsBook && !editing ? (
           <View style={{ gap: space.xs }}>
             <Txt variant="small" tone="body">
@@ -982,7 +1071,7 @@ export function InvoiceForm({
                   }
                 />
                 <AmountField
-                  label={l.inAlt && alt ? `Rate ₹ / ${alt.unit}` : "Rate ₹"}
+                  label={`${l.inAlt && alt ? `Rate ₹ / ${alt.unit}` : "Rate ₹"}${ratesWithGst && shown?.gstRate ? " incl. GST" : ""}`}
                   value={l.rate}
                   onChangeText={(rate) => updateLine(l.key, { rate })}
                 />
@@ -1010,9 +1099,13 @@ export function InvoiceForm({
               {(() => {
                 const last = lastRate(l.itemId);
                 if (!last) return null;
-                const typed = (last.typedRate / 100).toFixed(2);
-                const canUse =
-                  !l.inAlt && parseRupees(l.rate) !== last.typedRate;
+                // With "Rates include GST" on, Use fills the rate with GST.
+                const lastTyped =
+                  ratesWithGst && shown?.gstRate
+                    ? inclusiveRate(last.typedRate, shown.gstRate)
+                    : last.typedRate;
+                const typed = (lastTyped / 100).toFixed(2);
+                const canUse = !l.inAlt && parseRupees(l.rate) !== lastTyped;
                 return (
                   <View
                     style={{
@@ -1036,6 +1129,11 @@ export function InvoiceForm({
                   </View>
                 );
               })()}
+              {ratesWithGst && shown?.gstRate ? (
+                <Txt variant="caption" tone="body" num>
+                  Rate before GST {formatINR(invoiceLines[i].rate)}
+                </Txt>
+              ) : null}
               {l.inAlt && item && alt ? (
                 <Txt variant="caption" tone="body" num>
                   {lineQtyText(invoiceLines[i], item.unit).main} ={" "}
@@ -1100,10 +1198,39 @@ export function InvoiceForm({
           onChangeText={setFreight}
         />
       </View>
+      <InvoiceExtras
+        heads={chargeHeads ?? []}
+        saved={prefill?.charges ?? []}
+        amounts={headAmounts}
+        onAmounts={setHeadAmounts}
+        carriesGst={carriesGst}
+        discountIn={discountIn}
+        onDiscountIn={setDiscountIn}
+        discountText={discountText}
+        onDiscountText={setDiscountText}
+      />
 
       <Card style={{ gap: 0 }}>
+        {totals.billDiscount ? (
+          <>
+            <KeyValue
+              label="Sub total"
+              value={formatINR(totals.taxable + totals.billDiscount)}
+            />
+            <KeyValue
+              label={`Discount${billDiscount?.percent ? ` (${billDiscount.percent}%)` : ""}`}
+              value={`−${formatINR(totals.billDiscount)}`}
+            />
+          </>
+        ) : null}
         <KeyValue
-          label={carriesGst ? "Taxable value" : "Sub total"}
+          label={
+            carriesGst
+              ? "Taxable value"
+              : totals.billDiscount
+                ? "After discount"
+                : "Sub total"
+          }
           value={formatINR(totals.taxable)}
         />
         {!carriesGst ? null : interState ? (

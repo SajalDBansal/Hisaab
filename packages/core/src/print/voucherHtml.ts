@@ -33,6 +33,7 @@ import {
   type CustomFieldValues,
 } from "../customFields";
 import type {
+  ExtraCharge,
   InvoiceLine,
   Firm,
   InvoiceSettings,
@@ -285,6 +286,7 @@ export function printRows(lines: InvoiceLine[], interState: boolean) {
     a.gstRate === b.gstRate &&
     a.taxType === b.taxType &&
     a.discountPercent === b.discountPercent &&
+    !a.billDiscountShare === !b.billDiscountShare &&
     (a.discountAmount === undefined) === (b.discountAmount === undefined) &&
     a.per?.unit === b.per?.unit &&
     a.per?.factor === b.per?.factor;
@@ -389,26 +391,33 @@ function billHtml(input: PrintInput, title: string): string {
       const type = lineTaxType(line);
       const gst =
         type === "taxable" ? `${line.gstRate}%` : esc(taxTypeLabel(type));
+      // The line's own discount plus its share of the subtotal discount (doc 37, T09).
+      const disc = lt.discount + lt.billDiscount;
       if (compact)
-        return `<tr><td>${esc(it?.name)}${itemExtra(it)}<div class="small muted">${qty} × ${inr(line.rate)}${lt.discount ? ` − ${inr(lt.discount)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
+        return `<tr><td>${esc(it?.name)}${itemExtra(it)}<div class="small muted">${qty} × ${inr(line.rate)}${disc ? ` − ${inr(disc)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
       return `<tr>
 <td class="num">${i + 1}</td>
 <td>${esc(it?.name)}${itemExtra(it)}</td>
 ${showHsn ? `<td>${esc(it?.hsn || "—")}</td>` : ""}
 <td class="num">${qty}</td>
 <td class="num">${inr(line.rate)}</td>
-<td class="num">${lt.discount ? inr(lt.discount) : "—"}</td>
+<td class="num">${disc ? inr(disc) : "—"}</td>
 ${showGst ? `<td class="num">${inr(lt.taxable)}</td><td class="num">${gst}</td>` : ""}
 <td class="num">${inr(lt.total)}</td>
 </tr>`;
     })
     .join("");
+  // Exempt and non-GST charge heads print their treatment instead of a rate.
+  const chargeGst = (c: ExtraCharge) =>
+    c.taxType && c.taxType !== "taxable"
+      ? esc(taxTypeLabel(c.taxType))
+      : `${c.gstRate}%`;
   const chargeRows = (v.charges ?? [])
     .map((c) =>
       compact
-        ? `<tr><td>${esc(c.name)}${showGst ? ` · ${c.gstRate}%` : ""}</td><td class="num">${inr(c.amount)}</td></tr>`
+        ? `<tr><td>${esc(c.name)}${showGst ? ` · ${chargeGst(c)}` : ""}</td><td class="num">${inr(c.amount)}</td></tr>`
         : showGst
-          ? `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td><td class="num">${c.gstRate}%</td><td class="num">${inr(calcCharge(c, interState).total)}</td></tr>`
+          ? `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td><td class="num">${chargeGst(c)}</td><td class="num">${inr(calcCharge(c, interState).total)}</td></tr>`
           : `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td></tr>`,
     )
     .join("");
@@ -420,8 +429,13 @@ ${showGst ? `<td class="num">${inr(lt.taxable)}</td><td class="num">${gst}</td>`
   const taxRows = interState
     ? `<tr><td>IGST</td><td class="num">${inr(totals.igst)}</td></tr>`
     : `<tr><td>CGST</td><td class="num">${inr(totals.cgst)}</td></tr><tr><td>SGST</td><td class="num">${inr(totals.sgst)}</td></tr>`;
+  const discountRows = totals.billDiscount
+    ? `<tr><td>Sub total</td><td class="num">${inr(totals.taxable + totals.billDiscount)}</td></tr>
+<tr><td>Discount${v.billDiscount?.percent ? ` (${v.billDiscount.percent}%)` : ""}</td><td class="num">−${inr(totals.billDiscount)}</td></tr>`
+    : "";
   const totalsTable = `<table class="totals">
-<tr><td>${showGst ? "Taxable value" : "Sub total"}</td><td class="num">${inr(totals.taxable)}</td></tr>
+${discountRows}
+<tr><td>${showGst ? "Taxable value" : totals.billDiscount ? "After discount" : "Sub total"}</td><td class="num">${inr(totals.taxable)}</td></tr>
 ${totals.tax ? taxRows : ""}
 ${totals.roundOff ? `<tr><td>Round off</td><td class="num">${inr(totals.roundOff)}</td></tr>` : ""}
 <tr class="grand"><td>Total</td><td class="num">${inr(totals.grandTotal)}</td></tr>

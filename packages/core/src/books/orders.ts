@@ -1,7 +1,7 @@
 /** Estimates and orders. */
 import { storedCustomValues } from "../customFields";
 import { gstModeOf } from "../accounting/gstMode";
-import { calcInvoice } from "../accounting/invoice";
+import { allocateBillDiscount, calcInvoice } from "../accounting/invoice";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
 import { assertLotsAvailable, selectStockLines } from "../accounting/stockLots";
 import { captureVoucherSnapshot } from "../accounting/voucherSnapshot";
@@ -44,13 +44,18 @@ export function createOrder(
     throw new Error(wantSupplier ? "Pick a supplier." : "Pick a customer.");
   const interState = party.stateCode !== db.firm.stateCode;
   const mode = gstModeOf(db.firm);
-  const { lines, charges } = billParts(db, type, mode, input);
+  const parts = billParts(db, type, mode, input);
+  const { lines, charges } = parts;
+  let billDiscount = parts.billDiscount;
   if (!lines.length) throw new Error("Add at least one item.");
   if (type === "delivery-note" && !options.legacyStock) {
     const selected = selectStockLines(db.items, db.vouchers, lines, input.date);
     if (selected.some((l) => l.bookScope !== selected[0].bookScope))
       throw new Error("Use separate delivery notes for GST and non-GST stock.");
-    lines.splice(0, lines.length, ...selected);
+    // Stock lots split lines; spread the subtotal discount over the split rows.
+    const discounted = allocateBillDiscount(selected, input.billDiscount);
+    lines.splice(0, lines.length, ...discounted.lines);
+    billDiscount = discounted.billDiscount;
   }
   const totals = calcInvoice({ lines, charges, interState });
   const customFields = storedCustomValues(
@@ -71,6 +76,7 @@ export function createOrder(
     snapshot: captureVoucherSnapshot(db, party.id, lines),
     lines,
     charges,
+    billDiscount,
     interState,
     validUntil:
       type === "estimate"

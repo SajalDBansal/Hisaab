@@ -163,6 +163,10 @@ export const vouchers = pgTable(
     tdsSection: text("tds_section"),
     tdsRate: percent("tds_rate"),
     tdsAmount: paise("tds_amount"),
+    // Subtotal discount (doc 37, T09): the percentage as entered and the amount given;
+    // each line holds its share in voucher_lines.bill_discount.
+    billDiscountPercent: percent("bill_discount_percent"),
+    billDiscountAmount: paise("bill_discount_amount"),
 
     createdBy: uuid("created_by"),
     ...stamps,
@@ -204,6 +208,8 @@ export const voucherLines = pgTable(
     perFactor: quantity("per_factor"),
     discountPercent: percent("discount_percent"),
     discountAmount: paise("discount_amount"),
+    // This line's share of the bill's subtotal discount (doc 37, T09)
+    billDiscount: paise("bill_discount"),
     gstRate: integer("gst_rate").notNull().default(0),
     taxType: taxType("tax_type"),
     // Credit/debit notes: index of the returned line on the original bill
@@ -234,6 +240,11 @@ export const voucherCharges = pgTable(
     name: text("name").notNull(),
     amount: paise("amount"),
     gstRate: integer("gst_rate").notNull().default(0),
+    // Charge heads (doc 37, T09): frozen when saved; null on free-typed charges (Freight)
+    headId: text("head_id"),
+    taxType: taxType("tax_type"),
+    sac: text("sac"),
+    account: text("account"),
   },
   (t) => [
     uniqueIndex("voucher_charges_position_idx").on(t.voucherId, t.position),

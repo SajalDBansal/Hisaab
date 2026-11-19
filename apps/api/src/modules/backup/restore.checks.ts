@@ -153,6 +153,8 @@ export function restoreVouchers(data: FirmExportData): CoreVoucher[] {
           Object.entries(line).filter(([, value]) => value !== null),
         ),
         discountAmount: line.discountAmount || undefined,
+        billDiscount: undefined,
+        billDiscountShare: line.billDiscount || undefined,
         orderLineId: own.get(`${row.id}:${line.position}`)?.id,
         orderSourceLineId: incoming.get(`${row.id}:${line.position}`)
           ?.sourceLineId,
@@ -164,7 +166,19 @@ export function restoreVouchers(data: FirmExportData): CoreVoucher[] {
             ? { unit: line.perUnit, factor: line.perFactor }
             : undefined,
       })),
-      charges: charges.get(row.id),
+      billDiscount: row.billDiscountAmount
+        ? {
+            percent: row.billDiscountPercent ?? undefined,
+            amount: row.billDiscountAmount,
+          }
+        : undefined,
+      charges: charges
+        .get(row.id)
+        ?.map((charge) =>
+          Object.fromEntries(
+            Object.entries(charge).filter(([, value]) => value !== null),
+          ),
+        ),
       journalLines: journals.get(row.id),
       allocations: allocations.get(row.id)?.map((allocation) => ({
         voucherId: allocationTarget(allocation),

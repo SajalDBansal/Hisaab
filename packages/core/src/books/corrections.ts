@@ -3,7 +3,7 @@ import { storedCustomValues } from "../customFields";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
-import { calcInvoice } from "../accounting/invoice";
+import { calcInvoice, calcLine } from "../accounting/invoice";
 import { checkInvoiceNumbers } from "../accounting/invoiceValidation";
 import { isOrderType } from "../accounting/orders";
 import { purchaseReturnLines } from "../accounting/purchaseReturnCost";
@@ -385,12 +385,13 @@ export function updateInvoice(
       }),
       date,
     );
-  const { side, lines, charges } = billParts(
+  const { side, lines, charges, billDiscount } = billParts(
     historicalBooks,
     v.type,
     mode,
     input,
     v.lines,
+    v.charges,
   );
   if (!lines.length) throw new Error("Add at least one item.");
   const blocked = modeBlocker(mode, side, interState);
@@ -446,6 +447,7 @@ export function updateInvoice(
     snapshot,
     lines,
     charges,
+    billDiscount,
     interState,
     dueDate: isOrderType(v.type) ? undefined : addDays(date, party.creditDays),
     supplierInvoiceNo:
@@ -526,8 +528,15 @@ export function createNote(
         `Only ${row.returnable} left to return on line ${r.index + 1}.`,
       );
     const amounts = returnAmounts(amountBasis[r.index], r.qty);
+    // The line's own flat discount, without its subtotal discount share.
+    const own = calcLine(row.line, !!bill.interState);
     const discountAmount = row.line.discountAmount
-      ? amounts.discount
+      ? own.billDiscount
+        ? Math.round(
+            (amounts.discount * own.discount) /
+              (own.discount + own.billDiscount),
+          )
+        : amounts.discount
       : undefined;
     lines.push({
       ...row.line,
@@ -540,6 +549,8 @@ export function createNote(
           ? returnStockCost(bill, db.vouchers, r.index, r.qty)
           : undefined,
       discountAmount,
+      // The bill's subtotal discount share is inside the frozen return amounts.
+      billDiscountShare: undefined,
       returnAmounts: amounts,
       sourceLine: r.index,
     });

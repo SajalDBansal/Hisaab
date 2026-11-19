@@ -99,6 +99,8 @@ export const invoiceSettings = pgTable("invoice_settings", {
   billOfSupplyPrefix: text("bill_of_supply_prefix").notNull().default("BS"),
   // Voucher type -> { start, digits, showYear }; missing types use the default format.
   numbering: jsonb("numbering").notNull().default({}),
+  // Charge heads picked on bills (doc 37, T09): [{ id, name, taxType, gstRate, ... }]
+  chargeHeads: jsonb("charge_heads").notNull().default([]),
   ...stamps,
 });
 

@@ -349,6 +349,8 @@ async function readReportBooks(
       prefixes: settings.prefixes as MockDb["invoiceSettings"]["prefixes"],
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
       numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
+      chargeHeads:
+        settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
     },
     team: [],
     currentUserId: "",

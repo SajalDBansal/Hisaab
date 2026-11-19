@@ -10,6 +10,7 @@ const TaxHeads = z.object({
 const LineTotals = TaxHeads.extend({
   gross: Paise,
   discount: Paise,
+  billDiscount: Paise.default(0),
   tax: Paise,
   total: Paise,
 });
@@ -18,6 +19,7 @@ export const InvoiceTotals = TaxHeads.extend({
   lines: z.array(LineTotals),
   charges: z.array(LineTotals),
   itemsTaxable: Paise,
+  billDiscount: Paise.default(0),
   tax: Paise,
   totalBeforeRound: Paise,
   roundOff: Paise,
