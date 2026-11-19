@@ -1,8 +1,9 @@
 import { pageRows, type PageQuery } from "../paging";
 import {
   isLowStock,
+  isOverStock,
   itemProfit,
-  stockMovements,
+  itemStockMovements,
   stockQty,
   type StockMovement,
 } from "../accounting/stock";
@@ -39,6 +40,7 @@ export interface ItemListRow {
   qty: number;
   value: Paise;
   lowStock: boolean;
+  overStock?: boolean;
 }
 
 export interface ItemDetail extends ItemListRow {
@@ -73,6 +75,7 @@ export const itemService = {
           qty,
           value: inventoryValue(item, vouchers),
           lowStock: isLowStock(item, qty),
+          overStock: isOverStock(item, qty),
         };
       }),
     );
@@ -81,9 +84,13 @@ export const itemService = {
   /** One page of an item's movements, newest first. Real API: `/items/${id}/movements?cursor` */
   async movementPage(id: string, query: PageQuery) {
     await delay();
-    const { vouchers } = getDb();
+    const { items, vouchers } = getDb();
+    const item = items.find((i) => i.id === id);
     return clone({
-      ...pageRows(stockMovements(id, vouchers).reverse(), query),
+      ...pageRows(
+        item ? itemStockMovements(item, vouchers).reverse() : [],
+        query,
+      ),
       summary: null,
     });
   },
@@ -100,7 +107,8 @@ export const itemService = {
       qty,
       value: inventoryValue(item, vouchers),
       lowStock: isLowStock(item, qty),
-      movements: stockMovements(id, vouchers).reverse().slice(0, 20),
+      overStock: isOverStock(item, qty),
+      movements: itemStockMovements(item, vouchers).reverse().slice(0, 20),
       profit: itemProfit(item, vouchers),
     });
   },

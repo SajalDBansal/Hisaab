@@ -49,7 +49,13 @@ export function createOrder(
   let billDiscount = parts.billDiscount;
   if (!lines.length) throw new Error("Add at least one item.");
   if (type === "delivery-note" && !options.legacyStock) {
-    const selected = selectStockLines(db.items, db.vouchers, lines, input.date);
+    const selected = selectStockLines(
+      db.items,
+      db.vouchers,
+      lines,
+      input.date,
+      mode === "off" ? "nongst" : "gst",
+    );
     if (selected.some((l) => l.bookScope !== selected[0].bookScope))
       throw new Error("Use separate delivery notes for GST and non-GST stock.");
     // Stock lots split lines; spread the subtotal discount over the split rows.

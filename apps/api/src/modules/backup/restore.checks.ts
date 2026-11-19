@@ -8,11 +8,13 @@ import {
   bookScopeOf,
   stockLots,
   stockMovements,
+  tracksStock,
   today,
   voucherPostings,
   type Item,
   type Voucher as CoreVoucher,
 } from "@repo/core";
+import { itemExtras } from "@repo/backend/modules/items/itemExtras";
 import { Voucher, type FirmExportData } from "@repo/contracts";
 import { restoreIds, unsupported } from "./restore.remap";
 import { loanSchedule } from "@repo/core/src/accounting/loanSchedule";
@@ -1054,6 +1056,8 @@ function restoreItem(item: FirmExportData["items"][number]): Item {
     openingCost: item.openingCost ?? undefined,
     openingBookScope: item.openingBookScope ?? undefined,
     customFields: item.customFields ?? undefined,
+    ...itemExtras(item),
+    maxStock: item.maxStock ?? undefined,
   };
 }
 
@@ -1205,7 +1209,9 @@ function checkStock(data: FirmExportData, vouchers: CoreVoucher[]) {
   for (const item of data.items) {
     const core = restoreItem(item);
     const entries = byItem.get(item.id) ?? [];
-    for (const move of stockMovements(item.id, entries))
+    for (const move of tracksStock(core)
+      ? stockMovements(item.id, entries)
+      : [])
       expected.push(key({ ...move, itemId: item.id }));
     for (const lot of checked(() => stockLots(core, entries)))
       if (

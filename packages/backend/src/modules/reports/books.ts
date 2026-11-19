@@ -5,6 +5,7 @@ import { and, asc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
+import { itemExtras } from "../items/itemExtras";
 import { listAccounts } from "../accounts/accountMasters";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 
@@ -322,6 +323,7 @@ async function readReportBooks(
           ? { number: row.batchNumber, expiry: row.batchExpiry }
           : undefined,
       customFields: undef(row.customFields),
+      ...itemExtras(row),
     })),
     ledgers: ledgerRows.map((row) => ({
       id: row.id,

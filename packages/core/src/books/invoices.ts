@@ -23,6 +23,8 @@ import {
 import { saleMargin, type SaleMargin } from "../accounting/saleMargin";
 import { bookScopeOf } from "../accounting/bookScope";
 import { checkSupplierInvoice } from "../accounting/supplierInvoices";
+import { tracksStock } from "../accounting/stockInputs";
+import { belowMinimum, belowMinimumMessage } from "../accounting/stockPolicy";
 import {
   itemTaxType,
   mixesNonGst,
@@ -87,6 +89,7 @@ export function createSales(
     stockForInvoice(draft, input),
     input.lines.map((l) => withPacking(draft, l)),
     input.date,
+    serviceScopeOf(draft),
   );
   const scopes = (["gst", "nongst"] as const).filter((scope) =>
     selected.some((l) => l.bookScope === scope),
@@ -136,6 +139,10 @@ export function createSales(
   Object.assign(db, draft);
   return saved;
 }
+
+/** The book of a service line that names none: non-GST for firms without GST. */
+export const serviceScopeOf = (db: Db) =>
+  gstModeOf(db.firm) === "off" ? ("nongst" as const) : ("gst" as const);
 
 /** A converted challan releases its stock to the replacement invoice. */
 export function stockForInvoice(
@@ -245,8 +252,25 @@ export function billParts(
   previousCharges: ExtraCharge[] = [],
 ) {
   const side = sideOf(type) ?? "sale";
+  // Batch and expiry belong to goods bought (doc 37, T38).
+  const keepBatch = (line: InvoiceLine): InvoiceLine => {
+    if (
+      type === "purchase" &&
+      tracksStock(db.items.find((i) => i.id === line.itemId))
+    )
+      return {
+        ...line,
+        batchNumber: line.batchNumber?.trim() || undefined,
+        expiryDate: line.expiryDate || undefined,
+      };
+    const { batchNumber: _b, expiryDate: _e, ...rest } = line;
+    void [_b, _e];
+    return rest;
+  };
   const lines: InvoiceLine[] = applyGstMode(
-    input.lines.map((line) => savedLineDetails(db, line, previousLines)),
+    input.lines.map((line) =>
+      keepBatch(savedLineDetails(db, line, previousLines)),
+    ),
     mode,
     side,
   ).map((l) => ({
@@ -332,6 +356,7 @@ function createInvoice(
           stockForInvoice(db, input),
           input.lines.map((l) => withPacking(db, l)),
           input.date,
+          serviceScopeOf(db),
         )
       : input.lines;
   const bookScope = options.legacyStock
@@ -357,7 +382,7 @@ function createInvoice(
   });
   const { side, charges, billDiscount } = parts;
   const lines = parts.lines.map((l) =>
-    type === "purchase"
+    type === "purchase" && tracksStock(db.items.find((i) => i.id === l.itemId))
       ? {
           ...l,
           bookScope,
@@ -425,6 +450,20 @@ function createInvoice(
     [...stockForInvoice(db, input), invoice],
     lines.flatMap((l) => (l.stockLotId ? [l.stockLotId] : [])),
   );
+  // Stock control (doc 37, T37): "block" refuses a new sale leaving goods under their minimum.
+  if (
+    type === "sale" &&
+    !options.legacyStock &&
+    invoice.status === "posted" &&
+    db.salesControls?.stockPolicy === "block"
+  ) {
+    const [short] = belowMinimum(
+      db.items,
+      [...stockForInvoice(db, input), invoice],
+      lines,
+    );
+    if (short) throw new Error(belowMinimumMessage(short));
+  }
   if (input.sourceId) markConverted(db, input.sourceId, invoice, party.id);
   db.vouchers.push(invoice);
   logAudit(db, "created", invoice);

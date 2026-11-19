@@ -287,6 +287,7 @@ export function buildSeed(asOf: string = today()): Db {
       mrp: rupees(195),
       reorderLevel: 36,
       openingStock: 60,
+      tags: ["Fast moving"],
     },
     {
       id: "i2",
@@ -332,7 +333,9 @@ export function buildSeed(asOf: string = today()): Db {
       salePrice: rupees(32),
       mrp: rupees(32),
       reorderLevel: 60,
+      maxStock: 200,
       openingStock: 240,
+      tags: ["Fast moving"],
     },
     {
       id: "i5",

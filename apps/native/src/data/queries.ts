@@ -45,6 +45,7 @@ import {
   type RoleDefinition,
   type OverdueSalesPolicy,
   type SaleMarginInput,
+  type StockPolicy,
 } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
@@ -751,10 +752,17 @@ export function useSaveSalesControls() {
   return useMutation({
     mutationFn: (
       services,
-      args: { overdueSales: OverdueSalesPolicy; version: number },
+      args: {
+        overdueSales: OverdueSalesPolicy;
+        stockPolicy?: StockPolicy;
+        version: number;
+      },
     ) =>
       services.settingsService.updateSalesControls(
-        { overdueSales: args.overdueSales },
+        {
+          overdueSales: args.overdueSales,
+          ...(args.stockPolicy ? { stockPolicy: args.stockPolicy } : {}),
+        },
         args.version,
       ),
     onSuccess: refreshAll,

@@ -16,6 +16,7 @@ import {
   type Db as Books,
 } from "../mock/db";
 import type { StockLot } from "./stockLots";
+import { tracksStock } from "./stockInputs";
 import type { CommissionPolicy } from "./associates";
 import type { PrintableDelivery } from "../print/associateDelivery";
 
@@ -479,7 +480,9 @@ export function planOrderFulfillment(input: {
     if (
       (target === "sale" || target === "delivery-note") &&
       source.type !== "delivery-note" &&
-      stock
+      stock &&
+      // Services take no stock (doc 37, T39); their kind is fixed once used.
+      tracksStock(source.snapshot?.items.find((i) => i.id === line.itemId))
     ) {
       const expectedBook =
         line.bookScope ??

@@ -295,6 +295,13 @@
       "when": 1795064209610,
       "tag": "0041_two_factor",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795064391441,
+      "tag": "0042_item_extras_and_expiry",
+      "breakpoints": true
     }
   ]
 }

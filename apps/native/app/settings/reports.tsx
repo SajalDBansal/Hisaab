@@ -31,6 +31,8 @@ import {
   SelectField,
   TextField,
   Txt,
+  Chip,
+  ChipRow,
   type PickerOption,
 } from "@/components";
 
@@ -180,6 +182,9 @@ function ReportForm({ firm }: { firm: Firm }) {
         partyId: undefined,
         // Only these reports take a rate; the server refuses it elsewhere.
         interestRate: RATE_DEFAULTS[id as ReportId],
+        // Likewise only the expiring items report takes days ahead.
+        expiryDays:
+          id === "expiring-items" ? (request.expiryDays ?? 30) : undefined,
       });
     if (picker === "report" && RATE_DEFAULTS[id as ReportId] !== undefined)
       setRateText(String(RATE_DEFAULTS[id as ReportId]));
@@ -317,6 +322,23 @@ function ReportForm({ firm }: { firm: Firm }) {
                 update({ interestRate: rate });
             }}
           />
+        )}
+        {request.report === "expiring-items" && (
+          <View style={{ gap: space.sm }}>
+            <Txt variant="label" tone="charcoal">
+              Expired, and expiring within
+            </Txt>
+            <ChipRow>
+              {[7, 30, 60, 90].map((days) => (
+                <Chip
+                  key={days}
+                  label={`${days} days`}
+                  selected={(request.expiryDays ?? 30) === days}
+                  onPress={() => update({ expiryDays: days })}
+                />
+              ))}
+            </ChipRow>
+          </View>
         )}
         {definition.parties && (
           <SelectField

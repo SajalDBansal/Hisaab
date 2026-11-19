@@ -27,6 +27,9 @@ export interface LineDraft {
   discountAmount?: string;
   inAlt: boolean;
   saved?: InvoiceLine;
+  /** Purchases of goods: batch bought and its expiry (doc 37, T38). */
+  batchNumber?: string;
+  expiryDate?: string;
 }
 
 export function invoiceDrafts(voucher: Voucher, editing: boolean): LineDraft[] {
@@ -43,6 +46,8 @@ export function invoiceDrafts(voucher: Voucher, editing: boolean): LineDraft[] {
         : (line.discountAmount / 100).toFixed(2),
     inAlt: !!line.per,
     saved: editing ? line : undefined,
+    batchNumber: line.batchNumber,
+    expiryDate: line.expiryDate,
   }));
 }
 
@@ -98,6 +103,8 @@ export function invoiceDraftLine(
     gstRate: taxType === "taxable" ? (saved?.gstRate ?? item?.gstRate ?? 0) : 0,
     taxType,
     per: draft.inAlt ? invoiceDraftUnit(draft, item) : undefined,
+    batchNumber: draft.batchNumber?.trim() || undefined,
+    expiryDate: draft.expiryDate || undefined,
     // The server saves new and edited lines with exact maths; preview the same totals.
     exactMath: true,
   };

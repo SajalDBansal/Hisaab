@@ -92,6 +92,20 @@ export function updateParty(db: Db, id: ID, input: PartyInput): Party {
   return party;
 }
 
+/** Trimmed, without blanks or repeats (ignoring case); undefined when none. */
+export function cleanTags(tags: string[] | undefined): string[] | undefined {
+  const seen = new Set<string>();
+  const out = (tags ?? [])
+    .map((t) => t.trim().replace(/\s+/g, " "))
+    .filter((t) => {
+      const key = t.toLowerCase();
+      if (!t || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return out.length ? out : undefined;
+}
+
 export function cleanItem(input: ItemInput): ItemInput {
   return {
     ...input,
@@ -100,6 +114,10 @@ export function cleanItem(input: ItemInput): ItemInput {
     group: input.group.trim() || "General",
     gstRate: input.taxType === "taxable" ? input.gstRate : 0,
     hsn: input.hsn.trim(),
+    kind: input.kind === "service" ? "service" : "goods",
+    notForSale: input.notForSale || undefined,
+    maxStock: input.maxStock || undefined,
+    tags: cleanTags(input.tags),
     altUnit: input.altUnit?.name.trim()
       ? { name: input.altUnit.name.trim(), factor: input.altUnit.factor }
       : undefined,
@@ -170,6 +188,10 @@ export function updateItem(db: Db, id: ID, input: ItemInput): Item {
     throw new Error("Opening stock is already in use and cannot be changed.");
   i.openingCost = i.openingCost ?? item.openingCost ?? item.purchasePrice;
   i.openingBookScope = i.openingBookScope ?? item.openingBookScope;
+  if (used && (i.kind ?? "goods") !== (item.kind ?? "goods"))
+    throw new Error(
+      "This item is already on bills, so it can't change between goods and service.",
+    );
   if (used && i.unit !== item.unit) {
     throw new Error(
       "This item is already on bills, so its unit can't be changed.",
@@ -177,5 +199,7 @@ export function updateItem(db: Db, id: ID, input: ItemInput): Item {
   }
   Object.assign(item, i);
   if (!i.altUnit) delete item.altUnit;
+  for (const key of ["notForSale", "maxStock", "tags"] as const)
+    if (i[key] === undefined) delete item[key];
   return item;
 }

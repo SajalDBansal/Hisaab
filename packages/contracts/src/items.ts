@@ -40,7 +40,12 @@ export const StockLot = z.object({
   value: z.number().int(),
   unitCost: z.number(),
   minimumQty: z.number(),
+  batchNumber: z.string().optional(),
+  expiryDate: IsoDate.optional(),
 });
+/** Goods carry stock; services (SAC code) never do (doc 37, T39). */
+export const ItemKind = z.enum(["goods", "service"]);
+const Tag = z.string().trim().min(1, "Tags can't be empty.").max(30);
 
 const hsn = z
   .string()
@@ -68,7 +73,14 @@ export const ItemInput = z
     purchasePrice: NonNegativePaise,
     salePrice: PositivePaise,
     mrp: NonNegativePaise,
+    /** Minimum stock level (doc 37, T37). */
     reorderLevel: Quantity.min(0, "Can't be negative."),
+    /** Maximum stock level; missing or 0 = none. */
+    maxStock: Quantity.min(0, "Can't be negative.").optional(),
+    // Optional so older apps and frozen snapshots stay valid; missing = goods.
+    kind: ItemKind.optional(),
+    notForSale: z.boolean().optional(),
+    tags: z.array(Tag).max(10, "Use up to 10 tags.").optional(),
     openingStock: Quantity.min(0, "Can't be negative."),
     openingCost: NonNegativePaise.optional(),
     openingBookScope: BookScope.optional(),
@@ -116,6 +128,8 @@ export const ItemInput = z
 
 export const Item = ItemInput.safeExtend({ id: Id });
 
+export type ItemKind = z.infer<typeof ItemKind>;
+
 export const ItemListQuery = z.object({
   search: z.string().max(100).optional(),
   lowStock: z.stringbool().optional(),
@@ -144,6 +158,8 @@ export const ItemRow = Item.safeExtend({
   version: z.number().int(),
   stock: z.number(),
   lowStock: z.boolean(),
+  /** Above the maximum stock level. */
+  overStock: z.boolean().optional(),
 });
 
 export const ItemListParams = ItemListQuery.extend({

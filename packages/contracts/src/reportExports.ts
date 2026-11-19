@@ -14,6 +14,8 @@ export const ReportRequest = z
     includeZeroBalances: z.boolean().default(false),
     /** Interest calculator only: yearly rate in percent. */
     interestRate: z.number().min(0).max(60).optional(),
+    /** Expiring items only: days ahead to include. */
+    expiryDays: z.number().int().min(0).max(365).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

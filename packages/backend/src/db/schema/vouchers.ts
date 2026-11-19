@@ -220,6 +220,9 @@ export const voucherLines = pgTable(
     bookScope: bookScope("book_scope"),
     // Older lines keep the floating-point totals they were issued with.
     exactMath: boolean("exact_math").notNull().default(false),
+    // Purchases: batch bought and its expiry, carried by the stock lot (doc 37, T38).
+    batchNumber: text("batch_number"),
+    expiryDate: date("expiry_date", { mode: "string" }),
   },
   (t) => [
     uniqueIndex("voucher_lines_position_idx").on(t.voucherId, t.position),

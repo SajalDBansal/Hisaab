@@ -37,6 +37,9 @@ export const ItemPageParams = ListPageQuery.extend({
   search,
   group: z.string().max(100).optional(),
   low: z.stringbool().optional(),
+  over: z.stringbool().optional(),
+  tag: z.string().trim().max(30).optional(),
+  kind: z.enum(["goods", "service"]).optional(),
   scope: TaxScope.optional(),
 });
 export const ItemPage = listPage(
@@ -46,7 +49,9 @@ export const ItemPage = listPage(
     /** Stock value at cost; 0 for roles that can't see costs. */
     value: z.number().int(),
     lowCount: z.number().int(),
+    overCount: z.number().int().optional(),
     groups: z.array(z.string()),
+    tags: z.array(z.string()).optional(),
   }),
 );
 

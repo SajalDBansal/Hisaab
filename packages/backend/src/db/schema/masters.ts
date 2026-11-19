@@ -29,6 +29,8 @@ export const taxType = pgEnum("tax_type", [
   "nongst",
 ]);
 export const ledgerKind = pgEnum("ledger_kind", ["cash", "bank"]);
+// Goods carry stock; services (SAC code in hsn) never do (doc 37, T39).
+export const itemKind = pgEnum("item_kind", ["goods", "service"]);
 
 const firmId = () =>
   uuid("firm_id")
@@ -110,6 +112,15 @@ export const items = pgTable(
     deletedAt: moment("deleted_at"),
     // Custom field values by field key (doc 37, T07); null when none.
     customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
+    // Item master extras (doc 37, T39). reorder_level is the minimum stock level.
+    kind: itemKind("kind").notNull().default("goods"),
+    notForSale: boolean("not_for_sale").notNull().default(false),
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // Maximum stock level (doc 37, T37); null = none.
+    maxStock: quantity("max_stock"),
     ...stamps,
   },
   (t) => [

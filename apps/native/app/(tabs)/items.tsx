@@ -38,6 +38,8 @@ export default function ItemsScreen() {
   // Home's "Low stock" card opens this tab with ?filter=low
   const params = useLocalSearchParams<{ filter?: string }>();
   const [lowOnly, setLowOnly] = useState(params.filter === "low");
+  const [overOnly, setOverOnly] = useState(false);
+  const [tag, setTag] = useState<string | null>(null);
   const [group, setGroup] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useReportScope();
@@ -46,6 +48,8 @@ export default function ItemsScreen() {
     search: query,
     group: group ?? undefined,
     low: lowOnly,
+    over: overOnly,
+    tag: tag ?? undefined,
     scope,
   });
 
@@ -109,6 +113,10 @@ export default function ItemsScreen() {
             setScope={setScope}
             lowOnly={lowOnly}
             setLowOnly={setLowOnly}
+            overOnly={overOnly}
+            setOverOnly={setOverOnly}
+            tag={tag}
+            setTag={setTag}
             group={group}
             setGroup={setGroup}
           />
@@ -125,6 +133,10 @@ function ItemList({
   setScope,
   lowOnly,
   setLowOnly,
+  overOnly,
+  setOverOnly,
+  tag,
+  setTag,
   group,
   setGroup,
 }: {
@@ -134,6 +146,10 @@ function ItemList({
   setScope: (scope: TaxScope) => void;
   lowOnly: boolean;
   setLowOnly: (v: boolean) => void;
+  overOnly: boolean;
+  setOverOnly: (v: boolean) => void;
+  tag: string | null;
+  setTag: (t: string | null) => void;
   group: string | null;
   setGroup: (g: string | null) => void;
 }) {
@@ -180,10 +196,12 @@ function ItemList({
       <ChipRow>
         <Chip
           label="All"
-          selected={!lowOnly && !group}
+          selected={!lowOnly && !overOnly && !group && !tag}
           onPress={() => {
             setLowOnly(false);
+            setOverOnly(false);
             setGroup(null);
+            setTag(null);
           }}
         />
         <Chip
@@ -191,6 +209,13 @@ function ItemList({
           selected={lowOnly}
           onPress={() => setLowOnly(!lowOnly)}
         />
+        {summary.overCount || overOnly ? (
+          <Chip
+            label={`Over stock · ${summary.overCount ?? 0}`}
+            selected={overOnly}
+            onPress={() => setOverOnly(!overOnly)}
+          />
+        ) : null}
         {groups.map((g) => (
           <Chip
             key={g}
@@ -200,6 +225,18 @@ function ItemList({
           />
         ))}
       </ChipRow>
+      {summary.tags?.length ? (
+        <ChipRow>
+          {summary.tags.map((t) => (
+            <Chip
+              key={t}
+              label={`#${t}`}
+              selected={tag === t}
+              onPress={() => setTag(tag === t ? null : t)}
+            />
+          ))}
+        </ChipRow>
+      ) : null}
 
       {visible.length === 0 ? (
         <EmptyState
@@ -218,7 +255,7 @@ function ItemList({
                 <View style={{ gap: 4 }}>
                   <Txt variant="caption" tone="body">
                     {gst.on
-                      ? `${r.item.hsn ? `HSN ${r.item.hsn} · ` : ""}${
+                      ? `${r.item.hsn ? `${r.item.kind === "service" ? "SAC" : "HSN"} ${r.item.hsn} · ` : ""}${
                           itemTaxType(r.item) === "taxable"
                             ? `GST ${r.item.gstRate}%`
                             : taxTypeLabel(itemTaxType(r.item))
@@ -226,7 +263,23 @@ function ItemList({
                       : ""}
                     {r.item.group}
                   </Txt>
-                  {r.lowStock ? <Badge label="Low stock" tone="warn" /> : null}
+                  <View
+                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}
+                  >
+                    {r.lowStock ? (
+                      <Badge label="Low stock" tone="warn" />
+                    ) : null}
+                    {r.overStock ? (
+                      <Badge label="Over stock" tone="warn" />
+                    ) : null}
+                    {r.item.kind === "service" ? (
+                      <Badge label="Service" />
+                    ) : null}
+                    {r.item.notForSale ? <Badge label="Not for sale" /> : null}
+                    {(r.item.tags ?? []).map((t) => (
+                      <Badge key={t} label={`#${t}`} />
+                    ))}
+                  </View>
                   {r.item.batch ? (
                     <Badge label={`Batch ${r.item.batch.number}`} />
                   ) : null}
@@ -237,10 +290,12 @@ function ItemList({
                   <Txt
                     variant="bodyStrong"
                     num
-                    tone={r.lowStock ? "warn" : "ink"}
+                    tone={r.lowStock || r.overStock ? "warn" : "ink"}
                     style={{ fontWeight: "600" }}
                   >
-                    {r.qty} {r.item.unit}
+                    {r.item.kind === "service"
+                      ? "Service"
+                      : `${r.qty} ${r.item.unit}`}
                   </Txt>
                   <Txt variant="caption" tone="body" num>
                     {[

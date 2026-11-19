@@ -2,6 +2,7 @@ import {
   checkVoucherDate,
   postingTotals,
   stockMovements,
+  tracksStock,
   voucherPostings,
   today,
   type Voucher,
@@ -304,6 +305,8 @@ export async function saveChanges(
           stockCost: l.stockCost ?? null,
           bookScope: l.bookScope ?? null,
           exactMath: l.exactMath ?? false,
+          batchNumber: l.batchNumber ?? null,
+          expiryDate: l.expiryDate ?? null,
         })),
       );
     if (v.charges?.length)
@@ -367,16 +370,19 @@ export async function saveChanges(
         ...(v.lines ?? []).map((l) => l.itemId),
         ...(v.inventoryAdjustment ? [v.inventoryAdjustment.itemId] : []),
       ]),
-    ].flatMap((itemId) =>
-      stockMovements(itemId, [v]).map((m) => ({
-        id: uuidv7(),
-        firmId,
-        voucherId,
-        itemId,
-        date: m.date,
-        qty: m.qty,
-      })),
-    );
+    ]
+      // Services hold no stock (doc 37, T39).
+      .filter((itemId) => tracksStock(books.items.find((i) => i.id === itemId)))
+      .flatMap((itemId) =>
+        stockMovements(itemId, [v]).map((m) => ({
+          id: uuidv7(),
+          firmId,
+          voucherId,
+          itemId,
+          date: m.date,
+          qty: m.qty,
+        })),
+      );
     if (moves.length) await tx.insert(schema.stockMovements).values(moves);
   }
 

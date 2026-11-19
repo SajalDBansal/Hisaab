@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { hydrateVouchers } from "../vouchers/snapshot";
+import { itemExtras } from "../items/itemExtras";
 
 const {
   organization,
@@ -121,6 +122,7 @@ export const notificationsRepo = {
           row.batchNumber && row.batchExpiry
             ? { number: row.batchNumber, expiry: row.batchExpiry }
             : undefined,
+        ...itemExtras(row),
       })),
       vouchers: await hydrateVouchers(db, voucherRows),
       reminders: settings

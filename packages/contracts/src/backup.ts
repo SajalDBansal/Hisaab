@@ -112,6 +112,8 @@ export const BackupRows = {
     ...firm,
     ...stamps,
     overdueSales: z.enum(["off", "warn", "block"]),
+    // Stock control (doc 37, T37); files made before it have none.
+    stockPolicy: z.enum(["warn", "block"]).default("warn"),
   }),
   // Firm security (doc 37, T58)
   firmSecurity: z.strictObject({
@@ -172,6 +174,11 @@ export const BackupRows = {
     batchExpiry: IsoDate.nullable(),
     deletedAt: IsoDateTime.nullable(),
     customFields: CustomFieldValues.nullable(),
+    // Item master extras and maximum stock (doc 37, T37/T39); older files have none.
+    kind: z.enum(["goods", "service"]).default("goods"),
+    notForSale: z.boolean().default(false),
+    tags: z.array(Text).max(10).default([]),
+    maxStock: Quantity.nullable().default(null),
   }),
   units: z.strictObject({
     ...firm,
@@ -277,6 +284,9 @@ export const BackupRows = {
     bookScope: Scope,
     // Exports made before exact line maths existed omit this; those lines keep float totals.
     exactMath: z.boolean().default(false),
+    // Purchase batch and expiry (doc 37, T38); older files have none.
+    batchNumber: Text.nullable().default(null),
+    expiryDate: IsoDate.nullable().default(null),
   }),
   voucherCharges: z.strictObject({
     ...entry,

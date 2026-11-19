@@ -216,8 +216,22 @@ export interface AltUnit {
   factor: number;
 }
 
+/** Goods carry stock; services (SAC code in `hsn`) never do (doc 37, T39). */
+export type ItemKind = "goods" | "service";
+
 export interface Item {
   version?: number;
+  /** Missing on older items = goods. */
+  kind?: ItemKind;
+  /** Hidden from the sale item picker; can still be bought (doc 37, T39). */
+  notForSale?: boolean;
+  /** Free-form labels for filtering the items list (doc 37, T39). */
+  tags?: string[];
+  /**
+   * Maximum stock (doc 37, T37); above it the item shows as over-stocked.
+   * `reorderLevel` is the minimum stock level. Missing or 0 = no maximum.
+   */
+  maxStock?: number;
   /** Custom field values by field key (doc 37, T07). */
   customFields?: CustomFieldValues;
   id: ID;
@@ -235,6 +249,7 @@ export interface Item {
   purchasePrice: Paise;
   salePrice: Paise;
   mrp: Paise;
+  /** Minimum stock level: below it the item is low on stock. */
   reorderLevel: number;
   openingStock: number;
   /** Opening valuation is independent of the editable default buying price. */
@@ -351,6 +366,9 @@ export interface InvoiceLine {
   stockLotId?: string;
   stockCost?: Paise;
   bookScope?: BookScope;
+  /** Purchases: the batch bought and when it expires (doc 37, T38); carried by its stock lot. */
+  batchNumber?: string;
+  expiryDate?: ISODate;
   itemId: ID;
   /** Quantity as entered: in the item's base unit, or in `per.unit` when set (e.g. 2 Box). */
   qty: number;

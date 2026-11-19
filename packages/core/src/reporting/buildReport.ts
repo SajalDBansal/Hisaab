@@ -25,6 +25,7 @@ import {
   tradeByPartySection,
 } from "./insights";
 import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
+import { expiringItemsSection, stockLevelsSection } from "./stockLevels";
 import {
   REPORTS,
   ReportInputError,
@@ -65,6 +66,16 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
       request.interestRate > 60
     )
       throw new ReportInputError("Use an interest rate from 0 to 60% a year.");
+  }
+  if (request.expiryDays !== undefined) {
+    if (request.report !== "expiring-items")
+      throw new ReportInputError("Only the expiring items report takes days.");
+    if (
+      !Number.isInteger(request.expiryDays) ||
+      request.expiryDays < 0 ||
+      request.expiryDays > 365
+    )
+      throw new ReportInputError("Use 0 to 365 days ahead.");
   }
   if (request.accountKey && !definition.accounts)
     throw new ReportInputError("This report cannot be filtered by account.");
@@ -152,6 +163,10 @@ function buildSections(
       return [taxSummarySection(books, request)];
     case "audit-trail":
       return [auditTrailSection(books, request)];
+    case "stock-levels":
+      return [stockLevelsSection(books, request)];
+    case "expiring-items":
+      return [expiringItemsSection(books, request)];
   }
 }
 
@@ -186,6 +201,14 @@ export function buildReport(
   if (request.report === "itc-at-risk")
     notes.push(
       `Input GST on a supplier bill must be reversed if the bill is not paid within ${ITC_REVERSE_DAYS} days of its date (CGST Act s.16(2)); it can be claimed again once paid. ITC at risk is the bill's GST in proportion to what is still unpaid, as of the report date. Bills from ${ITC_WARN_DAYS} days are shown so they can be paid in time.`,
+    );
+  if (request.report === "stock-levels")
+    notes.push(
+      "Minimum is the item's reorder level. To order fills up to the maximum when one is set, otherwise back to the minimum. Services are not listed.",
+    );
+  if (request.report === "expiring-items")
+    notes.push(
+      "Stock lots still in hand with an expiry date from the purchase line (or the item's opening batch), valued at FIFO cost. Sales take the oldest purchase first, not the earliest expiry.",
     );
   if (request.report === "interest-calculator")
     notes.push(

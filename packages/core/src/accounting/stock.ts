@@ -6,8 +6,8 @@ import { thousandths } from "../money";
 import { isPosted } from "./bills";
 import { calcLine } from "./invoice";
 import { stockLots } from "./stockLots";
-import { baseQty } from "./stockInputs";
-export { baseQty, stockVouchersAsOf } from "./stockInputs";
+import { baseQty, tracksStock } from "./stockInputs";
+export { baseQty, stockVouchersAsOf, tracksStock } from "./stockInputs";
 
 export interface StockMovement {
   voucherId: string;
@@ -79,8 +79,16 @@ export function stockMovements(
   return rows.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** An item's movements; none for a service. */
+export function itemStockMovements(
+  item: Item,
+  vouchers: Voucher[],
+): StockMovement[] {
+  return tracksStock(item) ? stockMovements(item.id, vouchers) : [];
+}
+
 export function stockQty(item: Item, vouchers: Voucher[]): number {
-  return stockMovements(item.id, vouchers).reduce(
+  return itemStockMovements(item, vouchers).reduce(
     (q, m) => q + m.qty,
     item.openingStock,
   );
@@ -100,8 +108,14 @@ export function stockValue(item: Item, qty: number): Paise {
   return Math.round(qty * (item.openingCost ?? item.purchasePrice));
 }
 
+/** Below the minimum stock level (`reorderLevel`). Never for services. */
 export function isLowStock(item: Item, qty: number): boolean {
-  return qty < item.reorderLevel;
+  return tracksStock(item) && qty < item.reorderLevel;
+}
+
+/** Above the maximum stock level, when one is set (doc 37, T37). Never for services. */
+export function isOverStock(item: Item, qty: number): boolean {
+  return tracksStock(item) && !!item.maxStock && qty > item.maxStock;
 }
 
 /** Stock in the second unit: 30 Nos with 1 Box = 12 → "2 Box 6 Nos". Null when it's less than one box. */
