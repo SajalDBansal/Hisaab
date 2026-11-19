@@ -9,6 +9,10 @@ import {
 } from "../mock/db";
 import { clone, delay, getDb } from "./client";
 import {
+  DEFAULT_STOCK_POLICY,
+  type StockPolicy,
+} from "../accounting/stockPolicy";
+import {
   DEFAULT_OVERDUE_SALES_POLICY,
   type OverdueSalesPolicy,
 } from "../accounting/creditControl";
@@ -16,6 +20,8 @@ import {
 /** Credit control (doc 37, T11), with the saved version. */
 export interface SalesControlsView {
   overdueSales: OverdueSalesPolicy;
+  /** Stock control (doc 37, T37). */
+  stockPolicy: StockPolicy;
   version: number;
 }
 
@@ -92,27 +98,34 @@ export const settingsService = {
   /** Credit control (doc 37, T11). Real API: GET /settings/sales-controls */
   async salesControls(): Promise<SalesControlsView> {
     await delay();
-    return clone(
-      getDb().salesControls ?? {
-        overdueSales: DEFAULT_OVERDUE_SALES_POLICY,
-        version: 0,
-      },
-    );
+    const saved = getDb().salesControls;
+    return clone({
+      overdueSales: saved?.overdueSales ?? DEFAULT_OVERDUE_SALES_POLICY,
+      stockPolicy: saved?.stockPolicy ?? DEFAULT_STOCK_POLICY,
+      version: saved?.version ?? 0,
+    });
   },
 
   /** Real API: PUT /settings/sales-controls with If-Match. */
   async updateSalesControls(
-    input: { overdueSales: OverdueSalesPolicy },
+    input: { overdueSales: OverdueSalesPolicy; stockPolicy?: StockPolicy },
     _version?: number,
   ): Promise<SalesControlsView> {
     void _version;
     await delay();
     const db = getDb();
     db.salesControls = {
-      ...input,
+      overdueSales: input.overdueSales,
+      stockPolicy:
+        input.stockPolicy ??
+        db.salesControls?.stockPolicy ??
+        DEFAULT_STOCK_POLICY,
       version: (db.salesControls?.version ?? 0) + 1,
     };
-    return clone(db.salesControls);
+    return clone({
+      ...db.salesControls,
+      stockPolicy: db.salesControls.stockPolicy!,
+    });
   },
 
   /** Real API: http.get<{ members: TeamMember[]; currentUserId: string }>("/team") */

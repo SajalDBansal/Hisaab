@@ -11,7 +11,8 @@ import {
   scopeBooks,
   type TaxScope,
   isLowStock,
-  stockMovements,
+  isOverStock,
+  itemStockMovements,
   itemProfit,
   ledgerStatement,
   today,
@@ -125,8 +126,9 @@ export async function readItem(db: Db, firmId: string, id: string) {
         qty,
         value: inventoryValue(item, vouchers),
         lowStock: isLowStock(item, qty),
+        overStock: isOverStock(item, qty),
         // The latest few; the full list pages through /items/:id/movements.
-        movements: stockMovements(id, vouchers).reverse().slice(0, 20),
+        movements: itemStockMovements(item, vouchers).reverse().slice(0, 20),
         profit: itemProfit(item, vouchers),
       };
     },
@@ -136,8 +138,9 @@ export async function readItem(db: Db, firmId: string, id: string) {
 
 /** Every stock movement of one item, newest first. */
 export async function readItemMovements(db: Db, firmId: string, id: string) {
-  const { vouchers } = await loadReportBooks(db, firmId);
-  return stockMovements(id, vouchers).reverse();
+  const { items, vouchers } = await loadReportBooks(db, firmId);
+  const item = items.find((i) => i.id === id);
+  return item ? itemStockMovements(item, vouchers).reverse() : [];
 }
 
 export async function readLedgerStatement(

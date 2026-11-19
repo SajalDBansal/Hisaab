@@ -6,6 +6,8 @@ import { hydrateOrderFulfillment } from "../order-fulfillment/orderFulfillment.r
 import { hydrateSettlementVouchers } from "../settlements/settlements.shared";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { loadCustomFieldDefs } from "../customFields/customFields.repo";
+import { itemExtras } from "../items/itemExtras";
+import { loadSalesControls } from "../salesControls/salesControls.repo";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -200,6 +202,8 @@ export async function hydrateVouchers(
         stockCost: undef(l.stockCost),
         bookScope: undef(l.bookScope),
         exactMath: l.exactMath || undefined,
+        batchNumber: undef(l.batchNumber),
+        expiryDate: undef(l.expiryDate),
       })),
       charges: charges?.map((c) => ({
         name: c.name,
@@ -390,6 +394,7 @@ export async function loadBooks(
           ? { number: r.batchNumber, expiry: r.batchExpiry }
           : undefined,
       customFields: undef(r.customFields),
+      ...itemExtras(r),
     })),
     ledgers: ledgerRows.map((r) => ({
       id: r.id,
@@ -403,6 +408,8 @@ export async function loadBooks(
     openingAccounts: [],
     counters: { ...counters },
     customFieldDefs: await loadCustomFieldDefs(db, firmId),
+    // Stock control applies to new sales (doc 37, T37).
+    salesControls: await loadSalesControls(db, firmId),
     invoiceSettings: {
       template: settings.template,
       terms: settings.terms,

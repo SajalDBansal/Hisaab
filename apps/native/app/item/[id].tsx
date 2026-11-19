@@ -94,7 +94,16 @@ function ItemBody({
           </Txt>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Badge label={item.code} />
-            {gst.on && item.hsn ? <Badge label={`HSN ${item.hsn}`} /> : null}
+            {gst.on && item.hsn ? (
+              <Badge
+                label={`${item.kind === "service" ? "SAC" : "HSN"} ${item.hsn}`}
+              />
+            ) : null}
+            {item.kind === "service" ? <Badge label="Service" /> : null}
+            {item.notForSale ? <Badge label="Not for sale" /> : null}
+            {(item.tags ?? []).map((t) => (
+              <Badge key={t} label={`#${t}`} />
+            ))}
             {gst.on ? (
               <Badge
                 label={
@@ -105,6 +114,7 @@ function ItemBody({
               />
             ) : null}
             {d.lowStock ? <Badge label="Low stock" tone="warn" /> : null}
+            {d.overStock ? <Badge label="Over stock" tone="warn" /> : null}
           </View>
           <View>
             <CustomFieldValuesView
@@ -116,57 +126,69 @@ function ItemBody({
         </View>
       </View>
 
-      <View style={{ flexDirection: "row", gap: space.md }}>
-        <Card style={{ flex: 1 }}>
+      {item.kind === "service" ? (
+        <Card>
           <Txt variant="small" tone="body">
-            In stock
+            Service: no stock is kept. It sells without a purchase and never
+            appears in stock reports.
           </Txt>
-          <Txt variant="title" num tone={d.lowStock ? "warn" : "ink"}>
-            {d.qty} {item.unit}
-          </Txt>
-          {altQtyText(item, d.qty) ? (
-            <Txt variant="caption" tone="body" num>
-              {altQtyText(item, d.qty)}
+        </Card>
+      ) : (
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <Card style={{ flex: 1 }}>
+            <Txt variant="small" tone="body">
+              In stock
             </Txt>
-          ) : null}
-          <Txt variant="caption" tone="body">
-            Reorder at {item.reorderLevel}
-          </Txt>
-        </Card>
-        <Card style={{ flex: 1 }}>
-          <Txt variant="small" tone="body">
-            Stock value
-          </Txt>
-          <Txt variant="title" num adjustsFontSizeToFit numberOfLines={1}>
-            {formatINR(d.value, { decimals: false })}
-          </Txt>
-          <Txt variant="caption" tone="body">
-            at historical lot cost
-          </Txt>
-        </Card>
-      </View>
+            <Txt variant="title" num tone={d.lowStock ? "warn" : "ink"}>
+              {d.qty} {item.unit}
+            </Txt>
+            {altQtyText(item, d.qty) ? (
+              <Txt variant="caption" tone="body" num>
+                {altQtyText(item, d.qty)}
+              </Txt>
+            ) : null}
+            <Txt variant="caption" tone="body">
+              Min {item.reorderLevel}
+              {item.maxStock ? ` · Max ${item.maxStock}` : ""}
+            </Txt>
+          </Card>
+          <Card style={{ flex: 1 }}>
+            <Txt variant="small" tone="body">
+              Stock value
+            </Txt>
+            <Txt variant="title" num adjustsFontSizeToFit numberOfLines={1}>
+              {formatINR(d.value, { decimals: false })}
+            </Txt>
+            <Txt variant="caption" tone="body">
+              at historical lot cost
+            </Txt>
+          </Card>
+        </View>
+      )}
 
       <ItemPartiesSection itemId={item.id} unit={item.unit} />
 
-      <View>
-        <Txt variant="heading">Stock lots</Txt>
-        <QueryView query={stock}>
-          {(lots) => (
-            <>
-              {lots
-                .filter((l) => l.itemId === item.id && l.qty !== 0)
-                .map((lot) => (
-                  <ListRow
-                    key={lot.id}
-                    title={`${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`}
-                    subtitle={`${lot.qty} ${item.unit} | Cost ${formatINR(Math.round(lot.unitCost))} / ${item.unit}`}
-                    right={<Txt>{formatINR(lot.value)}</Txt>}
-                  />
-                ))}
-            </>
-          )}
-        </QueryView>
-      </View>
+      {item.kind === "service" ? null : (
+        <View>
+          <Txt variant="heading">Stock lots</Txt>
+          <QueryView query={stock}>
+            {(lots) => (
+              <>
+                {lots
+                  .filter((l) => l.itemId === item.id && l.qty !== 0)
+                  .map((lot) => (
+                    <ListRow
+                      key={lot.id}
+                      title={`${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`}
+                      subtitle={`${lot.qty} ${item.unit} | Cost ${formatINR(Math.round(lot.unitCost))} / ${item.unit}${lot.batchNumber ? ` | Batch ${lot.batchNumber}` : ""}${lot.expiryDate ? ` | Expires ${formatDate(lot.expiryDate)}` : ""}`}
+                      right={<Txt>{formatINR(lot.value)}</Txt>}
+                    />
+                  ))}
+              </>
+            )}
+          </QueryView>
+        </View>
+      )}
       <View>
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
           Prices and units
@@ -185,7 +207,9 @@ function ItemBody({
               : item.unit
           }
         />
-        <KeyValue label="Stock in units" value={formatQty(item, d.qty)} />
+        {item.kind === "service" ? null : (
+          <KeyValue label="Stock in units" value={formatQty(item, d.qty)} />
+        )}
         {item.batch ? (
           <KeyValue
             label={`Batch ${item.batch.number}`}

@@ -23,7 +23,7 @@ import {
 } from "./bills";
 import { calcInvoice, calcLine } from "./invoice";
 import { voucherPostings } from "./postings";
-import { baseQty, formatQty, isLowStock } from "./stock";
+import { baseQty, formatQty, isLowStock, tracksStock } from "./stock";
 import { stockLots } from "./stockLots";
 import { bookScopeOf } from "./bookScope";
 import type { CustomAccount } from "./accounts";
@@ -325,8 +325,11 @@ export function stockSummary(
   let lowCount = 0;
   const shown = items.filter(
     (i) =>
-      scope === "all" ||
-      stockLots(i, vouchers).some((l) => l.bookScope === scope && l.qty !== 0),
+      tracksStock(i) &&
+      (scope === "all" ||
+        stockLots(i, vouchers).some(
+          (l) => l.bookScope === scope && l.qty !== 0,
+        )),
   );
   for (const item of shown) {
     const lots = stockLots(item, vouchers).filter(

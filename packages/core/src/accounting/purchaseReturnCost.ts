@@ -1,6 +1,6 @@
 import type { InvoiceLine, Item, Voucher } from "../types";
 import { bookScopeOf } from "./bookScope";
-import { baseQty } from "./stockInputs";
+import { baseQty, tracksStock } from "./stockInputs";
 import { stockLots } from "./stockLots";
 
 function laterThan(voucher: Voucher, note: Voucher) {
@@ -75,6 +75,9 @@ export function purchaseReturnLines(
     .filter((item) => lines.some((line) => line.itemId === item.id))
     .flatMap((item) => stockLots(item, prior, note.date));
   return lines.map((line) => {
+    // A returned service takes no stock back (doc 37, T39).
+    if (!tracksStock(items.find((item) => item.id === line.itemId)))
+      return { ...line, bookScope: line.bookScope ?? bookScopeOf(note) };
     const lot = lots.find(
       (row) => row.itemId === line.itemId && row.id === line.stockLotId,
     );

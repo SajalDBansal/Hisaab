@@ -41,6 +41,8 @@ import {
   count,
   UNREGISTERED_SUPPLIER_GST_MESSAGE,
   allocateStock,
+  serviceBooks,
+  stockShortfallText,
   type BookScope,
   financialYear,
   canSeeCosts,
@@ -225,6 +227,10 @@ export function InvoiceForm({
   const approveCredit = useApproveSaleCredit();
   const salesControls = useSalesControls();
   const overduePolicy = salesControls.data?.overdueSales ?? "warn";
+  const stockPolicy =
+    kind === "sale" && !editing
+      ? (salesControls.data?.stockPolicy ?? "warn")
+      : "warn";
   const updateInvoice = useUpdateInvoice(editing?.id ?? "", version);
 
   // ---- Data -------------------------------------------------------------------
@@ -346,7 +352,15 @@ export function InvoiceForm({
   let stockLines = invoiceLines;
   if (usesStock && stock.data && !(needsBook && !sellFrom))
     try {
-      stockLines = allocateStock(lotPool, invoiceLines).map((l) =>
+      stockLines = allocateStock(
+        lotPool,
+        invoiceLines,
+        // Services take no stock (doc 37, T39).
+        serviceBooks(
+          (items.data ?? []).map((r) => r.item),
+          taxMode === "off" ? "nongst" : "gst",
+        ),
+      ).map((l) =>
         l.bookScope === "nongst"
           ? { ...l, gstRate: 0 as const, taxType: "nongst" as const }
           : l,
@@ -903,7 +917,8 @@ export function InvoiceForm({
                   onChange={(on) => toggleAlt(l, item, on)}
                 />
               ) : null}
-              {kind === "sale" || kind === "delivery-note" ? (
+              {(kind === "sale" || kind === "delivery-note") &&
+              item?.kind !== "service" ? (
                 <SelectField
                   label="Stock lot"
                   value={(() => {
@@ -961,6 +976,53 @@ export function InvoiceForm({
                   />
                 )}
               </View>
+              {kind === "purchase" && item && item.kind !== "service" ? (
+                <View style={{ flexDirection: "row", gap: space.sm }}>
+                  <TextField
+                    label="Batch (optional)"
+                    value={l.batchNumber ?? ""}
+                    onChangeText={(batchNumber) =>
+                      updateLine(l.key, {
+                        batchNumber: batchNumber.slice(0, 40),
+                      })
+                    }
+                    placeholder="e.g. AG2608"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <DateField
+                      label="Expiry (optional)"
+                      value={l.expiryDate ?? ""}
+                      onChange={(expiryDate) =>
+                        updateLine(l.key, { expiryDate })
+                      }
+                    />
+                    {l.expiryDate ? (
+                      <Txt
+                        variant="caption"
+                        tone="body"
+                        accessibilityRole="button"
+                        onPress={() =>
+                          updateLine(l.key, { expiryDate: undefined })
+                        }
+                      >
+                        Clear expiry
+                      </Txt>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+              {usesStock && item && item.kind !== "service" && stock.data
+                ? (() => {
+                    // Stock control (doc 37, T37): warn before the server refuses.
+                    const warning = stockShortfallText(
+                      item,
+                      lotsFor(l.itemId),
+                      invoiceLines[i],
+                      stockPolicy,
+                    );
+                    return warning ? <Notice text={warning} /> : null;
+                  })()
+                : null}
               {(() => {
                 const last = lastRate(l.itemId);
                 if (!last) return null;
@@ -1243,18 +1305,21 @@ export function InvoiceForm({
           setPicker(null);
           router.push("/item/new?pick=1");
         }}
-        options={(items.data ?? []).map((r) => ({
-          id: r.item.id,
-          title: r.item.name,
-          subtitle: `${formatQty(r.item, r.qty)} in stock${
-            !carriesGst
-              ? ""
-              : itemTaxType(r.item) === "taxable"
-                ? ` · GST ${r.item.gstRate}%`
-                : ` · ${taxTypeLabel(itemTaxType(r.item))}`
-          }`,
-          right: <Money value={r.item[text.priceKey]} variant="small" />,
-        }))}
+        options={(items.data ?? [])
+          // Not-for-sale items are bought, never sold (doc 37, T39).
+          .filter((r) => side === "purchase" || !r.item.notForSale)
+          .map((r) => ({
+            id: r.item.id,
+            title: r.item.name,
+            subtitle: `${r.item.kind === "service" ? "Service" : `${formatQty(r.item, r.qty)} in stock`}${
+              !carriesGst
+                ? ""
+                : itemTaxType(r.item) === "taxable"
+                  ? ` · GST ${r.item.gstRate}%`
+                  : ` · ${taxTypeLabel(itemTaxType(r.item))}`
+            }`,
+            right: <Money value={r.item[text.priceKey]} variant="small" />,
+          }))}
       />
       <PickerSheet
         visible={picker === "bank"}

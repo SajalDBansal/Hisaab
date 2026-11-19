@@ -3,6 +3,7 @@ import type { CustomAccount } from "../accounting/accounts";
 import type { OpeningAccount } from "../accounting/generalLedger";
 import type { CustomFieldDef } from "../customFields";
 import type { OverdueSalesPolicy } from "../accounting/creditControl";
+import type { StockPolicy } from "../accounting/stockPolicy";
 import { financialYear } from "../dates";
 import type {
   AuditAction,
@@ -31,7 +32,12 @@ export interface Db {
   /** Logo and signature printed on documents (doc 37, T16); data:image URIs. */
   branding?: { logo: string | null; signature: string | null; version: number };
   /** Credit control (doc 37, T11): what overdue bills do to a new sale. */
-  salesControls?: { overdueSales: OverdueSalesPolicy; version: number };
+  salesControls?: {
+    overdueSales: OverdueSalesPolicy;
+    /** Stock control (doc 37, T37); missing = "warn". */
+    stockPolicy?: StockPolicy;
+    version: number;
+  };
   firm: Firm;
   parties: Party[];
   items: Item[];

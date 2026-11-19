@@ -164,7 +164,11 @@ test(
         "GET",
         "/v1/settings/sales-controls",
       );
-      assert.deepEqual(controls, { overdueSales: "warn", version: 0 });
+      assert.deepEqual(controls, {
+        overdueSales: "warn",
+        stockPolicy: "warn",
+        version: 0,
+      });
       assert.equal((await saleCall(bill(customer.id))).statusCode, 201);
 
       // Switch to "block" (stale version refused first).
@@ -183,7 +187,11 @@ test(
       assert.equal((await put(5)).statusCode, 409);
       const saved = await put(0);
       assert.equal(saved.statusCode, 200, saved.body);
-      assert.deepEqual(saved.json(), { overdueSales: "block", version: 1 });
+      assert.deepEqual(saved.json(), {
+        overdueSales: "block",
+        stockPolicy: "warn",
+        version: 1,
+      });
 
       // Now a new sale needs the owner's approval for that exact sale.
       const blocked = await saleCall(bill(customer.id));

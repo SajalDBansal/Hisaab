@@ -98,8 +98,15 @@ export const Branding = z.object({
 export const BrandingView = Branding.extend({ version: z.number().int() });
 /** Credit control (doc 37, T11): what overdue bills do to a new sale. */
 export const OverdueSalesPolicy = z.enum(["off", "warn", "block"]);
-export const SalesControls = z.object({ overdueSales: OverdueSalesPolicy });
+/** Stock control (doc 37, T37): what the minimum stock level does to a new sale. */
+export const StockPolicy = z.enum(["warn", "block"]);
+export const SalesControls = z.object({
+  overdueSales: OverdueSalesPolicy,
+  // Optional: older apps send only the overdue policy; the saved one is kept.
+  stockPolicy: StockPolicy.optional(),
+});
 export const SalesControlsView = SalesControls.extend({
+  stockPolicy: StockPolicy,
   version: z.number().int(),
 });
 export type SalesControls = z.infer<typeof SalesControls>;

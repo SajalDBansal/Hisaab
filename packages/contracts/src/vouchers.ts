@@ -80,6 +80,9 @@ const InputInvoiceLine = z
     stockLotId: z.string().min(1).max(160).optional(),
     stockCost: NonNegativePaise.optional(),
     bookScope: BookScope.optional(),
+    // Purchases of goods: batch bought and its expiry (doc 37, T38).
+    batchNumber: z.string().trim().max(40).optional(),
+    expiryDate: IsoDate.optional(),
     qty: Quantity.positive("Quantity must be more than 0."),
     // Rate per unit, in paise
     rate: Paise.positive("Enter a rate."),

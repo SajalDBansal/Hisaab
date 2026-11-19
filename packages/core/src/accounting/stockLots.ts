@@ -1,7 +1,7 @@
 import type { BookScope, InvoiceLine, Item, TaxScope, Voucher } from "../types";
 import { mulDivRound, thousandths } from "../money";
 import { calcLine } from "./invoice";
-import { baseQty, stockVouchersAsOf } from "./stockInputs";
+import { baseQty, stockVouchersAsOf, tracksStock } from "./stockInputs";
 import { bookScopeOf } from "./bookScope";
 
 export interface StockLot {
@@ -14,6 +14,9 @@ export interface StockLot {
   value: number;
   unitCost: number;
   minimumQty: number;
+  /** Batch and expiry from the purchase line (or the item's opening batch), doc 37 T38. */
+  batchNumber?: string;
+  expiryDate?: string;
 }
 
 const quantity = (n: number) => Math.round(n * 1000) / 1000;
@@ -115,6 +118,13 @@ export function stockLots(
   asOf?: string,
   costs?: Map<string, number>,
 ): StockLot[] {
+  if (!tracksStock(item)) return [];
+  const openingBatch = item.batch
+    ? {
+        ...(item.batch.number ? { batchNumber: item.batch.number } : {}),
+        ...(item.batch.expiry ? { expiryDate: item.batch.expiry } : {}),
+      }
+    : {};
   const openingScope =
     item.openingBookScope ?? (item.taxType === "nongst" ? "nongst" : "gst");
   const openingCost = item.openingCost ?? item.purchasePrice;
@@ -126,6 +136,7 @@ export function stockLots(
         date: "0001-01-01",
         value: Math.round(lot.qty * lot.unitCost),
         minimumQty: lot.qty,
+        ...openingBatch,
       }))
     : [
         {
@@ -138,6 +149,7 @@ export function stockLots(
           value: Math.round(item.openingStock * openingCost),
           unitCost: openingCost,
           minimumQty: item.openingStock,
+          ...openingBatch,
         },
       ];
   const rows = (asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers)
@@ -191,6 +203,8 @@ export function stockLots(
           value: cost,
           unitCost: qty ? cost / qty : 0,
           minimumQty: qty,
+          ...(line.batchNumber ? { batchNumber: line.batchNumber } : {}),
+          ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
         });
         continue;
       }
@@ -284,10 +298,12 @@ export const STOCK_BOOK_CHOICE_MESSAGE =
  * A line needing several lots becomes one line per lot, so returns, cancellations
  * and costs keep working lot by lot; prints merge them back into one row.
  * `available` is copied, so callers can pass cached lots.
+ * Lines of the `services` items (id -> default book) take no stock (doc 37, T39).
  */
 export function allocateStock(
   available: StockLot[],
   lines: InvoiceLine[],
+  services: ReadonlyMap<string, BookScope> = new Map(),
 ): InvoiceLine[] {
   const pool = available.map((lot) => ({ ...lot }));
   const take = (lot: StockLot, line: InvoiceLine, qty: number) => {
@@ -298,6 +314,18 @@ export function allocateStock(
     return { ...line, stockLotId: lot.id, stockCost, bookScope: lot.bookScope };
   };
   return lines.flatMap((line) => {
+    const serviceScope = services.get(line.itemId);
+    if (serviceScope) {
+      const {
+        stockLotId: _lot,
+        stockCost: _cost,
+        batchNumber: _batch,
+        expiryDate: _expiry,
+        ...rest
+      } = line;
+      void [_lot, _cost, _batch, _expiry];
+      return [{ ...rest, bookScope: line.bookScope ?? serviceScope }];
+    }
     const choices = pool.filter((l) => l.itemId === line.itemId && l.qty > 0);
     const qty = baseQty(line);
     if (line.stockLotId) {
@@ -368,14 +396,109 @@ export function allocateStock(
   });
 }
 
+/**
+ * Service items and the book their lines go to when the sale doesn't say:
+ * non-GST services, and every service of a firm without GST, to the non-GST book.
+ */
+export function serviceBooks(
+  items: Item[],
+  defaultScope: BookScope = "gst",
+): Map<string, BookScope> {
+  return new Map(
+    items
+      .filter((item) => !tracksStock(item))
+      .map((item) => [
+        item.id,
+        item.taxType === "nongst" ? "nongst" : defaultScope,
+      ]),
+  );
+}
+
 /** Select stock for sale lines from the books as they stood on `date`. */
 export function selectStockLines(
   items: Item[],
   vouchers: Voucher[],
   lines: InvoiceLine[],
   date: string,
+  /** Book of service lines that don't name one ("nongst" for firms without GST). */
+  serviceScope: BookScope = "gst",
 ): InvoiceLine[] {
-  return allocateStock(stockLotsFor(items, vouchers, date).flat(), lines);
+  return allocateStock(
+    stockLotsFor(items, vouchers, date).flat(),
+    lines,
+    serviceBooks(items, serviceScope),
+  );
+}
+
+export interface ExpiringLot {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  group: string;
+  lotId: string;
+  /** The purchase bill number, or "Opening stock". */
+  source: string;
+  batchNumber?: string;
+  expiryDate: string;
+  qty: number;
+  value: number;
+  /** Negative once expired. */
+  daysLeft: number;
+  status: "expired" | "expiring";
+}
+
+const dayNumber = (date: string) =>
+  Date.parse(`${date}T00:00:00Z`) / 86_400_000;
+
+/**
+ * Stock lots still in hand on `asOf` whose expiry date is on or before
+ * `asOf` + `withinDays` (doc 37, T38), soonest first: expired lots, then those
+ * expiring within the window. For the Expiring items report and a dashboard
+ * expiry timeline. Values are at FIFO cost.
+ */
+export function expiringLots(
+  items: Item[],
+  vouchers: Voucher[],
+  asOf: string,
+  withinDays = 30,
+  scope: TaxScope = "all",
+): ExpiringLot[] {
+  const lots = stockLotsFor(items, vouchers, asOf);
+  const today = dayNumber(asOf);
+  return items
+    .flatMap((item, index) =>
+      lots[index]
+        .filter(
+          (lot) =>
+            lot.qty > 0 &&
+            !!lot.expiryDate &&
+            (scope === "all" || lot.bookScope === scope),
+        )
+        .map((lot): ExpiringLot => {
+          const daysLeft = Math.round(dayNumber(lot.expiryDate!) - today);
+          return {
+            itemId: item.id,
+            itemName: item.name,
+            unit: item.unit,
+            group: item.group,
+            lotId: lot.id,
+            source: lot.number,
+            ...(lot.batchNumber ? { batchNumber: lot.batchNumber } : {}),
+            expiryDate: lot.expiryDate!,
+            qty: lot.qty,
+            value: lot.value,
+            daysLeft,
+            status: daysLeft < 0 ? "expired" : "expiring",
+          };
+        }),
+    )
+    .filter((row) => row.daysLeft <= withinDays)
+    .sort(
+      (a, b) =>
+        a.expiryDate.localeCompare(b.expiryDate) ||
+        a.itemName.localeCompare(b.itemName) ||
+        a.lotId.localeCompare(b.lotId),
+    );
 }
 
 /** Backdated entries must also leave enough stock for already-issued later invoices. */

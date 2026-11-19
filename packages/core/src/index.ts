@@ -11,6 +11,7 @@ export * from "./replica";
 export * from "./listPages";
 export * from "./accounting/tradeRates";
 export * from "./accounting/creditControl";
+export * from "./accounting/stockPolicy";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";

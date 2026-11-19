@@ -43,6 +43,9 @@ export const REPORT_IDS = [
   "purchase-orders-register",
   "gstr2",
   "tax-summary",
+  // Stock levels and expiry (doc 37, T37/T38)
+  "stock-levels",
+  "expiring-items",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -234,6 +237,17 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
   },
   gstr2: { title: "GSTR-2 purchases", category: "Tax" },
   "tax-summary": { title: "GST summary by rate", category: "Tax" },
+  "stock-levels": {
+    title: "Stock levels (minimum and maximum)",
+    category: "Inventory",
+    asOf: true,
+    zeroBalances: true,
+  },
+  "expiring-items": {
+    title: "Expiring items",
+    category: "Inventory",
+    asOf: true,
+  },
 };
 
 export interface ReportRequest {
@@ -247,6 +261,8 @@ export interface ReportRequest {
   includeZeroBalances: boolean;
   /** Interest calculator: yearly rate in percent (default 18). */
   interestRate?: number;
+  /** Expiring items: days ahead to include (default 30). */
+  expiryDays?: number;
 }
 
 export interface ReportColumn {

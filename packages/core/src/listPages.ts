@@ -16,7 +16,7 @@ import { scopeVouchers } from "./accounting/bookScope";
 import { voucherInScope } from "./accounting/taxType";
 import { newestFirst } from "./accounting/reports";
 import type { StockLot } from "./accounting/stockLots";
-import { isLowStock } from "./accounting/stock";
+import { isLowStock, isOverStock, tracksStock } from "./accounting/stock";
 import { matchesSearch, pageRows, type Page, type PageQuery } from "./paging";
 
 export type PagedList<T, S> = Page<T> & { summary: S };
@@ -103,6 +103,10 @@ export interface ItemPageQuery extends PageQuery {
   search?: string;
   group?: string;
   low?: boolean;
+  /** Above the maximum stock level (doc 37, T37). */
+  over?: boolean;
+  tag?: string;
+  kind?: "goods" | "service";
   scope?: TaxScope;
 }
 export interface ItemPageRow {
@@ -112,14 +116,18 @@ export interface ItemPageRow {
   /** Its cost. */
   value: number;
   lowStock: boolean;
+  overStock?: boolean;
 }
 export interface ItemPageSummary {
   /** Items with stock in the chosen books (every item for "all"). */
   count: number;
   value: number;
   lowCount: number;
-  /** Groups among those items, for the filter chips. */
+  overCount?: number;
+  /** Groups (categories) among those items, for the filter chips. */
   groups: string[];
+  /** Tags among those items, for the filter chips. */
+  tags?: string[];
 }
 
 /** `lots` holds each item's stock lots, in `items` order. */
@@ -141,16 +149,24 @@ export function itemPage(
         qty,
         value: held.reduce((sum, lot) => sum + lot.value, 0),
         lowStock: isLowStock(item, qty),
+        overStock: isOverStock(item, qty),
       };
     })
-    .filter((row) => scope === "all" || row.qty !== 0);
+    // Services hold no stock, so they belong to every book.
+    .filter(
+      (row) => scope === "all" || row.qty !== 0 || !tracksStock(row.item),
+    );
   const summary: ItemPageSummary = {
     count: scoped.length,
     value: scoped.reduce((sum, row) => sum + row.value, 0),
     lowCount: scoped.filter((row) => row.lowStock).length,
+    overCount: scoped.filter((row) => row.overStock).length,
     groups: [
       ...new Set(scoped.map((row) => row.item.group).filter(Boolean)),
     ].sort(byName),
+    tags: [...new Set(scoped.flatMap((row) => row.item.tags ?? []))].sort(
+      byName,
+    ),
   };
   const matching = scoped
     .filter(
@@ -160,8 +176,15 @@ export function itemPage(
           row.item.name,
           row.item.code,
           row.item.hsn,
+          ...(row.item.tags ?? []),
         ) &&
         (!query.low || row.lowStock) &&
+        (!query.over || row.overStock) &&
+        (!query.tag ||
+          (row.item.tags ?? []).some(
+            (t) => t.toLowerCase() === query.tag!.toLowerCase(),
+          )) &&
+        (!query.kind || (row.item.kind ?? "goods") === query.kind) &&
         (!query.group || row.item.group === query.group),
     )
     .sort(

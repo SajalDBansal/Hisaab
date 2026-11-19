@@ -12,7 +12,7 @@ import { returnAmountBasis, returnAmounts } from "../accounting/returnAmounts";
 import { returnStockCost } from "../accounting/returnStockCost";
 import { settledAmounts } from "../accounting/bills";
 import { billAllocations } from "../accounting/settlements";
-import { baseQty } from "../accounting/stock";
+import { baseQty, tracksStock } from "../accounting/stock";
 import {
   assertLotsAvailable,
   purchaseLineCost,
@@ -384,6 +384,7 @@ export function updateInvoice(
         );
       }),
       date,
+      bookScopeOf(v),
     );
   const { side, lines, charges } = billParts(
     historicalBooks,
@@ -404,6 +405,7 @@ export function updateInvoice(
     );
   if (v.type === "purchase")
     lines.forEach((l, index) => {
+      if (!tracksStock(db.items.find((i) => i.id === l.itemId))) return;
       l.stockLotId = v.lines?.[index]?.stockLotId ?? purchaseLotId(v, index);
       l.bookScope = bookScopeOf(v);
       l.stockCost = purchaseLineCost(l, v);
@@ -534,7 +536,10 @@ export function createNote(
       qty: r.qty,
       stockLotId:
         row.line.stockLotId ??
-        (type === "debit-note" ? purchaseLotId(bill, r.index) : undefined),
+        (type === "debit-note" &&
+        tracksStock(db.items.find((i) => i.id === row.line.itemId))
+          ? purchaseLotId(bill, r.index)
+          : undefined),
       stockCost:
         type === "credit-note"
           ? returnStockCost(bill, db.vouchers, r.index, r.qty)

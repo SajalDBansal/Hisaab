@@ -167,6 +167,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "settings",
       },
       {
+        title: "Stock control",
+        note: "What the minimum stock level does to a new sale",
+        icon: "package",
+        href: "/settings/stock",
+        needs: "settings",
+      },
+      {
         title: "Invoice and numbering",
         note: "Print format, terms, bank details, prefixes",
         icon: "file-text",

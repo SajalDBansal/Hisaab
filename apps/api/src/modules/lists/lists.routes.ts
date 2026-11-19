@@ -141,6 +141,7 @@ export async function listRoutes(app: FastifyInstance, options: { db: Db }) {
                   stock: row.qty,
                   value: costs ? row.value : 0,
                   lowStock: row.lowStock,
+                  overStock: row.overStock,
                 },
               ]
             : [];

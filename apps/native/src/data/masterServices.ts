@@ -69,6 +69,7 @@ export function masterServices(client: Client) {
           qty: item.stock,
           value: item.value ?? stockValue(item, item.stock),
           lowStock: item.lowStock,
+          overStock: item.overStock,
         })),
       page: async (query) => {
         const page = await request(
@@ -82,6 +83,7 @@ export function masterServices(client: Client) {
             qty: item.stock,
             value: item.value ?? 0,
             lowStock: item.lowStock,
+            overStock: item.overStock,
           })),
         };
       },

@@ -206,10 +206,14 @@ export type ItemErrors = Partial<
     | "purchasePrice"
     | "mrp"
     | "reorderLevel"
+    | "maxStock"
+    | "tags"
     | "openingStock",
     string
   >
 >;
+
+export const MAX_ITEM_TAGS = 10;
 
 /** Item form. Returns blocking errors; see `itemWarnings` for things worth a second look. */
 export function checkItem(
@@ -234,7 +238,10 @@ export function checkItem(
   // composition firms and firms without GST may leave it empty
   const hsnRequired = mode === "regular" && i.taxType !== "nongst";
   if (hsnRequired && !i.hsn.trim())
-    e.hsn = "Enter the HSN code (4, 6 or 8 digits).";
+    e.hsn =
+      i.kind === "service"
+        ? "Enter the SAC code (6 digits, starting 99)."
+        : "Enter the HSN code (4, 6 or 8 digits).";
   else if (i.hsn.trim() && !/^\d{4}(\d{2}(\d{2})?)?$/.test(i.hsn.trim()))
     e.hsn = "HSN/SAC should be 4, 6 or 8 digits.";
   if (!i.unit.trim()) e.unit = "Pick a unit.";
@@ -257,6 +264,23 @@ export function checkItem(
     e.mrp = "Sale price can't be more than MRP.";
   if (i.reorderLevel < 0) e.reorderLevel = "Can't be negative.";
   if (i.openingStock < 0) e.openingStock = "Can't be negative.";
+  if (i.maxStock !== undefined && i.maxStock < 0)
+    e.maxStock = "Can't be negative.";
+  else if (i.maxStock && i.maxStock < i.reorderLevel)
+    e.maxStock = "The maximum can't be below the minimum.";
+  const tags = i.tags ?? [];
+  if (tags.length > MAX_ITEM_TAGS) e.tags = `Use up to ${MAX_ITEM_TAGS} tags.`;
+  else if (tags.some((t) => !t.trim() || t.trim().length > 30))
+    e.tags = "Each tag needs 1 to 30 characters.";
+  // Services (doc 37, T39): SAC code, no stock.
+  if (i.kind === "service") {
+    if (i.hsn.trim() && !e.hsn && !i.hsn.trim().startsWith("99"))
+      e.hsn = "A SAC code for services starts with 99.";
+    if (i.openingStock || i.openingLots?.length || i.batch)
+      e.openingStock = "Services don't keep stock.";
+    if (i.reorderLevel || i.maxStock)
+      e.reorderLevel = "Services don't have stock levels.";
+  }
   return e;
 }
 
@@ -265,7 +289,7 @@ export function itemWarnings(i: ItemInput): string[] {
   const w: string[] = [];
   if (i.purchasePrice > 0 && i.salePrice > 0 && i.salePrice < i.purchasePrice)
     w.push("Sale price is below purchase price — you'll sell at a loss.");
-  if (i.purchasePrice === 0)
+  if (i.purchasePrice === 0 && i.kind !== "service")
     w.push(
       "Without a purchase price, stock value and profit will show as zero.",
     );

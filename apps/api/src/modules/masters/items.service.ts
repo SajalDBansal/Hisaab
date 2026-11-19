@@ -16,6 +16,10 @@ import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { itemsRepo, type ItemDb, type ItemRecord } from "./items.repo";
+import {
+  itemExtraColumns,
+  itemExtras,
+} from "@repo/backend/modules/items/itemExtras";
 import { unitsRepo } from "./units.repo";
 import {
   editedElsewhere,
@@ -87,9 +91,11 @@ export const toItemRow = (r: ItemRecord): ItemRow => {
       ? { batch: { number: r.batchNumber, expiry: r.batchExpiry } }
       : {}),
     ...(r.customFields ? { customFields: r.customFields } : {}),
+    ...itemExtras(r),
     version: r.version,
     stock,
-    lowStock: stock < r.reorderLevel,
+    lowStock: r.kind !== "service" && stock < r.reorderLevel,
+    overStock: r.kind !== "service" && !!r.maxStock && stock > r.maxStock,
   };
 };
 
@@ -111,6 +117,7 @@ const columnsOf = (i: ItemInput) => ({
   openingLots: i.openingLots,
   batchNumber: i.batch?.number ?? null,
   batchExpiry: i.batch?.expiry ?? null,
+  ...itemExtraColumns(i),
 });
 
 /** undefined leaves stored values alone on update; null clears them. */
@@ -257,6 +264,16 @@ export const itemsService = {
             409,
           );
       }
+      // Stock lots follow from the kind, so it is fixed once the item is used (doc 37, T39).
+      if (
+        (item.kind ?? "goods") !== current.kind &&
+        (await itemsRepo.hasEntries(db, firmId, id))
+      )
+        throw new AppError(
+          "ITEM_IN_USE",
+          "This item already has entries, so it can't change between goods and service.",
+          409,
+        );
       // Stock is kept in the base unit, so it can't change under existing entries
       if (
         (item.unit !== current.unit ||

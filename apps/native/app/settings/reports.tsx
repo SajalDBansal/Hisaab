@@ -28,6 +28,8 @@ import {
   SelectField,
   TextField,
   Txt,
+  Chip,
+  ChipRow,
   type PickerOption,
 } from "@/components";
 
@@ -168,6 +170,9 @@ function ReportForm({ firm }: { firm: Firm }) {
           id === "interest-calculator"
             ? (request.interestRate ?? 18)
             : undefined,
+        // Likewise only the expiring items report takes days ahead.
+        expiryDays:
+          id === "expiring-items" ? (request.expiryDays ?? 30) : undefined,
       });
     if (picker === "account") update({ accountKey: id || undefined });
     if (picker === "party") update({ partyId: id || undefined });
@@ -297,6 +302,23 @@ function ReportForm({ firm }: { firm: Firm }) {
                 update({ interestRate: rate });
             }}
           />
+        )}
+        {request.report === "expiring-items" && (
+          <View style={{ gap: space.sm }}>
+            <Txt variant="label" tone="charcoal">
+              Expired, and expiring within
+            </Txt>
+            <ChipRow>
+              {[7, 30, 60, 90].map((days) => (
+                <Chip
+                  key={days}
+                  label={`${days} days`}
+                  selected={(request.expiryDays ?? 30) === days}
+                  onPress={() => update({ expiryDays: days })}
+                />
+              ))}
+            </ChipRow>
+          </View>
         )}
         {definition.parties && (
           <SelectField

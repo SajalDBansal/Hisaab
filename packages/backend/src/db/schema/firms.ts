@@ -95,9 +95,12 @@ export const overdueSalesPolicy = pgEnum("overdue_sales_policy", [
   "warn",
   "block",
 ]);
+// Stock control (doc 37, T37): what the minimum stock level does to a new sale.
+export const stockPolicy = pgEnum("stock_policy", ["warn", "block"]);
 export const salesControls = pgTable("sales_controls", {
   firmId: firmKey(),
   overdueSales: overdueSalesPolicy("overdue_sales").notNull().default("warn"),
+  stockPolicy: stockPolicy("stock_policy").notNull().default("warn"),
   ...stamps,
 });
 
