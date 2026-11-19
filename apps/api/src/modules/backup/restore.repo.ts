@@ -60,6 +60,7 @@ const first: TableName[] = [
   "reminderSettings",
   "firmBranding",
   "salesControls",
+  "firmSecurity",
   "voucherCounters",
   "masterImportBatches",
   "importedOpeningBalances",

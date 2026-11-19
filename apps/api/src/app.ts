@@ -48,6 +48,7 @@ import { registerRateLimits } from "./plugins/rate-limit";
 import { registerSecurity } from "./plugins/security";
 import { registerSwagger } from "./plugins/swagger";
 import { settingsRoutes } from "./modules/settings/settings.routes";
+import { securityRoutes } from "./modules/settings/security.routes";
 import { auditRoutes } from "./modules/settings/audit.routes";
 import { customFieldRoutes } from "./modules/customFields/customFields.routes";
 import { roleRoutes } from "./modules/roles/roles.routes";
@@ -186,7 +187,7 @@ export async function buildApp({
   registerFirmContext(app, db);
 
   await app.register(systemRoutes, { readyChecks });
-  await app.register(meRoutes, { db, prefix: "/v1" });
+  await app.register(meRoutes, { db, auth, prefix: "/v1" });
   await app.register(firmRoutes, { db, auth, prefix: "/v1" });
   await app.register(partyRoutes, { db, prefix: "/v1" });
   await app.register(itemRoutes, { db, prefix: "/v1" });
@@ -199,6 +200,7 @@ export async function buildApp({
   await app.register(reportRoutes, { db, prefix: "/v1" });
   await app.register(gstRoutes, { db, prefix: "/v1" });
   await app.register(settingsRoutes, { db, prefix: "/v1" });
+  await app.register(securityRoutes, { db, prefix: "/v1" });
   await app.register(auditRoutes, { db, prefix: "/v1" });
   await app.register(customFieldRoutes, { db, prefix: "/v1" });
   await app.register(roleRoutes, { db, prefix: "/v1" });

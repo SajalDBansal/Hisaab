@@ -72,6 +72,11 @@ interface DataState {
   loading: boolean;
   error: Error | null;
   retry(): void;
+  /**
+   * The open firm requires two-factor sign-in and this account doesn't have it
+   * on yet (doc 37, T58): the app sends the person to Settings → Account.
+   */
+  twoFactorBlocked: boolean;
 }
 const DataContext = createContext<DataState | null>(null);
 const offlineAccess = createOfflineAccess(offlineStore);
@@ -125,7 +130,7 @@ function UserData({
   children: ReactNode;
 }) {
   const cache = useQueryClient();
-  const { endSession } = useAuth();
+  const { endSession, me } = useAuth();
   useEffect(
     () =>
       serverRecovery.subscribe(() => {
@@ -170,6 +175,10 @@ function UserData({
         },
       ]);
   const accessKey = REQUIRE_LOGIN ? membershipScope(firms.data?.rows) : "demo";
+  const twoFactorBlocked =
+    REQUIRE_LOGIN &&
+    !!firms.data?.rows.find((row) => row.id === firmId)?.twoFactorRequired &&
+    me?.twoFactorEnabled !== true;
   const revision = sessionStore.revision;
   const identity = JSON.stringify([
     userId,
@@ -230,7 +239,8 @@ function UserData({
   // and after every reconnect, the first sync must finish first.
   const caughtUp = useRef(false);
   const [catchingUp, setCatchingUp] = useState(false);
-  const replicaRole = REQUIRE_LOGIN && !!role && can(role, "reports");
+  const replicaRole =
+    REQUIRE_LOGIN && !!role && can(role, "reports") && !twoFactorBlocked;
   const refreshBooks = () =>
     void cache.invalidateQueries({ queryKey: ["books", userId] });
   const replica = useReplica({
@@ -245,7 +255,7 @@ function UserData({
     },
   });
   useLiveUpdates({
-    enabled: REQUIRE_LOGIN && enabled && !!role,
+    enabled: REQUIRE_LOGIN && enabled && !!role && !twoFactorBlocked,
     userId,
     firmId,
     role,
@@ -532,6 +542,7 @@ function UserData({
         retry: () => {
           void firms.refetch();
         },
+        twoFactorBlocked,
       }}
     >
       {/* Other firms can change without discarding this firm's open draft. */}

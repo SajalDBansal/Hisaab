@@ -22,6 +22,10 @@ declare module "fastify" {
       req: FastifyRequest,
       reply: FastifyReply,
     ) => Promise<boolean>;
+    checkTwoFactorLimit: (
+      req: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<boolean>;
   }
 }
 
@@ -126,6 +130,17 @@ export async function registerRateLimits(
     keyGenerator: accountAndIpKey,
   });
 
+  // Two-factor codes per IP (doc 37, T58); the plugin also allows 5 tries per
+  // sign-in and locks the account for 15 minutes after 10 wrong codes.
+  const twoFactorCodes = app.createRateLimit({
+    skipOnError: false,
+    max: 30,
+    timeWindow: "10 minutes",
+    keyGenerator: (req) => `two-factor:${req.ip}`,
+  });
+  app.decorate("checkTwoFactorLimit", async (req, reply) =>
+    allowOrReply(reply, await twoFactorCodes(req)),
+  );
   app.decorate("checkAuthRateLimit", async (req, reply) =>
     allowOrReply(reply, await authOverall(req)),
   );

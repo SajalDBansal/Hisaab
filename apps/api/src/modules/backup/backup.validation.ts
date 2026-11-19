@@ -216,6 +216,7 @@ function upgradeVersionFour(input: unknown): unknown {
       customFields: [],
       firmBranding: null,
       salesControls: null,
+      firmSecurity: null,
       customRoles: [],
     },
   };

@@ -22,6 +22,12 @@ export default function LoginScreen() {
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [elsewhere, setElsewhere] = useState<Elsewhere | null>(null);
+  // Two-factor sign-in (doc 37, T58): the password was right, now the code.
+  const [challenge, setChallenge] = useState<{ takeOver: boolean } | null>(
+    null,
+  );
+  const [code, setCode] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
   const submitting = useRef(false);
 
   const submit = async (takeOver = false) => {
@@ -33,8 +39,16 @@ export default function LoginScreen() {
     setBusy(true);
     setProblem(null);
     try {
-      await auth.signIn(email.trim().toLowerCase(), password, takeOver);
+      const result = await auth.signIn(
+        email.trim().toLowerCase(),
+        password,
+        takeOver,
+      );
       setElsewhere(null);
+      if (result === "twoFactor") {
+        setCode("");
+        setChallenge({ takeOver });
+      }
     } catch (e) {
       if (e instanceof ApiFailure && e.code === "ACTIVE_ELSEWHERE") {
         setElsewhere({
@@ -57,6 +71,105 @@ export default function LoginScreen() {
       setBusy(false);
     }
   };
+
+  const submitCode = async () => {
+    if (!challenge || submitting.current) return;
+    const typed = code.trim();
+    if (!(useRecovery ? typed.length >= 10 : /^\d{6}$/.test(typed))) {
+      setErrors({
+        code: useRecovery
+          ? "Enter one of your recovery codes."
+          : "Enter the 6-digit code from your authenticator app.",
+      });
+      return;
+    }
+    setErrors({});
+    submitting.current = true;
+    setBusy(true);
+    setProblem(null);
+    try {
+      await auth.verifyTwoFactor(typed, challenge.takeOver);
+      setChallenge(null);
+    } catch (e) {
+      // These end the challenge: start again from the password.
+      if (
+        e instanceof ApiFailure &&
+        [
+          "ACTIVE_ELSEWHERE",
+          "INVALID_TWO_FACTOR_COOKIE",
+          "TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE",
+          "ACCOUNT_TEMPORARILY_LOCKED",
+        ].includes(e.code)
+      ) {
+        setChallenge(null);
+        setCode("");
+        if (e.code === "ACTIVE_ELSEWHERE")
+          setElsewhere({
+            deviceName: (e.details.deviceName as string | null) ?? null,
+            lastActiveAt: String(e.details.lastActiveAt),
+          });
+      }
+      if (!(e instanceof ApiFailure && e.code === "ACTIVE_ELSEWHERE"))
+        setProblem(
+          e instanceof Error ? e.message : "Couldn't log in. Please try again.",
+        );
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  if (challenge)
+    return (
+      <AuthScreen
+        title="Enter your code"
+        note={
+          useRecovery
+            ? "Enter one of the recovery codes you saved when you turned on two-factor sign-in. Each code works once."
+            : "Open your authenticator app and enter the 6-digit code for Hisaab."
+        }
+      >
+        {problem ? <Notice text={problem} /> : null}
+        <TextField
+          label={useRecovery ? "Recovery code" : "6-digit code"}
+          value={code}
+          onChangeText={setCode}
+          keyboardType={useRecovery ? "default" : "number-pad"}
+          autoCapitalize="none"
+          autoComplete="one-time-code"
+          maxLength={useRecovery ? 11 : 6}
+          autoFocus
+          error={errors.code}
+          onSubmitEditing={() => void submitCode()}
+        />
+        <Button
+          label="Log in"
+          variant="primary"
+          loading={busy}
+          onPress={() => void submitCode()}
+        />
+        <Button
+          label={
+            useRecovery ? "Use the authenticator app" : "Use a recovery code"
+          }
+          variant="ghost"
+          onPress={() => {
+            setUseRecovery((v) => !v);
+            setCode("");
+            setErrors({});
+          }}
+        />
+        <Button
+          label="Back"
+          variant="ghost"
+          onPress={() => {
+            setChallenge(null);
+            setCode("");
+            setProblem(null);
+          }}
+        />
+      </AuthScreen>
+    );
 
   return (
     <AuthScreen

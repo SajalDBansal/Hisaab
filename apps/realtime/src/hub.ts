@@ -90,14 +90,23 @@ export function createLiveHub(options: {
 
   async function lookup(userId: string, sessionId: string, firmId: string) {
     const [row] = await db
-      .select({ role: schema.member.role })
+      .select({
+        role: schema.member.role,
+        requireTwoFactor: schema.firmSecurity.requireTwoFactor,
+        twoFactorEnabled: schema.user.twoFactorEnabled,
+      })
       .from(schema.session)
+      .innerJoin(schema.user, eq(schema.user.id, schema.session.userId))
       .leftJoin(
         schema.member,
         and(
           eq(schema.member.userId, schema.session.userId),
           eq(schema.member.organizationId, firmId),
         ),
+      )
+      .leftJoin(
+        schema.firmSecurity,
+        eq(schema.firmSecurity.firmId, schema.member.organizationId),
       )
       .where(
         and(
@@ -106,9 +115,14 @@ export function createLiveHub(options: {
           gt(schema.session.expiresAt, new Date()),
         ),
       );
+    if (!row) return null;
+    // Like the API: no live updates from a firm that requires two-factor sign-in
+    // until this member has it on (doc 37, T58).
+    const role =
+      row.requireTwoFactor && !row.twoFactorEnabled ? null : row.role;
     // Custom roles are read from this firm on every lookup (doc 37, T57).
-    if (row?.role) await refreshMemberRole(db, firmId, row.role);
-    return row ? { session: true, role: toRole(row.role) } : null;
+    if (role) await refreshMemberRole(db, firmId, role);
+    return { session: true, role: toRole(role) };
   }
 
   const announcePresence = (firmId: string) =>

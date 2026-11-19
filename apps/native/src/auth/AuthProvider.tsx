@@ -12,6 +12,7 @@ import {
 } from "react";
 import { AppState } from "react-native";
 import { ApiFailure, api, clearLogin } from "./api";
+import { recoveryCodeForm } from "./twoFactor";
 import { REQUIRE_LOGIN } from "./config";
 import {
   checkPin,
@@ -46,8 +47,18 @@ interface AuthState {
     phoneNumber: string;
     password: string;
   }): Promise<void>;
-  /** Pass `takeOver` after the person agrees to log out the other device. */
-  signIn(email: string, password: string, takeOver?: boolean): Promise<void>;
+  /**
+   * Pass `takeOver` after the person agrees to log out the other device.
+   * "twoFactor": the password was right and the account asks for an
+   * authenticator code next (`verifyTwoFactor`).
+   */
+  signIn(
+    email: string,
+    password: string,
+    takeOver?: boolean,
+  ): Promise<"signedIn" | "twoFactor">;
+  /** Second step of a two-factor sign-in: a code from the app or a recovery code. */
+  verifyTwoFactor(code: string, takeOver?: boolean): Promise<void>;
   verifyEmail(email: string, otp: string): Promise<void>;
   sendEmailCode(email: string): Promise<void>;
   signOut(reason?: string): Promise<void>;
@@ -401,10 +412,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signIn(email, password, takeOver) {
         if (pinSupported) await sessionStore.activate();
-        await api("/api/auth/sign-in/email", {
-          body: { email, password },
-          headers: takeOver ? { "x-confirm-takeover": "true" } : undefined,
-        });
+        const reply = await api<{ twoFactorRedirect?: boolean } | null>(
+          "/api/auth/sign-in/email",
+          {
+            body: { email, password },
+            headers: takeOver ? { "x-confirm-takeover": "true" } : undefined,
+          },
+        );
+        // Two-factor on: no session yet, only a short-lived challenge cookie (doc 37, T58).
+        if (reply?.twoFactorRedirect) return "twoFactor";
+        await completeSignIn();
+        return "signedIn";
+      },
+      async verifyTwoFactor(code, takeOver) {
+        const typed = code.replace(/\s/g, "");
+        const totp = /^\d{6}$/.test(typed);
+        await api(
+          totp
+            ? "/api/auth/two-factor/verify-totp"
+            : "/api/auth/two-factor/verify-backup-code",
+          {
+            body: { code: totp ? typed : recoveryCodeForm(typed) },
+            headers: takeOver ? { "x-confirm-takeover": "true" } : undefined,
+          },
+        );
         await completeSignIn();
       },
       async verifyEmail(email, otp) {

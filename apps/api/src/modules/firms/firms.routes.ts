@@ -97,11 +97,16 @@ export async function firmRoutes(
           profile: schema.firmProfile,
           parties: sql<number>`(select count(*)::int from ${schema.parties} where ${schema.parties.firmId} = ${schema.organization.id} and ${schema.parties.deletedAt} is null)`,
           vouchers: sql<number>`(select count(*)::int from ${schema.vouchers} where ${schema.vouchers.firmId} = ${schema.organization.id})`,
+          requireTwoFactor: schema.firmSecurity.requireTwoFactor,
         })
         .from(schema.member)
         .innerJoin(
           schema.organization,
           eq(schema.organization.id, schema.member.organizationId),
+        )
+        .leftJoin(
+          schema.firmSecurity,
+          eq(schema.firmSecurity.firmId, schema.organization.id),
         )
         .innerJoin(
           schema.firmProfile,
@@ -129,6 +134,7 @@ export async function firmRoutes(
           parties: r.parties,
           vouchers: r.vouchers,
           role: toRole(r.role),
+          twoFactorRequired: r.requireTwoFactor ?? false,
           ...(own
             ? {
                 customRole: {
