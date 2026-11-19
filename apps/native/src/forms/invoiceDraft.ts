@@ -1,4 +1,9 @@
 import {
+  allocateBillDiscount,
+  chargeHeadAccount,
+  splitBillDiscount,
+  type BillDiscountInput,
+  type ChargeHead,
   baseQty,
   itemTaxType,
   parseRupees,
@@ -145,5 +150,67 @@ export function stockPartsByLine(
       mine.push(parts[next++]);
     }
     return mine;
+  });
+}
+
+/**
+ * Preview of the subtotal discount (doc 37, T09) the way the server saves it:
+ * a sale with GST and non-GST stock becomes two bills that share it by value.
+ * Lines keep their order so each entered row still finds its stock parts.
+ */
+export function withBillDiscount(
+  lines: InvoiceLine[],
+  input: BillDiscountInput | undefined,
+  byScope: boolean,
+): InvoiceLine[] {
+  const scopes = byScope
+    ? (["gst", "nongst"] as const).filter((s) =>
+        lines.some((l) => l.bookScope === s),
+      )
+    : [undefined];
+  const groups = scopes.map((scope) =>
+    lines.flatMap((line, index) =>
+      scope === undefined || line.bookScope === scope ? [{ line, index }] : [],
+    ),
+  );
+  const parts = splitBillDiscount(
+    input,
+    groups.map((g) => g.map((r) => r.line)),
+  );
+  const out = [...lines];
+  groups.forEach((group, i) => {
+    const shared = allocateBillDiscount(
+      group.map((r) => r.line),
+      parts[i],
+    ).lines;
+    group.forEach((r, j) => (out[r.index] = shared[j]));
+  });
+  return out;
+}
+
+/** Charges picked from the firm's charge heads; an edit keeps what the bill froze. */
+export function headCharges(
+  amounts: Record<string, number>,
+  heads: ChargeHead[] = [],
+  side: "sale" | "purchase",
+  saved: ExtraCharge[] = [],
+): ExtraCharge[] {
+  return Object.entries(amounts).flatMap(([headId, amount]) => {
+    if (!(amount > 0)) return [];
+    const frozen = saved.find((c) => c.headId === headId);
+    if (frozen) return [{ ...frozen, amount }];
+    const head = heads.find((h) => h.id === headId);
+    if (!head) return [];
+    return [
+      {
+        name: head.name,
+        amount,
+        gstRate: head.taxType === "taxable" ? head.gstRate : 0,
+        headId,
+        taxType: head.taxType,
+        sac: head.sac,
+        account: chargeHeadAccount(head, side),
+      },
+    ];
   });
 }

@@ -110,16 +110,43 @@ export const ReturnAmounts = z.object({
 // Calculated amounts and fulfillment metadata are output-only.
 export const InvoiceLine = InputInvoiceLine.safeExtend({
   returnAmounts: ReturnAmounts.optional(),
+  // Share of the subtotal discount, worked out by the server (doc 37, T09).
+  billDiscountShare: NonNegativePaise.optional(),
   exactMath: z.boolean().optional(),
   orderLineId: Id.optional(),
   orderSourceLineId: Id.optional(),
   stockFulfilledById: Id.optional(),
 });
 
-export const ExtraCharge = z.object({
+/** A charge as sent: free-typed (Freight), or picked from a charge head by `headId`. */
+export const InputExtraCharge = z.object({
   name: requiredText("Name the charge, like Freight.", 60),
   amount: NonNegativePaise,
   gstRate: GstRate,
+  headId: z.string().min(1).max(40).optional(),
+});
+
+/** As saved: a head's GST treatment, SAC and ledger are frozen on the charge (doc 37, T09). */
+export const ExtraCharge = InputExtraCharge.extend({
+  taxType: TaxType.optional(),
+  sac: z.string().optional(),
+  account: z.string().optional(),
+});
+
+/** Subtotal discount: a percentage of the items' value or a flat amount (doc 37, T09). */
+export const BillDiscountInput = z
+  .object({
+    percent: Percentage.optional(),
+    amount: NonNegativePaise.optional(),
+  })
+  .refine((d) => !(d.percent && d.amount), {
+    path: ["percent"],
+    message: "Use either a percentage or an amount for the discount, not both.",
+  });
+
+export const BillDiscount = z.object({
+  percent: Percentage.optional(),
+  amount: NonNegativePaise,
 });
 
 export const Allocation = z.object({
@@ -157,7 +184,8 @@ export const NewInvoiceInput = z.object({
   partyId: PartyId,
   date: IsoDate,
   lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
-  charges: z.array(ExtraCharge),
+  charges: z.array(InputExtraCharge),
+  billDiscount: BillDiscountInput.optional(),
   supplierInvoiceNo: z.string().max(60).optional(),
   paidNow: z
     .object({ amount: PositivePaise, mode: PaymentMode, ledgerId: Id })
@@ -241,7 +269,8 @@ export const NewOrderInput = z.object({
   partyId: PartyId,
   date: IsoDate,
   lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
-  charges: z.array(ExtraCharge),
+  charges: z.array(InputExtraCharge),
+  billDiscount: BillDiscountInput.optional(),
   validUntil: IsoDate.optional(),
   sourceId: Id.optional(),
   narration: z.string().max(500).optional(),
@@ -335,6 +364,7 @@ export const Voucher = z.object({
   snapshot: VoucherSnapshot.optional(),
   lines: z.array(InvoiceLine).optional(),
   charges: z.array(ExtraCharge).optional(),
+  billDiscount: BillDiscount.optional(),
   interState: z.boolean().optional(),
   dueDate: IsoDate.optional(),
   supplierInvoiceNo: z.string().optional(),
@@ -523,6 +553,7 @@ export type InvoiceStatus = z.infer<typeof InvoiceStatus>;
 export type OrderStatus = z.infer<typeof OrderStatus>;
 export type InvoiceLine = z.infer<typeof InvoiceLine>;
 export type NewInvoiceInput = z.infer<typeof NewInvoiceInput>;
+export type BillDiscountInput = z.infer<typeof BillDiscountInput>;
 export type NewMoneyInput = z.infer<typeof NewMoneyInput>;
 export type NewExpenseInput = z.infer<typeof NewExpenseInput>;
 export type NewJournalInput = z.infer<typeof NewJournalInput>;

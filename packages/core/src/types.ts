@@ -296,6 +296,11 @@ export interface InvoiceLine {
   discountPercent?: number;
   /** Flat discount for the whole line. */
   discountAmount?: Paise;
+  /**
+   * This line's share of the bill-level (subtotal) discount, worked out when the
+   * bill is saved (doc 37, T09). GST is charged on the value after it.
+   */
+  billDiscountShare?: Paise;
   gstRate: GstRate;
   /** Copied from the item when the bill is saved. Missing on old data = taxable (or nil at 0%). */
   taxType?: TaxType;
@@ -313,6 +318,41 @@ export interface ExtraCharge {
   name: string;
   amount: Paise;
   gstRate: GstRate;
+  /** The firm's charge head this came from (doc 37, T09); absent on free-typed charges like Freight. */
+  headId?: string;
+  /** GST treatment frozen from the head; absent = taxed at `gstRate` (older charges). */
+  taxType?: TaxType;
+  /** SAC printed in the HSN summary; absent = 9965 (freight). */
+  sac?: string;
+  /** Account key the charge posts to, frozen when saved, e.g. "income:Packing Charged". */
+  account?: string;
+}
+
+/** A charge the firm sets up once and picks on bills: packing, insurance, loading (doc 37, T09). */
+export interface ChargeHead {
+  id: string;
+  name: string;
+  /** Taxable at `gstRate`, exempt, or outside GST. */
+  taxType: "taxable" | "exempt" | "nongst";
+  gstRate: GstRate;
+  sac?: string;
+  /** Income ledger on sales; default "<name> Charged". */
+  salesLedger?: string;
+  /** Expense ledger on purchases; default the head's name. */
+  purchaseLedger?: string;
+  active: boolean;
+}
+
+/** Bill-level discount as entered: a percentage of the items' value or a flat amount. */
+export interface BillDiscountInput {
+  percent?: number;
+  amount?: Paise;
+}
+
+/** Bill-level discount as saved: `amount` is what was given, spread over the lines. */
+export interface BillDiscount {
+  percent?: number;
+  amount: Paise;
 }
 
 /** Part of a receipt/payment that settles a specific bill. */
@@ -351,6 +391,8 @@ export interface Voucher {
   // Sale / purchase
   lines?: InvoiceLine[];
   charges?: ExtraCharge[];
+  /** Subtotal discount (doc 37, T09); each line carries its share in `billDiscountShare`. */
+  billDiscount?: BillDiscount;
   /** True when the party is in another state (IGST instead of CGST + SGST). */
   interState?: boolean;
   dueDate?: ISODate;
@@ -455,6 +497,8 @@ export interface NewInvoiceInput {
   date: ISODate;
   lines: InvoiceLine[];
   charges: ExtraCharge[];
+  /** Subtotal discount, spread over the lines when saved (doc 37, T09). */
+  billDiscount?: BillDiscountInput;
   /** Purchases only: the supplier's own bill number. */
   supplierInvoiceNo?: string;
   /** Money received (sale) or paid (purchase) at the same time. Saved as a linked receipt/payment. */
@@ -527,6 +571,8 @@ export interface InvoiceSettings {
   billOfSupplyPrefix: string;
   /** Number format per voucher type; a missing type uses DEFAULT_NUMBERING. */
   numbering: Partial<Record<VoucherType, NumberingRule>>;
+  /** Charge heads picked on bills (doc 37, T09); missing = none set up. */
+  chargeHeads?: ChargeHead[];
 }
 
 /**
@@ -650,6 +696,8 @@ export interface NewOrderInput {
   date: ISODate;
   lines: InvoiceLine[];
   charges: ExtraCharge[];
+  /** Subtotal discount, spread over the lines when saved (doc 37, T09). */
+  billDiscount?: BillDiscountInput;
   /** Estimates only. Defaults to 15 days after the date. */
   validUntil?: ISODate;
   /** Made from another document, e.g. a sales order from an estimate. */

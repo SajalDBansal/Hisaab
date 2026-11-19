@@ -61,7 +61,8 @@ function voucherAmounts(voucher: Voucher): ReturnAmounts[] {
     const roundOff = voucher.amount - totals.totalBeforeRound;
     return {
       taxable: line.taxable,
-      discount: line.discount,
+      // A subtotal discount share (doc 37, T09) is returned with the line's own discount.
+      discount: line.discount + line.billDiscount,
       cgst: line.cgst,
       sgst: line.sgst,
       igst: line.igst,

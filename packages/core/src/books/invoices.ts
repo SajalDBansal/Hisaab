@@ -7,7 +7,12 @@ import {
   saleDocFor,
   sideOf,
 } from "../accounting/gstMode";
-import { calcInvoice } from "../accounting/invoice";
+import {
+  allocateBillDiscount,
+  calcInvoice,
+  splitBillDiscount,
+} from "../accounting/invoice";
+import { resolveCharges } from "../accounting/chargeHeads";
 import { checkInvoiceNumbers } from "../accounting/invoiceValidation";
 import {
   assertLotsAvailable,
@@ -24,6 +29,7 @@ import {
 import { captureVoucherSnapshot } from "../accounting/voucherSnapshot";
 import { addDays } from "../dates";
 import type {
+  ExtraCharge,
   GstMode,
   ID,
   InvoiceLine,
@@ -85,6 +91,11 @@ export function createSales(
       "Split this mixed order into separate orders before conversion.",
     );
   let remaining = input.paidNow?.amount ?? 0;
+  // A subtotal discount is shared by the bills by value (a percentage applies to each).
+  const discounts = splitBillDiscount(
+    input.billDiscount,
+    scopes.map((scope) => selected.filter((l) => l.bookScope === scope)),
+  );
   const saved = scopes.map((bookScope, index) => {
     const voucher = createInvoice(
       draft,
@@ -94,6 +105,7 @@ export function createSales(
         bookScope,
         lines: selected.filter((l) => l.bookScope === bookScope),
         charges: index === 0 ? input.charges : [],
+        billDiscount: discounts[index],
         paidNow: undefined,
       },
       options,
@@ -171,8 +183,12 @@ export function billParts(
   db: Db,
   type: VoucherType,
   mode: GstMode,
-  input: Pick<NewInvoiceInput, "lines" | "charges" | "bookScope">,
+  input: Pick<
+    NewInvoiceInput,
+    "lines" | "charges" | "bookScope" | "billDiscount"
+  >,
   previousLines: InvoiceLine[] = [],
+  previousCharges: ExtraCharge[] = [],
 ) {
   const side = sideOf(type) ?? "sale";
   const lines: InvoiceLine[] = applyGstMode(
@@ -187,12 +203,34 @@ export function billParts(
     exactMath: true,
   }));
   const charges = input.charges
-    ? applyGstMode(input.charges, mode, side).map((c) =>
-        input.bookScope === "nongst" ? { ...c, gstRate: 0 as const } : c,
+    ? applyGstMode(
+        resolveCharges(
+          db.invoiceSettings.chargeHeads,
+          input.charges,
+          side,
+          previousCharges,
+        ),
+        mode,
+        side,
+      ).map((c) =>
+        input.bookScope === "nongst"
+          ? {
+              ...c,
+              gstRate: 0 as const,
+              ...(c.taxType ? { taxType: "nongst" as const } : {}),
+            }
+          : c,
       )
     : undefined;
-  checkInvoiceNumbers(lines, charges);
-  return { side, lines, charges };
+  // Subtotal discount (doc 37, T09): spread over the lines as saved.
+  const discounted = allocateBillDiscount(lines, input.billDiscount);
+  checkInvoiceNumbers(discounted.lines, charges);
+  return {
+    side,
+    lines: discounted.lines,
+    charges,
+    billDiscount: discounted.billDiscount,
+  };
 }
 
 /** Legacy bills already saved their tax and pack factor, even before master snapshots existed. */
@@ -263,7 +301,7 @@ function createInvoice(
     bookScope,
     lines: selected.map((l) => ({ ...l, bookScope })),
   });
-  const { side, charges } = parts;
+  const { side, charges, billDiscount } = parts;
   const lines = parts.lines.map((l) =>
     type === "purchase"
       ? {
@@ -318,6 +356,7 @@ function createInvoice(
     bookScope,
     lines,
     charges,
+    billDiscount,
     interState,
     dueDate: addDays(input.date, party.creditDays),
     supplierInvoiceNo:

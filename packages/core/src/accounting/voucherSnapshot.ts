@@ -15,7 +15,8 @@ export function captureVoucherSnapshot(
     party: db.parties.find((party) => party.id === partyId),
     items: db.items.filter((item) => itemIds.has(item.id)),
     units: db.units,
-    settings: db.invoiceSettings,
+    // Charge heads are frozen on each charge line, not in the snapshot.
+    settings: (({ chargeHeads: _heads, ...rest }) => rest)(db.invoiceSettings),
     bankName: db.ledgers.find(
       (ledger) => ledger.id === db.invoiceSettings.bankLedgerId,
     )?.name,

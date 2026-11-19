@@ -1,4 +1,5 @@
 /** Firm settings, team, documents, units, bank reconciliation, reminders and notices. */
+import { checkChargeHeads } from "../accounting/chargeHeads";
 import { bankClearedOn } from "../accounting/reconcile";
 import { ledgerEffect } from "../accounting/reports";
 import { formatDate } from "../dates";
@@ -88,6 +89,9 @@ export function updateInvoiceSettings(
     ...patch,
     prefixes: { ...db.invoiceSettings.prefixes, ...patch.prefixes },
     numbering: { ...db.invoiceSettings.numbering, ...patch.numbering },
+    ...(patch.chargeHeads
+      ? { chargeHeads: checkChargeHeads(patch.chargeHeads) }
+      : {}),
   };
   const salePrefix = next.prefixes.sale;
   if (

@@ -34,6 +34,8 @@ function checkLineMoney(line: InvoiceLine): void {
     line.rate <= 0 ||
     !Number.isSafeInteger(line.discountAmount ?? 0) ||
     (line.discountAmount ?? 0) < 0 ||
+    !Number.isSafeInteger(line.billDiscountShare ?? 0) ||
+    (line.billDiscountShare ?? 0) < 0 ||
     !Number.isSafeInteger(Math.round(line.qty * line.rate))
   )
     throw new Error("The line amount is outside the supported range.");

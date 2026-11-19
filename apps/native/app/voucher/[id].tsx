@@ -419,6 +419,9 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
                       ? ` (${lineQtyText(line, itemUnit(line.itemId)).base})`
                       : ""}
                     {t.discount ? ` · discount ${formatINR(t.discount)}` : ""}
+                    {t.billDiscount
+                      ? ` · bill discount ${formatINR(t.billDiscount)}`
+                      : ""}
                   </Txt>
                   {carriesGst ? (
                     <Txt variant="caption" tone="body" num>
@@ -433,10 +436,22 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           </View>
 
           <Card style={{ gap: 0 }}>
+            {d.totals.billDiscount ? (
+              <KeyValue
+                label={`Discount${v.billDiscount?.percent ? ` (${v.billDiscount.percent}%)` : ""}`}
+                value={`−${formatINR(d.totals.billDiscount)}`}
+              />
+            ) : null}
             {(v.charges ?? []).map((c) => (
               <KeyValue
                 key={c.name}
-                label={carriesGst ? `${c.name} (GST ${c.gstRate}%)` : c.name}
+                label={
+                  !carriesGst
+                    ? c.name
+                    : c.taxType === "exempt" || c.taxType === "nongst"
+                      ? `${c.name} (${taxTypeLabel(c.taxType)})`
+                      : `${c.name} (GST ${c.gstRate}%)`
+                }
                 value={formatINR(c.amount)}
               />
             ))}

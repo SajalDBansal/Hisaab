@@ -517,6 +517,32 @@ export function buildSeed(asOf: string = today()): Db {
       prefixes: { ...DEFAULT_PREFIXES },
       billOfSupplyPrefix: DEFAULT_BILL_OF_SUPPLY_PREFIX,
       numbering: {},
+      // Charge heads for the demo (doc 37, T09)
+      chargeHeads: [
+        {
+          id: "packing",
+          name: "Packing",
+          taxType: "taxable",
+          gstRate: 18,
+          sac: "998540",
+          active: true,
+        },
+        {
+          id: "insurance",
+          name: "Insurance",
+          taxType: "taxable",
+          gstRate: 18,
+          sac: "997136",
+          active: true,
+        },
+        {
+          id: "loading",
+          name: "Loading",
+          taxType: "exempt",
+          gstRate: 0,
+          active: true,
+        },
+      ],
     },
     team: [
       {

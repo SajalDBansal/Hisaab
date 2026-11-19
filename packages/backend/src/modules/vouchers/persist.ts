@@ -90,6 +90,8 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     tdsSection: v.tds?.section ?? null,
     tdsRate: v.tds?.rate ?? null,
     tdsAmount: v.tds?.amount ?? 0,
+    billDiscountPercent: v.billDiscount?.percent ?? null,
+    billDiscountAmount: v.billDiscount?.amount ?? 0,
     againstId: ids.optional(v.againstId),
     sourceId: ids.optional(v.sourceId),
     convertedToId: ids.optional(v.convertedToId),
@@ -293,6 +295,7 @@ export async function saveChanges(
           perFactor: l.per?.factor ?? null,
           discountPercent: l.discountPercent ?? null,
           discountAmount: l.discountAmount ?? 0,
+          billDiscount: l.billDiscountShare ?? 0,
           gstRate: l.gstRate,
           taxType: l.taxType ?? null,
           sourceLine: l.sourceLine ?? null,
@@ -313,6 +316,10 @@ export async function saveChanges(
           name: c.name,
           amount: c.amount,
           gstRate: c.gstRate,
+          headId: c.headId ?? null,
+          taxType: c.taxType ?? null,
+          sac: c.sac ?? null,
+          account: c.account ?? null,
         })),
       );
     if (v.journalLines?.length)
