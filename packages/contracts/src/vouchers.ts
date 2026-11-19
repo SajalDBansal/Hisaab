@@ -588,6 +588,8 @@ export const SaleMarginInput = z.object({
   sourceId: Id.optional(),
   /** A saved sale being edited: its own stock is free for the new lines. */
   editingId: Id.optional(),
+  /** The bill's subtotal discount (T09): it lowers each line's taxable value. */
+  billDiscount: BillDiscountInput.optional(),
 });
 
 const MarginFigures = z.object({

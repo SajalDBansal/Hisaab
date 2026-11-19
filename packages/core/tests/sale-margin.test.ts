@@ -225,3 +225,27 @@ describe("profit margin on the sale form (T12)", () => {
     expect(canSeeCosts("sales")).toBe(false);
   });
 });
+
+describe("margin with a subtotal discount (T12 with T09)", () => {
+  test("the bill discount lowers each line's taxable value, as on the saved sale", () => {
+    const { db, buy } = books();
+    buy("2026-10-01", 20, 10000);
+    const input = {
+      date: "2026-10-10",
+      lines: [line({ qty: 2 }), line({ qty: 3, rate: 30000 })],
+      billDiscount: { percent: 10 },
+    };
+    const result = draftSaleMargin(db, input);
+    // ₹400 + ₹900 = ₹1,300 less 10% = ₹1,170; cost 5 × ₹100 = ₹500
+    expect(result.total.taxable).toBe(117000);
+    expect(result.total.margin).toBe(67000);
+    const [sale] = createSales(db, {
+      ...input,
+      partyId: "customer",
+      charges: [],
+    });
+    expect(result.lines.map((l) => l.taxable)).toEqual(
+      sale.lines!.map((l) => l.qty * l.rate - (l.billDiscountShare ?? 0)),
+    );
+  });
+});

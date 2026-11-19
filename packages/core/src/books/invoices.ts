@@ -32,6 +32,7 @@ import {
 import { captureVoucherSnapshot } from "../accounting/voucherSnapshot";
 import { addDays } from "../dates";
 import type {
+  BillDiscountInput,
   ExtraCharge,
   GstMode,
   ID,
@@ -158,6 +159,8 @@ export interface SaleMarginInput {
   sourceId?: ID;
   /** A saved sale being edited: its own stock is free for the new lines. */
   editingId?: ID;
+  /** The subtotal discount (T09); it lowers each line's taxable value. */
+  billDiscount?: BillDiscountInput;
 }
 
 /**
@@ -187,8 +190,12 @@ export function draftSaleMargin(db: Db, input: SaleMarginInput): SaleMargin {
     stockForInvoice(db, input, editing?.id),
     input.date,
   ).flat();
-  return saleMargin(lots, lines, (line) =>
-    savedLineDetails(db, line, editing?.lines ?? []),
+  // The subtotal discount is shared over the lines as when the sale is saved,
+  // so the margin is on the same taxable value.
+  return saleMargin(
+    lots,
+    allocateBillDiscount(lines, input.billDiscount).lines,
+    (line) => savedLineDetails(db, line, editing?.lines ?? []),
   );
 }
 

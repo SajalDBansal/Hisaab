@@ -542,6 +542,7 @@ export function InvoiceForm({
           lines: invoiceLines,
           sourceId: source?.id,
           editingId: editing?.id,
+          billDiscount,
         }
       : null;
   const marginWanted = marginDraft ? JSON.stringify(marginDraft) : "";
