@@ -21,6 +21,7 @@ export const DASHBOARD_CARD_IDS = [
   "month-sales",
   "gst",
   "low-stock",
+  "expiring-stock",
   "itc-at-risk",
   "stock-value",
   "payables-due",
@@ -98,6 +99,12 @@ export const DASHBOARD_CARDS: Record<DashboardCardId, DashboardCardDefinition> =
     "low-stock": {
       title: "Low stock",
       note: "Items at or below their reorder level",
+      size: "half",
+      defaultVisible: true,
+    },
+    "expiring-stock": {
+      title: "Expiring stock",
+      note: "Batches expired or expiring within 30 days",
       size: "half",
       defaultVisible: true,
     },

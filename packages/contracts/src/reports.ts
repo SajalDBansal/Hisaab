@@ -100,6 +100,12 @@ export const DashboardData = z.object({
   composition: CompositionQuarter.nullable(),
   monthPurchases: Paise,
   lowStockCount: z.number().int(),
+  /** Batches expired or expiring within 30 days (T38). */
+  expiringStock: z.object({
+    expired: z.number().int(),
+    expiring: z.number().int(),
+    next: z.object({ itemName: z.string(), expiryDate: IsoDate }).nullable(),
+  }),
   /** 0 for roles that may not see costs. */
   stockValue: Paise,
   /** Regular GST firms only (T26). */

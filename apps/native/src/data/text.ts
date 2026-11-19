@@ -6,6 +6,7 @@ const singular: Record<string, string> = {
   "{amount} overdue · {n} days": "{amount} overdue · {n} day",
   "{n} days": "{n} day",
   "{n} bills": "{n} bill",
+  "{n} batches": "{n} batch",
   "Last sale {date} · {n} days ago": "Last sale {date} · {n} day ago",
 };
 

@@ -233,6 +233,34 @@ function Dashboard({ d, canCreate }: { d: DashboardData; canCreate: boolean }) {
         }
       />
     ),
+    "expiring-stock": (
+      <Stat
+        label={"Expiring stock"}
+        value={formatText("{n} batches", {
+          n: d.expiringStock.expired + d.expiringStock.expiring,
+        })}
+        note={
+          d.expiringStock.next
+            ? formatText("{expired} expired · next {item} on {date}", {
+                expired: d.expiringStock.expired,
+                item: d.expiringStock.next.itemName,
+                date: formatDate(d.expiringStock.next.expiryDate),
+              })
+            : d.expiringStock.expired
+              ? formatText("{expired} expired", {
+                  expired: d.expiringStock.expired,
+                })
+              : "Nothing expiring in 30 days"
+        }
+        noteLink
+        onPress={() =>
+          router.push({
+            pathname: "/settings/reports",
+            params: { report: "expiring-items" },
+          })
+        }
+      />
+    ),
     "itc-at-risk": d.itcAtRisk ? (
       <ItcCard itc={d.itcAtRisk} canPay={canPay} />
     ) : null,

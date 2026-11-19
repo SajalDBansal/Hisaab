@@ -41,7 +41,7 @@ import {
 } from "./insightRules";
 import { ORDER_TYPES, orderStatus } from "./orders";
 import { isLowStock, stockQty } from "./stock";
-import { inventoryValue, vouchersByItem } from "./stockLots";
+import { expiringLots, inventoryValue, vouchersByItem } from "./stockLots";
 import { gstMonth } from "./gst";
 import { calcInvoice } from "./invoice";
 
@@ -208,6 +208,12 @@ export interface DashboardData {
   /** Net purchases this month, after returns (shown instead of GST for firms without GST). */
   monthPurchases: Paise;
   lowStockCount: number;
+  /** Batches already expired or expiring within 30 days (T38); counts only, no costs. */
+  expiringStock: {
+    expired: number;
+    expiring: number;
+    next: { itemName: string; expiryDate: ISODate } | null;
+  };
   /** Closing stock at FIFO cost; 0 for roles that may not see costs. */
   stockValue: Paise;
   /**
@@ -358,6 +364,17 @@ export function computeDashboard(data: {
     if (isLowStock(item, qty)) lowStockCount++;
     if (data.costs !== false) totalStockValue += inventoryValue(item, own);
   }
+
+  // Batches by expiry date (T38): the soonest first.
+  const expiring = expiringLots(items, vouchers, asOf, 30);
+  const firstAhead = expiring.find((lot) => lot.status === "expiring");
+  const expiringStock = {
+    expired: expiring.filter((lot) => lot.status === "expired").length,
+    expiring: expiring.filter((lot) => lot.status === "expiring").length,
+    next: firstAhead
+      ? { itemName: firstAhead.itemName, expiryDate: firstAhead.expiryDate }
+      : null,
+  };
 
   // Charts
   const salesVsPurchases = months.map((m) => ({
@@ -553,6 +570,7 @@ export function computeDashboard(data: {
     composition,
     monthPurchases: netGoods(thisMonth, "purchase"),
     lowStockCount,
+    expiringStock,
     stockValue: totalStockValue,
     itcAtRisk,
     topCustomers: top3("customer"),

@@ -262,3 +262,26 @@ describe("dashboard layout (T63)", () => {
     expect(slots.map((s) => s.id)).not.toContain("actions");
   });
 });
+
+describe("expiring stock card (T38 on the T63 dashboard)", () => {
+  test("counts expired batches and those expiring within 30 days, soonest named", () => {
+    const db = books();
+    createPurchase(db, {
+      date: "2026-10-01",
+      partyId: "Supplier A",
+      lines: [
+        { ...line(5, 4000), expiryDate: "2026-10-20" }, // expired on AS_OF
+        { ...line(5, 4000), expiryDate: "2026-11-05" }, // within 30 days
+        { ...line(5, 4000), expiryDate: "2027-03-01" }, // later: not counted
+      ],
+    });
+    const card = dashboard(db).expiringStock;
+    expect(card).toEqual({
+      expired: 1,
+      expiring: 1,
+      next: { itemName: db.items[0].name, expiryDate: "2026-11-05" },
+    });
+    // Counts only, so a role without costs sees the same card.
+    expect(dashboard(db, false).expiringStock).toEqual(card);
+  });
+});
