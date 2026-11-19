@@ -169,6 +169,18 @@ const MESSAGES: Record<string, string> = {
   PASSWORD_TOO_SHORT: "Use at least 8 characters for the password.",
   SESSION_REPLACED:
     "You were logged out because this account was opened on another device.",
+  // Two-factor sign-in (doc 37, T58)
+  INVALID_CODE:
+    "That code isn't right. Check the time on your phone and try the newest code.",
+  INVALID_BACKUP_CODE: "That recovery code isn't right or was already used.",
+  INVALID_TWO_FACTOR_COOKIE:
+    "The sign-in took too long. Enter your password again.",
+  TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE:
+    "Too many wrong codes. Enter your password again.",
+  ACCOUNT_TEMPORARILY_LOCKED:
+    "Too many wrong codes. Wait 15 minutes and try again.",
+  INVALID_PASSWORD: "That password isn't right.",
+  TOTP_ALREADY_ENABLED: "Two-factor sign-in is already on.",
 };
 const friendlyMessage = (code: string, fallback: string) =>
   MESSAGES[code] ?? fallback;

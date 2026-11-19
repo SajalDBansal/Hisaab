@@ -231,6 +231,8 @@ export const FirmListRow = Firm.extend({
   parties: z.number().int(),
   vouchers: z.number().int(),
   customRole: MyCustomRole.optional(),
+  /** The owner requires two-factor sign-in from every member (doc 37, T58). */
+  twoFactorRequired: z.boolean().optional(),
 });
 
 export const Member = z.object({

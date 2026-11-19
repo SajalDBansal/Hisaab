@@ -18,6 +18,7 @@ import {
 import { REQUIRE_LOGIN } from "@/auth/config";
 import { api } from "@/auth/api";
 import { useAuth } from "@/auth/AuthProvider";
+import { TwoFactorCard } from "@/auth/TwoFactorCard";
 import { confirmAction } from "@/data/confirm";
 import { formatDateTime } from "@/data/format";
 import { useData } from "@/data/DataProvider";
@@ -123,6 +124,8 @@ export default function AccountScreen() {
           text="Login is switched off in this build, so there is no account to show."
         />
       )}
+
+      <TwoFactorCard />
 
       {signedIn && invitations.data && invitations.data.length > 0 ? (
         <View style={{ gap: space.sm }}>

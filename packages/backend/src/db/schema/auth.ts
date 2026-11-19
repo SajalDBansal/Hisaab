@@ -1,6 +1,7 @@
 import {
   boolean,
   index,
+  integer,
   pgTable,
   text,
   uniqueIndex,
@@ -22,6 +23,8 @@ export const user = pgTable("user", {
   phoneNumberVerified: boolean("phone_number_verified")
     .notNull()
     .default(false),
+  // Authenticator-app sign-in (doc 37, T58), set by Better Auth's two-factor plugin
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
   createdAt: moment("created_at").notNull().defaultNow(),
   updatedAt: moment("updated_at").notNull().defaultNow(),
 });
@@ -84,6 +87,26 @@ export const verification = pgTable(
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
 );
+
+/**
+ * Two-factor authentication (doc 37, T58): Better Auth's table. The TOTP secret
+ * and the recovery codes are encrypted with the auth secret; never exported.
+ */
+export const twoFactor = pgTable("two_factor", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  // False between "show the QR code" and the first correct code
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count")
+    .notNull()
+    .default(0),
+  lockedUntil: moment("locked_until"),
+});
 
 // A firm is a Better Auth "organization"; members and roles live in `member`.
 export const organization = pgTable("organization", {

@@ -38,7 +38,7 @@ import {
 
 // Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and
 // device; custom field definitions and values; logo and signature; custom roles; credit control,
-// business profile and MSME suppliers (optional).
+// business profile and MSME suppliers, firm security (optional).
 export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
@@ -112,6 +112,12 @@ export const BackupRows = {
     ...firm,
     ...stamps,
     overdueSales: z.enum(["off", "warn", "block"]),
+  }),
+  // Firm security (doc 37, T58)
+  firmSecurity: z.strictObject({
+    ...firm,
+    ...stamps,
+    requireTwoFactor: z.boolean(),
   }),
   reminderSettings: z.strictObject({
     ...firm,
@@ -458,6 +464,8 @@ export const FirmExportData = z.strictObject({
   firmBranding: BackupRows.firmBranding.nullable(),
   // Optional: version 5 files made before credit control have none (default "warn").
   salesControls: BackupRows.salesControls.nullable().optional(),
+  // Optional: version 5 files made before firm security have none (nothing required).
+  firmSecurity: BackupRows.firmSecurity.nullable().optional(),
   parties: rows(BackupRows.parties),
   items: rows(BackupRows.items),
   units: rows(BackupRows.units),
@@ -555,6 +563,7 @@ const LegacyDataV4 = FirmExportData.extend({
   firmBranding: true,
   customRoles: true,
   salesControls: true,
+  firmSecurity: true,
 });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({

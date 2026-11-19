@@ -69,8 +69,27 @@ export const Me = z.object({
   phoneNumber: z.string().nullable(),
   /** False until the mobile is checked (WhatsApp check is planned). Everything works meanwhile. */
   phoneVerified: z.boolean(),
+  /** Sign-in also asks for an authenticator-app code (doc 37, T58). Absent in identities saved before it. */
+  twoFactorEnabled: z.boolean().optional(),
   createdAt: IsoDateTime,
 });
+
+/** An authenticator-app code (6 digits) or a recovery code ("ab12c-3de45"). */
+export const TwoFactorCode = z
+  .string("Enter the code.")
+  .trim()
+  .regex(
+    /^(\d{6}|[A-Za-z0-9]{5}-?[A-Za-z0-9]{5})$/,
+    "Enter the 6-digit code from the app or a recovery code.",
+  );
+
+/** Two-factor sign-in for the logged-in person (doc 37, T58). */
+export const TwoFactorStatus = z.object({
+  enabled: z.boolean(),
+  /** Unused recovery codes left (0 when off). */
+  recoveryCodesLeft: z.number().int(),
+});
+export type TwoFactorStatus = z.infer<typeof TwoFactorStatus>;
 
 export const SessionInfo = z.object({
   id: Id,

@@ -60,8 +60,15 @@ export function registerFirmContext(app: FastifyInstance, db: Db) {
         400,
       );
     const [row] = await db
-      .select({ role: schema.member.role })
+      .select({
+        role: schema.member.role,
+        requireTwoFactor: schema.firmSecurity.requireTwoFactor,
+      })
       .from(schema.member)
+      .leftJoin(
+        schema.firmSecurity,
+        eq(schema.firmSecurity.firmId, schema.member.organizationId),
+      )
       .where(
         and(
           eq(schema.member.organizationId, parsed.data),
@@ -73,6 +80,14 @@ export function registerFirmContext(app: FastifyInstance, db: Db) {
       throw new AppError(
         "NOT_A_MEMBER",
         "You don't have access to this firm.",
+        403,
+      );
+    // The owner can require two-factor sign-in from every member (doc 37, T58).
+    // Account routes (/v1/me, /v1/firms) stay open so the member can set it up.
+    if (row.requireTwoFactor && !req.user.twoFactorEnabled)
+      throw new AppError(
+        "TWO_FACTOR_REQUIRED",
+        "This firm requires two-factor sign-in. Turn it on in Settings → Account, then open the firm again.",
         403,
       );
     // Custom roles are read from this firm on every request (doc 37, T57).

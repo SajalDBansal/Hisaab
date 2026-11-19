@@ -137,6 +137,14 @@ export const salesControls = pgTable("sales_controls", {
   ...stamps,
 });
 
+// Firm security (doc 37, T58): the owner can require two-factor sign-in from
+// every member. Without a row nothing is required.
+export const firmSecurity = pgTable("firm_security", {
+  firmId: firmKey(),
+  requireTwoFactor: boolean("require_two_factor").notNull().default(false),
+  ...stamps,
+});
+
 // Custom roles (doc 37, T57). A member's `role` holds "r_<id>" for these; the
 // built-in roles stay fixed in code. Rights: { permissions, vouchers, flags }.
 export const customRoles = pgTable(

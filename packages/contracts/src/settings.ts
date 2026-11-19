@@ -118,6 +118,17 @@ export const SalesControls = z.object({ overdueSales: OverdueSalesPolicy });
 export const SalesControlsView = SalesControls.extend({
   version: z.number().int(),
 });
+/**
+ * Firm security (doc 37, T58). With requireTwoFactor on, members without
+ * two-factor sign-in get TWO_FACTOR_REQUIRED (403) from the firm's routes.
+ * Only the owner changes it, and only with two-factor on for themselves.
+ */
+export const FirmSecurity = z.object({ requireTwoFactor: z.boolean() });
+export const FirmSecurityView = FirmSecurity.extend({
+  version: z.number().int(),
+});
+export type FirmSecurity = z.infer<typeof FirmSecurity>;
+export type FirmSecurityView = z.infer<typeof FirmSecurityView>;
 export type SalesControls = z.infer<typeof SalesControls>;
 export type SalesControlsView = z.infer<typeof SalesControlsView>;
 export type Branding = z.infer<typeof Branding>;

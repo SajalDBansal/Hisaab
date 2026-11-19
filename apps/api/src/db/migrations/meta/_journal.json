@@ -288,6 +288,13 @@
       "when": 1795063824634,
       "tag": "0040_discounts_charges",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795064209610,
+      "tag": "0041_two_factor",
+      "breakpoints": true
     }
   ]
 }

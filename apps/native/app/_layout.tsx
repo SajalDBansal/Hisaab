@@ -110,6 +110,8 @@ function Routes() {
       !withoutFirm
     )
       router.replace("/firms");
+    else if (signedIn && !locked && data.twoFactorBlocked && !withoutFirm)
+      router.replace("/settings/account");
     else if (
       signedIn &&
       !locked &&
@@ -128,6 +130,7 @@ function Routes() {
     data.loading,
     data.error,
     data.firmId,
+    data.twoFactorBlocked,
   ]);
 
   if (status === "loading") return null;
