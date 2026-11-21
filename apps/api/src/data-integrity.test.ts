@@ -141,6 +141,12 @@ test(
     assert.ok(["127.0.0.1", "localhost"].includes(url.hostname));
     assert.match(url.pathname, /^\/hardening_data(_[a-z0-9]+)?$/);
     const { db, pool } = createDb(url.toString(), { workload: "maintenance" });
+    // The cleanup runner takes every due row in the database. Rows left by earlier
+    // runs (their deliberate failures retry after a minute) would be counted here,
+    // so settle them first; only this disposable fixture database is touched.
+    await pool.query(
+      "update document_cleanup set completed_at = now(), lease_until = null, lease_token = null where completed_at is null",
+    );
     const mail = memorySender();
     const storage = fakeStorage();
     let apiDeleteCalls = 0;
