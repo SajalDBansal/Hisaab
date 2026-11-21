@@ -3,6 +3,7 @@ import {
   CountQuery,
   GstMonth,
   Gstr1,
+  Gstr1Export,
   Gstr3b,
   MonthQuery,
 } from "@repo/contracts";
@@ -39,6 +40,22 @@ export async function gstRoutes(app: FastifyInstance, options: { db: Db }) {
       },
     },
     async (req) => gstService.gstr1(db, req.firm.id, req.query.month),
+  );
+
+  // Not batched or cached offline: "/download" is excluded from batched reads.
+  typed.get(
+    "/gst/gstr1/download",
+    {
+      preHandler: read,
+      schema: {
+        querystring: MonthQuery,
+        response: { 200: Gstr1Export },
+      },
+    },
+    async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      return gstService.gstr1Json(db, req.firm.id, req.query.month);
+    },
   );
 
   typed.get(

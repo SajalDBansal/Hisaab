@@ -2,7 +2,7 @@ import { normalizeMobile } from "@repo/contracts";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
-import { emailOTP, organization } from "better-auth/plugins";
+import { emailOTP, organization, twoFactor } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
 import type { Env } from "../config/env";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -10,6 +10,9 @@ import type { EmailSender } from "../lib/email";
 import { maskEmail } from "../lib/mask";
 import { firmAccess } from "./access";
 import { endOtherSessions, readClient, tokenFromCookie } from "./sessionRules";
+import { guardSessionCreate, isPendingChallenge } from "./twoFactorRules";
+import { safeError } from "@repo/backend/lib/safe-error";
+import { authLogger } from "./logging";
 
 export interface AuthDeps {
   env: Pick<Env, "BETTER_AUTH_SECRET" | "BETTER_AUTH_URL" | "TRUSTED_ORIGINS">;
@@ -25,7 +28,10 @@ export function createAuth({ env, db, email, log }: AuthDeps) {
     email
       .sendInvite(data.to, data)
       .catch((err: unknown) =>
-        log.error({ err, to: maskEmail(data.to) }, "Could not send invitation"),
+        log.error(
+          { err: safeError(err), to: maskEmail(data.to) },
+          "Could not send invitation",
+        ),
       );
   };
 
@@ -37,12 +43,16 @@ export function createAuth({ env, db, email, log }: AuthDeps) {
     email
       .sendCode(to, code, purpose)
       .catch((err: unknown) =>
-        log.error({ err, to: maskEmail(to) }, "Could not send code"),
+        log.error(
+          { err: safeError(err), to: maskEmail(to) },
+          "Could not send code",
+        ),
       );
   };
 
   return betterAuth({
     appName: "Hisaab",
+    logger: authLogger(log),
     baseURL: env.BETTER_AUTH_URL,
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: env.TRUSTED_ORIGINS,
@@ -127,6 +137,8 @@ export function createAuth({ env, db, email, log }: AuthDeps) {
         create: {
           // Runs only after the password was right, so it is safe to tell the caller about the other device
           before: async (session, ctx) => {
+            // With two-factor on, only a right code (or the password step that asks for it) gives a session.
+            await guardSessionCreate(db, ctx, session.userId);
             const client = readClient(ctx?.headers);
             const currentToken = tokenFromCookie(ctx?.headers?.get("cookie"));
             const mine = await ctx?.context.internalAdapter.listSessions(
@@ -166,9 +178,17 @@ export function createAuth({ env, db, email, log }: AuthDeps) {
               },
             };
           },
-          // The user said yes to "log in here and log out there"
+          // Better Auth awaits this hook before issuing the sign-in cookie.
           after: async (session, ctx) => {
-            if (ctx) await endOtherSessions(db, ctx, session);
+            // The password step of a two-factor sign-in is discarded at once; the other
+            // device is logged out only when the code is right (doc 37, T58).
+            if (await isPendingChallenge(db, ctx, session.userId)) return;
+            if (ctx && !(await endOtherSessions(db, ctx, session)))
+              throw new APIError("CONFLICT", {
+                code: "SESSION_REPLACED",
+                message:
+                  "Another login replaced this session. Continue on the other device.",
+              });
           },
         },
       },
@@ -201,6 +221,19 @@ export function createAuth({ env, db, email, log }: AuthDeps) {
             inviterName: data.inviter.user.name,
             role: data.role,
           }),
+      }),
+      // Authenticator-app codes (TOTP) and recovery codes (doc 37, T58). No SMS or
+      // email codes as the second step, and no trusted devices: every sign-in asks.
+      twoFactor({
+        issuer: "Hisaab",
+        totpOptions: { digits: 6, period: 30 },
+        backupCodeOptions: { amount: 10, length: 10 },
+        // Wrong codes: 5 per sign-in attempt, then the account waits 15 minutes after 10.
+        accountLockout: {
+          enabled: true,
+          maxFailedAttempts: 10,
+          durationSeconds: 900,
+        },
       }),
       expo(),
     ],

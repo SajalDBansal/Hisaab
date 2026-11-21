@@ -64,7 +64,7 @@ export const searchService = {
         kind: "item" as const,
         id: i.id,
         title: i.name,
-        subtitle: `${i.code ? `${i.code} · ` : ""}${stockQty(i, db.vouchers)} ${i.unit} in stock`,
+        subtitle: `${i.code ? `${i.code} · ` : ""}${i.kind === "service" ? "Service" : `${stockQty(i, db.vouchers)} ${i.unit} in stock`}`,
         amount: i.salePrice,
       }));
 

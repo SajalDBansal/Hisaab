@@ -1,5 +1,9 @@
 import { calcInvoice, type InvoiceTotals } from "../accounting/invoice";
 import {
+  returnAmountBasis,
+  type ReturnAmountBasis,
+} from "../accounting/returnAmounts";
+import {
   postingTotals,
   voucherPostings,
   type Posting,
@@ -26,6 +30,8 @@ import {
   createReceipt,
   createSale,
   createSales,
+  draftSaleMargin,
+  type SaleMarginInput,
   cancelBlocker,
   cancelVoucher,
   createNote,
@@ -34,6 +40,8 @@ import {
   convertBlocker,
   editBlocker,
   peekNumber,
+  restoreBlocker,
+  restoreVoucher,
   returnableLines,
   updateInvoice,
   type Series,
@@ -55,6 +63,36 @@ import type {
   VoucherType,
 } from "../types";
 import { clone, delay, getDb } from "./client";
+import type { SaleMargin } from "../accounting/saleMargin";
+import { gstModeOf } from "../accounting/gstMode";
+import {
+  VOUCHER_TYPES,
+  invoicePage,
+  orderPage,
+  voucherPage,
+  type InvoicePageQuery,
+  type InvoicePageSummary,
+  type OrderPageQuery,
+  type OrderPageSummary,
+  type PagedList,
+  type VoucherPageQuery,
+  type VoucherPageSummary,
+} from "../listPages";
+
+/** One cancelled entry the owner may restore (doc 37, T47); same shape as the API's. */
+export interface CancelledEntry {
+  id: string;
+  type: VoucherType;
+  number: string;
+  date: string;
+  partyName?: string;
+  amount: number;
+  reason?: string;
+  cancelledAt?: string;
+  version: number;
+  /** Why it can't be restored now; absent when it can. */
+  restoreBlocker?: string;
+}
 
 export interface VoucherFilters {
   type?: VoucherType;
@@ -141,6 +179,7 @@ export interface ReturnableBill {
     returned: number;
     returnable: number;
     rate: Paise;
+    amountBasis: ReturnAmountBasis;
   }[];
 }
 
@@ -303,6 +342,15 @@ export const voucherService = {
     return clone(createSales(getDb(), input));
   },
 
+  /**
+   * Profit margin of a sale being made (doc 37, T12). The demo user is the
+   * owner. Real API: POST /sales/margin (needs the "see profit margin" right).
+   */
+  async saleMargin(input: SaleMarginInput): Promise<SaleMargin> {
+    await delay();
+    return clone(draftSaleMargin(getDb(), input));
+  },
+
   /** Real API: http.post<Voucher>("/vouchers/purchases", input) */
   async createPurchase(input: NewInvoiceInput): Promise<Voucher> {
     await delay();
@@ -344,6 +392,45 @@ export const voucherService = {
     return clone(cancelVoucher(getDb(), id, reason, new Date().toISOString()));
   },
 
+  /**
+   * Owner: cancelled entries, newest cancellation first, each with why it can't be
+   * restored now (doc 37, T47). Real API: GET /vouchers/cancelled
+   */
+  async cancelled(
+    limit = 200,
+  ): Promise<{ items: CancelledEntry[]; nextCursor: string | null }> {
+    await delay();
+    const db = getDb();
+    const rows = db.vouchers
+      .filter((v) => v.status === "cancelled")
+      .sort((a, b) => (b.cancelledAt ?? "").localeCompare(a.cancelledAt ?? ""));
+    return clone({
+      items: rows.slice(0, limit).map((v) => ({
+        id: v.id,
+        type: v.type,
+        number: v.number,
+        date: v.date,
+        partyName: (
+          v.snapshot?.party ?? db.parties.find((p) => p.id === v.partyId)
+        )?.name,
+        amount: v.amount,
+        reason: v.cancelReason,
+        cancelledAt: v.cancelledAt,
+        version: 1,
+        restoreBlocker: restoreBlocker(db, v) ?? undefined,
+      })),
+      nextCursor: null,
+    });
+  },
+
+  /** Owner: put a cancelled entry back. Real API: POST /vouchers/:id/restore */
+  // The API checks `version` (If-Match); the in-app demo has no concurrent edits.
+  async restore(id: string, _version?: number): Promise<Voucher> {
+    void _version;
+    await delay();
+    return clone(restoreVoucher(getDb(), id));
+  },
+
   /** Edit a saved sale or purchase. Real API: http.put<Voucher>(`/vouchers/${id}`, input) */
   async updateInvoice(id: string, input: NewInvoiceInput): Promise<Voucher> {
     await delay();
@@ -356,6 +443,7 @@ export const voucherService = {
     const db = getDb();
     const rows = returnableLines(db, billId);
     const bill = db.vouchers.find((v) => v.id === billId)!;
+    const amounts = returnAmountBasis(bill, db.vouchers);
     return clone({
       bill,
       partyName: db.parties.find((p) => p.id === bill.partyId)?.name ?? "",
@@ -369,6 +457,7 @@ export const voucherService = {
           returned: r.returned,
           returnable: r.returnable,
           rate: r.line.rate,
+          amountBasis: amounts[r.index],
         };
       }),
     });
@@ -416,6 +505,37 @@ export const voucherService = {
           status: orderStatus(v, now),
           convertedTo: to ? { id: to.id, number: to.number } : undefined,
         };
+      }),
+    );
+  },
+
+  /** One page of Sales or Purchase. Real API: http.get(`/vouchers/invoices/page?…`) */
+  async invoicePage(
+    type: "sale" | "purchase",
+    query: InvoicePageQuery,
+  ): Promise<PagedList<InvoiceRow, InvoicePageSummary>> {
+    return invoicePage(await this.listInvoices(type), query);
+  },
+
+  /** One page of estimates, orders or notes. Real API: http.get(`/vouchers/orders/page?…`) */
+  async orderPage(
+    type: OrderType,
+    query: OrderPageQuery,
+  ): Promise<PagedList<OrderRow, OrderPageSummary>> {
+    return orderPage(await this.listOrders(type), query);
+  },
+
+  /** One page of entries, newest first. Real API: http.get(`/vouchers/page?…`) */
+  async page(
+    query: VoucherPageQuery,
+  ): Promise<PagedList<Voucher, VoucherPageSummary>> {
+    await delay();
+    const { vouchers, parties, firm } = getDb();
+    return clone(
+      voucherPage(vouchers, query, {
+        readable: VOUCHER_TYPES,
+        defaultScope: gstModeOf(firm) === "off" ? "nongst" : "gst",
+        parties,
       }),
     );
   },

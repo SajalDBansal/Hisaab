@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { BookScopeField, useBookScope } from "@/components/BookScopeField";
 import { Switch, View } from "react-native";
 import {
+  canSeeCosts,
   checkItem,
   formatINR,
   itemWarnings,
@@ -20,6 +21,8 @@ import {
   type TaxType,
   type Item,
   type ItemInput,
+  fieldsFor,
+  type CustomFieldValues,
 } from "@repo/core";
 import {
   AmountField,
@@ -34,10 +37,17 @@ import {
   TextField,
   Txt,
   showError,
+  CustomFieldInputs,
 } from "@/components";
 import { toRupeeText } from "@/data/labels";
 import { setPicked } from "@/data/picked";
-import { useItems, useSaveItem, useUnits } from "@/data/queries";
+import { useData } from "@/data/DataProvider";
+import {
+  useCustomFields,
+  useItems,
+  useSaveItem,
+  useUnits,
+} from "@/data/queries";
 import { AddUnitSheet } from "./AddUnitSheet";
 import { useGstMode } from "@/data/gstMode";
 import { colors, space } from "@/theme";
@@ -49,7 +59,7 @@ import {
 } from "./OpeningLotsEditor";
 
 const RATES: GstRate[] = [5, 18, 40];
-const NEW_GROUP = "+ New group";
+const NEW_GROUP = "+ New category";
 
 const digitsOnly = (t: string) => t.replace(/\D/g, "");
 
@@ -132,8 +142,17 @@ export function ItemForm({
   const [openingCost, setOpeningCost] = useState(
     toRupeeText(item?.openingCost ?? item?.purchasePrice ?? 0),
   );
-  const [reorder, setReorder] = useState(String(item?.reorderLevel ?? ""));
+  const [reorder, setReorder] = useState(String(item?.reorderLevel || ""));
+  const [maxText, setMaxText] = useState(String(item?.maxStock ?? ""));
+  // Item master extras (doc 37, T39)
+  const [service, setService] = useState(item?.kind === "service");
+  const [notForSale, setNotForSale] = useState(!!item?.notForSale);
+  const [tagsText, setTagsText] = useState((item?.tags ?? []).join(", "));
   const [showErrors, setShowErrors] = useState(false);
+  const customDefs = useCustomFields().data;
+  const [customValues, setCustomValues] = useState<CustomFieldValues>(
+    item?.customFields ?? {},
+  );
 
   const suggestedCode = suggestItemCode(
     name || "Item",
@@ -153,14 +172,25 @@ export function ItemForm({
     purchasePrice: parseRupees(purchaseText) ?? 0,
     salePrice: parseRupees(saleText) ?? 0,
     mrp: parseRupees(mrpText) ?? 0,
-    openingStock: separateLots
-      ? openingLotsInput(openingLots).reduce((sum, lot) => sum + lot.qty, 0)
-      : Number(opening || "0"),
-    openingLots: separateLots ? openingLotsInput(openingLots) : undefined,
+    openingStock: service
+      ? 0
+      : separateLots
+        ? openingLotsInput(openingLots).reduce((sum, lot) => sum + lot.qty, 0)
+        : Number(opening || "0"),
+    openingLots:
+      separateLots && !service ? openingLotsInput(openingLots) : undefined,
     openingCost: parseRupees(openingCost) ?? 0,
     openingBookScope: item?.openingBookScope ?? openingBookScope,
-    reorderLevel: Number(reorder || "0"),
-    ...(item?.batch ? { batch: item.batch } : {}),
+    reorderLevel: service ? 0 : Number(reorder || "0"),
+    maxStock: service ? undefined : Number(maxText || "0") || undefined,
+    kind: service ? "service" : "goods",
+    notForSale: notForSale || undefined,
+    tags: tagsText
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean),
+    ...(item?.batch && !service ? { batch: item.batch } : {}),
+    customFields: customValues,
   };
   const errors = checkItem(input, others, item?.id, gst.mode);
   const err = (k: keyof typeof errors) => (showErrors ? errors[k] : undefined);
@@ -170,6 +200,8 @@ export function ItemForm({
     (!contract.success ? contract.error.issues[0]?.message : undefined);
   const warnings = itemWarnings(input);
   const margin = marginPercent(input.purchasePrice, input.salePrice);
+  // Sales staff never see or set purchase costs; the server keeps them unchanged.
+  const showCosts = canSeeCosts(useData().role);
 
   const submit = async () => {
     setShowErrors(true);
@@ -190,7 +222,7 @@ export function ItemForm({
         <Header
           close
           title={item ? "Edit item" : "New item"}
-          subtitle={item?.name ?? "Goods you buy and sell"}
+          subtitle={item?.name ?? "Goods or services you buy and sell"}
         />
       }
       footer={
@@ -228,6 +260,27 @@ export function ItemForm({
         </FooterBar>
       }
     >
+      <View style={{ gap: space.sm }}>
+        <View style={{ flexDirection: "row", gap: space.sm }}>
+          <Chip
+            label="Goods"
+            selected={!service}
+            onPress={() => (used ? undefined : setService(false))}
+          />
+          <Chip
+            label="Service"
+            selected={service}
+            onPress={() => (used ? undefined : setService(true))}
+          />
+        </View>
+        <Txt variant="caption" tone="body">
+          {used
+            ? "Locked: this item is already on bills."
+            : service
+              ? "Services (repairs, labour, fees) keep no stock and use a SAC code."
+              : "Goods keep stock, bought and sold oldest first."}
+        </Txt>
+      </View>
       <TextField
         label="Item name"
         value={name}
@@ -248,13 +301,21 @@ export function ItemForm({
           <TextField
             label={
               taxType === "nongst" || !gst.regular
-                ? "HSN (optional)"
-                : "HSN code"
+                ? `${service ? "SAC" : "HSN"} (optional)`
+                : service
+                  ? "SAC code"
+                  : "HSN code"
             }
             value={hsn}
             onChangeText={(t) => setHsn(digitsOnly(t).slice(0, 8))}
             keyboardType="number-pad"
-            placeholder={taxType === "nongst" ? "Not needed" : "4–8 digits"}
+            placeholder={
+              taxType === "nongst"
+                ? "Not needed"
+                : service
+                  ? "99xxxx"
+                  : "4–8 digits"
+            }
             mono
             error={err("hsn")}
           />
@@ -263,7 +324,7 @@ export function ItemForm({
 
       <View style={{ gap: space.sm }}>
         <Txt variant="label" tone="charcoal">
-          Group
+          Category
         </Txt>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
           {[...groups, NEW_GROUP].map((g) => (
@@ -285,7 +346,7 @@ export function ItemForm({
         </View>
         {newGroup ? (
           <TextField
-            label="New group name"
+            label="New category name"
             value={group}
             onChangeText={setGroup}
             placeholder="e.g. Snacks"
@@ -470,12 +531,14 @@ export function ItemForm({
           {gst.regular ? " (before GST)" : ""}
         </Txt>
         <View style={{ flexDirection: "row", gap: space.md }}>
-          <AmountField
-            label="Purchase ₹"
-            value={purchaseText}
-            onChangeText={setPurchaseText}
-            error={err("purchasePrice")}
-          />
+          {showCosts ? (
+            <AmountField
+              label="Purchase ₹"
+              value={purchaseText}
+              onChangeText={setPurchaseText}
+              error={err("purchasePrice")}
+            />
+          ) : null}
           <AmountField
             label="Sale ₹"
             value={saleText}
@@ -493,7 +556,7 @@ export function ItemForm({
           <View
             style={{ flex: 1, justifyContent: "flex-end", paddingBottom: 12 }}
           >
-            {margin !== null ? (
+            {showCosts && margin !== null ? (
               <Txt variant="small" tone={margin < 0 ? "give" : "body"} num>
                 {formatINR(input.salePrice - input.purchasePrice)} per {unit} ·{" "}
                 {margin}%
@@ -503,62 +566,114 @@ export function ItemForm({
         </View>
       </Card>
 
-      <Card style={{ gap: space.md }}>
-        <Txt variant="bodyStrong">Stock</Txt>
-        {!used && !item?.openingLots ? (
-          <Checkbox
-            label="Separate opening stock lots"
-            checked={separateLots}
-            onChange={setSeparateLots}
-          />
-        ) : null}
-        {separateLots ? (
-          <OpeningLotsEditor
-            rows={openingLots}
-            onChange={setOpeningLots}
-            disabled={used}
-          />
-        ) : (
-          <>
-            {!item ? (
-              <BookScopeField
-                value={openingBookScope}
-                onChange={setOpeningBookScope}
+      <View style={{ gap: space.sm }}>
+        <TextField
+          label="Tags (optional, comma separated)"
+          value={tagsText}
+          onChangeText={setTagsText}
+          placeholder="e.g. Fast moving, Diwali"
+          error={err("tags")}
+        />
+        <Checkbox
+          label="Not for sale"
+          note="Hidden when adding items to a sale; can still be bought."
+          checked={notForSale}
+          onChange={setNotForSale}
+        />
+      </View>
+
+      {service ? null : (
+        <Card style={{ gap: space.md }}>
+          <Txt variant="bodyStrong">Stock</Txt>
+          {!showCosts ? (
+            <Txt variant="caption" tone="body">
+              Opening stock and its cost are entered by the owner or accountant.
+            </Txt>
+          ) : null}
+          {showCosts && !used && !item?.openingLots ? (
+            <Checkbox
+              label="Separate opening stock lots"
+              checked={separateLots}
+              onChange={setSeparateLots}
+            />
+          ) : null}
+          {!showCosts ? null : separateLots ? (
+            <OpeningLotsEditor
+              rows={openingLots}
+              onChange={setOpeningLots}
+              disabled={used}
+            />
+          ) : (
+            <>
+              {!item ? (
+                <BookScopeField
+                  value={openingBookScope}
+                  onChange={setOpeningBookScope}
+                />
+              ) : null}
+              <AmountField
+                label="Opening cost per unit"
+                value={openingCost}
+                onChangeText={setOpeningCost}
+                editable={!used}
+              />
+            </>
+          )}
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            {showCosts ? (
+              <TextField
+                label={`Opening stock (${unit})`}
+                editable={!used && !separateLots}
+                value={separateLots ? String(input.openingStock) : opening}
+                onChangeText={(t) => setOpening(digitsOnly(t))}
+                keyboardType="number-pad"
+                placeholder="0"
+                error={err("openingStock")}
               />
             ) : null}
-            <AmountField
-              label="Opening cost per unit"
-              value={openingCost}
-              onChangeText={setOpeningCost}
-              editable={!used}
+          </View>
+          <View style={{ flexDirection: "row", gap: space.md }}>
+            <TextField
+              label={`Minimum (${unit})`}
+              value={reorder}
+              onChangeText={(t) => setReorder(digitsOnly(t))}
+              keyboardType="number-pad"
+              placeholder="0"
+              error={err("reorderLevel")}
             />
-          </>
-        )}
-        <View style={{ flexDirection: "row", gap: space.md }}>
-          <TextField
-            label={`Opening stock (${unit})`}
-            editable={!used && !separateLots}
-            value={separateLots ? String(input.openingStock) : opening}
-            onChangeText={(t) => setOpening(digitsOnly(t))}
-            keyboardType="number-pad"
-            placeholder="0"
-            error={err("openingStock")}
-          />
-          <TextField
-            label={`Warn below (${unit})`}
-            value={reorder}
-            onChangeText={(t) => setReorder(digitsOnly(t))}
-            keyboardType="number-pad"
-            placeholder="0"
-            error={err("reorderLevel")}
-          />
-        </View>
-        {item && used ? (
+            <TextField
+              label={`Maximum (${unit})`}
+              value={maxText}
+              onChangeText={(t) => setMaxText(digitsOnly(t))}
+              keyboardType="number-pad"
+              placeholder="No limit"
+              error={err("maxStock")}
+            />
+          </View>
           <Txt variant="caption" tone="body">
-            Opening stock is locked because this item has entries.
+            Below the minimum the item shows as low stock; above the maximum, as
+            over-stocked.
           </Txt>
-        ) : null}
-      </Card>
+          {item && used ? (
+            <Txt variant="caption" tone="body">
+              Opening stock is locked because this item has entries.
+            </Txt>
+          ) : null}
+        </Card>
+      )}
+
+      {fieldsFor(customDefs, "item").length ||
+      Object.keys(customValues).length ? (
+        <Card style={{ gap: space.md }}>
+          <Txt variant="bodyStrong">More details</Txt>
+          <CustomFieldInputs
+            defs={customDefs}
+            entity="item"
+            values={customValues}
+            onChange={setCustomValues}
+          />
+        </Card>
+      ) : null}
 
       {warnings.map((w) => (
         <Notice key={w} text={w} />

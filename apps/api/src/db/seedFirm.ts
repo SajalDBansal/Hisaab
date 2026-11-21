@@ -2,11 +2,12 @@ import { eq } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import {
   captureVoucherSnapshot,
-  stockMovements,
+  itemStockMovements,
   voucherPostings,
   type MockDb,
   type Voucher,
 } from "@repo/core";
+import { itemExtraColumns } from "@repo/backend/modules/items/itemExtras";
 import type { Db } from "@repo/backend/db/client";
 import { schema } from "@repo/backend/db/client";
 
@@ -143,6 +144,7 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
               : "gst"),
           batchNumber: i.batch?.number ?? null,
           batchExpiry: i.batch?.expiry ?? null,
+          ...itemExtraColumns(i),
         })),
       );
 
@@ -279,6 +281,9 @@ async function insertVouchers(
           : null,
       stockCost: l.stockCost ?? null,
       bookScope: l.bookScope ?? null,
+      exactMath: l.exactMath ?? false,
+      batchNumber: l.batchNumber ?? null,
+      expiryDate: l.expiryDate ?? null,
     })),
   );
   await insertInChunks(lines, (slice) =>
@@ -359,7 +364,7 @@ async function insertVouchers(
   );
 
   const movements = source.items.flatMap((item) =>
-    stockMovements(item.id, source.vouchers).map((m) => ({
+    itemStockMovements(item, source.vouchers).map((m) => ({
       id: uuidv7(),
       firmId,
       voucherId: ids.newId(m.voucherId),

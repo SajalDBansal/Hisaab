@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CustomAccount, LedgerRow } from "@repo/contracts";
+import { CustomAccount, LedgerRow, newRequestId } from "@repo/contracts";
 import type { DocumentFile } from "@repo/core";
 import {
   AttachmentRecord,
@@ -20,6 +20,11 @@ import {
 } from "./attachmentDraftModel";
 import { bindPendingWrite, ConfirmedWriteError } from "./pendingWrites";
 import type { OperationResult } from "./offlineOperation";
+import {
+  serverRecovery,
+  assertRecoveryEpoch,
+  recoveryRequired,
+} from "./recoveryEpoch";
 
 export type DraftRecord = AttachmentRecord & { draft: AttachmentDraft };
 export type PendingAttachmentDraft = {
@@ -37,8 +42,9 @@ const signature = (path: string, body: object) => JSON.stringify([path, body]);
 
 export function createAttachmentDrafts(
   storage: AttachmentStorage,
-  newId: () => string,
+  randomId: () => string,
 ) {
+  const newId = () => newRequestId(randomId());
   function check(
     actor: DraftActor,
     record: DraftRecord,
@@ -143,7 +149,8 @@ export function createAttachmentDrafts(
           body: immutableBody,
           createdAt: Date.now(),
           ready: false,
-          receiptProtocol,
+          receiptProtocol: receiptProtocol ?? "durable-retries-v1",
+          recoveryEpoch: serverRecovery.current(),
           expectedVouchers,
           binding: "all-returned-vouchers",
           files: files.map((file, index) => ({
@@ -343,6 +350,7 @@ export function createAttachmentDrafts(
                 scope,
                 file: source.file,
                 reservation: {},
+                recoveryEpoch: record.draft.recoveryEpoch,
                 input: {
                   kind: "bill",
                   name: source.file.name,
@@ -369,6 +377,7 @@ export function createAttachmentDrafts(
           }
         }
         check(actor, record, assertActive);
+        assertRecoveryEpoch(record.draft.recoveryEpoch);
         if (destination?.bindingPending)
           await storage.write({ ...destination, bindingPending: false });
       });
@@ -379,6 +388,7 @@ export function createAttachmentDrafts(
       record.draft.files[0]!,
     ]) {
       check(actor, record, assertActive);
+      assertRecoveryEpoch(record.draft.recoveryEpoch);
       const source = await storage.read(record.scope, entry.id);
       if (source) await storage.remove(source);
     }
@@ -397,6 +407,32 @@ export function createAttachmentDrafts(
       check(actor, record, assertActive);
       let response = record.draft.response;
       let warning: string | undefined;
+      const epoch = serverRecovery.current();
+      if (!epoch) throw recoveryRequired();
+      if (record.draft.recoveryEpoch !== epoch) {
+        if (record.draft.firstAttemptAt !== undefined || response) {
+          if (!reconcile) throw recoveryRequired();
+          const restored = await reconcile(record);
+          assertRecoveryEpoch(epoch);
+          if (restored.state !== "committed") throw recoveryRequired();
+          const confirmed = responseOf(restored.response);
+          if (
+            response &&
+            JSON.stringify(response) !== JSON.stringify(confirmed)
+          )
+            throw new Error(
+              "The restored answer differs from this device's saved answer. Keep the request and attachments for manual reconciliation.",
+            );
+          record = await rememberResponse(record, restored.response);
+          response = record.draft.response;
+        }
+        record = {
+          ...record,
+          draft: { ...record.draft, recoveryEpoch: epoch },
+        };
+        await write(record);
+      }
+      assertRecoveryEpoch(record.draft.recoveryEpoch);
       if (!response && reconcile && !record.draft.cancelled) {
         const result = await reconcile(record);
         check(actor, record, assertActive);
@@ -442,12 +478,15 @@ export function createAttachmentDrafts(
           userId: actor.userId,
           firmId: actor.firmId,
           path: record.draft.path,
+          recoveryEpoch: record.draft.recoveryEpoch,
+          previouslyAttempted: record.draft.firstAttemptAt !== undefined,
           legacy:
-            record.draft.receiptProtocol !== "operations-v1" &&
+            !record.draft.receiptProtocol &&
             record.draft.firstAttemptAt !== undefined,
           assertActive: () => check(actor, record, assertActive),
           beforeSend: async () => {
             check(actor, record, assertActive);
+            assertRecoveryEpoch(record.draft.recoveryEpoch);
             if (
               signature(record.draft.path, body) !==
               signature(record.draft.path, record.draft.body)
@@ -569,6 +608,7 @@ export function createAttachmentDrafts(
       if (!saved?.draft) return;
       let record = saved as DraftRecord;
       check(actor, record, assertActive);
+      assertRecoveryEpoch(record.draft.recoveryEpoch);
       if (result.state === "cancelled") {
         await write({ ...record, draft: { ...record.draft, cancelled: true } });
         return;
@@ -596,6 +636,7 @@ export function createAttachmentDrafts(
     // attempted drafts cannot be discarded, and confirmed responses are looked up first.
     const record = await read(reference);
     check(actor, record, assertActive);
+    assertRecoveryEpoch(record.draft.recoveryEpoch);
     if (!record.draft.ready || record.draft.cancelled || record.draft.response)
       throw new Error(
         "The original attachment draft needs reconciliation before posting.",

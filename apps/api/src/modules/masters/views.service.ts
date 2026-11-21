@@ -2,6 +2,7 @@ import {
   ageing,
   openBills,
   overdueSummary,
+  vouchersByParty,
   partyBills,
   partyBalance,
   newestFirst,
@@ -10,7 +11,8 @@ import {
   scopeBooks,
   type TaxScope,
   isLowStock,
-  stockMovements,
+  isOverStock,
+  itemStockMovements,
   itemProfit,
   ledgerStatement,
   today,
@@ -25,12 +27,19 @@ import {
   canReadVoucher,
   forbiddenRead,
 } from "../../lib/read-permissions";
-import { loadReportBooks, loadReportSnapshot } from "@repo/backend/modules/reports/books";
+import {
+  loadReportBooks,
+  loadReportSnapshot,
+} from "@repo/backend/modules/reports/books";
 import { partiesRepo } from "./parties.repo";
 import { itemsRepo } from "./items.repo";
 import { toPartyRow } from "./parties.service";
 import { toItemRow } from "./items.service";
-import { notFound, pageOf, pageStart } from "@repo/backend/modules/masters/shared";
+import {
+  notFound,
+  pageOf,
+  pageStart,
+} from "@repo/backend/modules/masters/shared";
 import type { PartyListParams } from "@repo/contracts";
 
 export async function listParties(
@@ -47,14 +56,15 @@ export async function listParties(
     offset: start,
   });
   const { vouchers } = await loadReportBooks(db, firmId);
+  const parties = rows.map(toPartyRow);
+  const byParty = vouchersByParty(parties, vouchers);
   return pageOf(
-    rows.map((row) => {
-      const party = toPartyRow(row);
-      return {
-        ...party,
-        ...overdueSummary(collectionBills(party, vouchers, today())),
-      };
-    }),
+    parties.map((party) => ({
+      ...party,
+      ...overdueSummary(
+        collectionBills(party, byParty.get(party.id) ?? [], today()),
+      ),
+    })),
     start,
     query.limit,
   );
@@ -71,7 +81,8 @@ export async function readParty(
   if (!canReadParty(role, row.type)) throw forbiddenRead();
   const party = toPartyRow(row);
   const { vouchers } = await loadReportBooks(db, firmId);
-  const bills = partyBills(party, vouchers, today());
+  // The party screen's open bills feed payment TDS, which needs their GST-free value.
+  const bills = partyBills(party, vouchers, today(), { taxable: true });
   const balance = partyBalance(party, vouchers);
   return {
     ...party,
@@ -92,9 +103,14 @@ export async function readParty(
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-    ),
+      // The latest few, without print copies; the tab pages through /vouchers/page.
+    )
+      .slice(0, PARTY_RECENT_ENTRIES)
+      .map(({ snapshot: _print, ...voucher }) => voucher),
   };
 }
+
+const PARTY_RECENT_ENTRIES = 20;
 
 export async function readItem(db: Db, firmId: string, id: string) {
   return db.transaction(
@@ -110,12 +126,21 @@ export async function readItem(db: Db, firmId: string, id: string) {
         qty,
         value: inventoryValue(item, vouchers),
         lowStock: isLowStock(item, qty),
-        movements: stockMovements(id, vouchers).reverse(),
+        overStock: isOverStock(item, qty),
+        // The latest few; the full list pages through /items/:id/movements.
+        movements: itemStockMovements(item, vouchers).reverse().slice(0, 20),
         profit: itemProfit(item, vouchers),
       };
     },
     { isolationLevel: "repeatable read", accessMode: "read only" },
   );
+}
+
+/** Every stock movement of one item, newest first. */
+export async function readItemMovements(db: Db, firmId: string, id: string) {
+  const { items, vouchers } = await loadReportBooks(db, firmId);
+  const item = items.find((i) => i.id === id);
+  return item ? itemStockMovements(item, vouchers).reverse() : [];
 }
 
 export async function readLedgerStatement(

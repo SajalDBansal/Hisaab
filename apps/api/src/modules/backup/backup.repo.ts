@@ -23,6 +23,9 @@ export const backupTables = {
   firmProfile: schema.firmProfile,
   invoiceSettings: schema.invoiceSettings,
   reminderSettings: schema.reminderSettings,
+  firmBranding: schema.firmBranding,
+  salesControls: schema.salesControls,
+  firmSecurity: schema.firmSecurity,
   parties: schema.parties,
   items: schema.items,
   units: schema.units,
@@ -65,6 +68,8 @@ export const backupTables = {
   associateEvents: schema.associateEvents,
   importedOpeningBalances: schema.importedOpeningBalances,
   openingBills: schema.openingBills,
+  customFields: schema.customFields,
+  customRoles: schema.customRoles,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 
@@ -80,6 +85,8 @@ const excludedTables = new Set([
   "change_log",
   "notice_reads",
   "operation_receipts",
+  // Installation cleanup belongs only in full database backups, never a cloned firm's export.
+  "document_cleanup",
 ]);
 type ColumnInfo = { table_name: string; column_name: string };
 
@@ -235,6 +242,9 @@ export async function readFirmExport(db: Reader, firmId: string) {
       "firmProfile",
       "invoiceSettings",
       "reminderSettings",
+      "firmBranding",
+      "salesControls",
+      "firmSecurity",
       "bookControls",
     ].includes(name);
     data[name] = single ? (rows[0] ?? null) : rows;

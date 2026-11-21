@@ -168,7 +168,7 @@ export const helpArticles: HelpArticle[] = [
     question: "What can I do when the internet is unavailable?",
     answer: [
       "Download books while online and authorized. Supported cached views and entries can then work within the current offline access grant. A date range or filter that was not downloaded may be unavailable. Offline saves remain pending until accepted by the server.",
-      "Authentication, team changes, file transfers, imports, exports and other online-only actions are not unlimited offline operations. The deployed browser application needs an initial online shell download; its development server does not provide offline cold starts. Keep the app open after reconnecting to synchronize.",
+      "Authentication, team changes, file transfers, imports, exports and other online-only actions require connectivity. Keep the browser application open while offline: opening or reloading it requires a connection in both production and development. Downloaded books do not enable offline startup. Keep the app open after reconnecting to synchronize.",
     ],
     href: "/system#offline-and-recovery",
     linkLabel: "Understand offline boundaries",

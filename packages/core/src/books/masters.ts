@@ -1,0 +1,205 @@
+/** Parties and items. */
+import { gstModeOf } from "../accounting/gstMode";
+import { storedCustomValues } from "../customFields";
+import type { ID, ISODate, Item, ItemInput, Party, PartyInput } from "../types";
+import { checkItem, checkParty } from "../validation";
+import type { Db } from "./base";
+import { newId } from "./base";
+// ---------------------------------------------------------------------------
+// Parties and items (masters)
+// ---------------------------------------------------------------------------
+
+const firstError = (errors: Record<string, string | undefined>) =>
+  Object.values(errors).find(Boolean);
+
+/** Tidy what the form sent: trim text, keep only digits in the phone, drop an empty GSTIN. */
+export function cleanParty(input: PartyInput): PartyInput {
+  return {
+    ...input,
+    name: input.name.trim(),
+    city: input.city.trim(),
+    phone: input.phone.replace(/\D/g, ""),
+    gstin: input.gstin?.trim().toUpperCase() || undefined,
+    ...cleanMsme(input),
+  };
+}
+
+/**
+ * MSME details are kept for suppliers only (doc 37, T30). Left out = keep the
+ * stored ones; null = not an MSME (and no Udyam number).
+ */
+function cleanMsme(
+  input: PartyInput,
+): Pick<PartyInput, "msmeType" | "udyamNumber"> {
+  if (input.type !== "supplier") return { msmeType: null, udyamNumber: null };
+  if (input.msmeType === undefined) return {};
+  if (!input.msmeType) return { msmeType: null, udyamNumber: null };
+  return {
+    msmeType: input.msmeType,
+    udyamNumber:
+      input.udyamNumber?.trim().toUpperCase().replace(/s+/g, "") || null,
+  };
+}
+
+/** Puts cleaned MSME details on a stored party: null removes, left out keeps. */
+function applyMsme(party: Party, p: PartyInput) {
+  if (p.msmeType === undefined) return;
+  if (p.msmeType) party.msmeType = p.msmeType;
+  else delete party.msmeType;
+  if (p.udyamNumber) party.udyamNumber = p.udyamNumber;
+  else delete party.udyamNumber;
+}
+
+export function createParty(db: Db, input: PartyInput, date: ISODate): Party {
+  const p = cleanParty(input);
+  const problem = firstError(checkParty(p, db.parties));
+  if (problem) throw new Error(problem);
+  p.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "party",
+    p.customFields,
+  );
+  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
+  const party: Party = {
+    id: newId(p.type === "customer" ? "c" : "s"),
+    ...rest,
+    openingDate: date,
+  };
+  applyMsme(party, p);
+  db.parties.push(party);
+  return party;
+}
+
+export function updateParty(db: Db, id: ID, input: PartyInput): Party {
+  const party = db.parties.find((x) => x.id === id);
+  if (!party) throw new Error("Party not found");
+  const p = cleanParty(input);
+  const problem = firstError(checkParty(p, db.parties, id));
+  if (problem) throw new Error(problem);
+  p.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "party",
+    p.customFields,
+  );
+  if (p.type !== party.type && db.vouchers.some((v) => v.partyId === id)) {
+    throw new Error(
+      `This party already has entries, so it can't be changed to a ${p.type}.`,
+    );
+  }
+  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
+  Object.assign(party, rest);
+  applyMsme(party, p);
+  return party;
+}
+
+/** Trimmed, without blanks or repeats (ignoring case); undefined when none. */
+export function cleanTags(tags: string[] | undefined): string[] | undefined {
+  const seen = new Set<string>();
+  const out = (tags ?? [])
+    .map((t) => t.trim().replace(/\s+/g, " "))
+    .filter((t) => {
+      const key = t.toLowerCase();
+      if (!t || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return out.length ? out : undefined;
+}
+
+export function cleanItem(input: ItemInput): ItemInput {
+  return {
+    ...input,
+    name: input.name.trim(),
+    code: input.code.trim().toUpperCase(),
+    group: input.group.trim() || "General",
+    gstRate: input.taxType === "taxable" ? input.gstRate : 0,
+    hsn: input.hsn.trim(),
+    kind: input.kind === "service" ? "service" : "goods",
+    notForSale: input.notForSale || undefined,
+    maxStock: input.maxStock || undefined,
+    tags: cleanTags(input.tags),
+    altUnit: input.altUnit?.name.trim()
+      ? { name: input.altUnit.name.trim(), factor: input.altUnit.factor }
+      : undefined,
+  };
+}
+
+/** Units must be in the firm's list and switched on (an item may keep a unit that was switched off later). */
+function checkItemUnits(db: Db, i: ItemInput, current?: Item) {
+  const ok = (name: string, was?: string) =>
+    db.units.some((u) => u.name === name && (u.enabled || name === was));
+  if (!ok(i.unit, current?.unit))
+    throw new Error(
+      `${i.unit} isn't a switched-on unit. Add it in Settings → Units.`,
+    );
+  if (i.altUnit && !ok(i.altUnit.name, current?.altUnit?.name)) {
+    throw new Error(
+      `${i.altUnit.name} isn't a switched-on unit. Add it in Settings → Units.`,
+    );
+  }
+}
+
+export function createItem(db: Db, input: ItemInput): Item {
+  const i = cleanItem(input);
+  const problem = firstError(
+    checkItem(i, db.items, undefined, gstModeOf(db.firm)),
+  );
+  if (problem) throw new Error(problem);
+  checkItemUnits(db, i);
+  i.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "item",
+    i.customFields,
+  );
+  const item: Item = {
+    id: newId("i"),
+    ...i,
+    openingCost: i.openingCost ?? i.purchasePrice,
+    openingBookScope:
+      i.openingBookScope ??
+      (gstModeOf(db.firm) === "off" || i.taxType === "nongst"
+        ? "nongst"
+        : "gst"),
+  };
+  db.items.push(item);
+  return item;
+}
+
+export function updateItem(db: Db, id: ID, input: ItemInput): Item {
+  const item = db.items.find((x) => x.id === id);
+  if (!item) throw new Error("Item not found");
+  const i = cleanItem(input);
+  const problem = firstError(checkItem(i, db.items, id, gstModeOf(db.firm)));
+  if (problem) throw new Error(problem);
+  checkItemUnits(db, i, item);
+  i.customFields = storedCustomValues(
+    db.customFieldDefs,
+    "item",
+    i.customFields,
+  );
+  const used = db.vouchers.some((v) => v.lines?.some((l) => l.itemId === id));
+  if (
+    used &&
+    (i.openingStock !== item.openingStock ||
+      (i.openingCost !== undefined && i.openingCost !== item.openingCost) ||
+      (i.openingBookScope !== undefined &&
+        i.openingBookScope !== item.openingBookScope))
+  )
+    throw new Error("Opening stock is already in use and cannot be changed.");
+  i.openingCost = i.openingCost ?? item.openingCost ?? item.purchasePrice;
+  i.openingBookScope = i.openingBookScope ?? item.openingBookScope;
+  if (used && (i.kind ?? "goods") !== (item.kind ?? "goods"))
+    throw new Error(
+      "This item is already on bills, so it can't change between goods and service.",
+    );
+  if (used && i.unit !== item.unit) {
+    throw new Error(
+      "This item is already on bills, so its unit can't be changed.",
+    );
+  }
+  Object.assign(item, i);
+  if (!i.altUnit) delete item.altUnit;
+  for (const key of ["notForSale", "maxStock", "tags"] as const)
+    if (i[key] === undefined) delete item[key];
+  return item;
+}

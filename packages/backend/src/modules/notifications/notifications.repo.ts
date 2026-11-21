@@ -1,7 +1,10 @@
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
 import type { Item, MockDb, Party, Voucher } from "@repo/core";
 import { and, eq, isNull } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
+import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { hydrateVouchers } from "../vouchers/snapshot";
+import { itemExtras } from "../items/itemExtras";
 
 const {
   organization,
@@ -57,6 +60,11 @@ export const notificationsRepo = {
       .select()
       .from(remindersSent)
       .where(eq(remindersSent.firmId, firmId));
+    const partyOpeningBills = await loadOpeningBills(
+      db,
+      firmId,
+      partyRows.map((row) => row.id),
+    );
 
     const p = firmRow.profile;
     return {
@@ -74,6 +82,7 @@ export const notificationsRepo = {
         phone: undef(p.phone),
         email: undef(p.email),
         pan: undef(p.pan),
+        ...firmStatutory(p),
       },
       parties: partyRows.map((row) => ({
         id: row.id,
@@ -86,7 +95,10 @@ export const notificationsRepo = {
         creditDays: row.creditDays,
         creditLimit: row.creditLimit,
         openingBalance: row.openingBalance,
+        openingGstBalance: undef(row.openingGstBalance),
         openingDate: row.openingDate,
+        openingBills: partyOpeningBills.get(row.id),
+        ...partyMsme(row),
       })),
       items: itemRows.map((row) => ({
         id: row.id,
@@ -110,6 +122,7 @@ export const notificationsRepo = {
           row.batchNumber && row.batchExpiry
             ? { number: row.batchNumber, expiry: row.batchExpiry }
             : undefined,
+        ...itemExtras(row),
       })),
       vouchers: await hydrateVouchers(db, voucherRows),
       reminders: settings

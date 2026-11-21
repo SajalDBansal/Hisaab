@@ -18,6 +18,22 @@ export function rupees(value: number): Paise {
   return Math.round(value * 100);
 }
 
+/**
+ * Round a × b / divisor half away from zero, using whole numbers only.
+ * `a`, `b` and `divisor` must be integers; BigInt keeps large products exact.
+ */
+export function mulDivRound(a: number, b: number, divisor: number): number {
+  const product = BigInt(a) * BigInt(b);
+  const d = BigInt(divisor);
+  const negative = product < 0n !== d < 0n;
+  const abs = (n: bigint) => (n < 0n ? -n : n);
+  const rounded = (abs(product) * 2n + abs(d)) / (abs(d) * 2n);
+  return Number(negative ? -rounded : rounded);
+}
+
+/** A quantity or percentage with at most 3 decimals, as a whole number of thousandths. */
+export const thousandths = (n: number) => Math.round(n * 1000);
+
 /** Group digits the Indian way: 1234567 → "12,34,567". */
 function groupIndian(digits: string): string {
   if (digits.length <= 3) return digits;

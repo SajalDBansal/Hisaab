@@ -1,4 +1,5 @@
 import { router } from "expo-router";
+import { useRef } from "react";
 import { backOrReplace } from "@/navigation";
 import {
   Pressable,
@@ -14,11 +15,15 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useNotices } from "@/data/queries";
+import { OfflineBooksStatus } from "@/offline/OfflineBooksStatus";
 
 import { colors, space } from "@/theme";
 import { IconButton } from "./Button";
 import { Icon } from "./Icon";
 import { Txt } from "./Txt";
+
+/** Start loading the next page this far (px) before the end of the list. */
+const END_DISTANCE = 900;
 
 /**
  * Page wrapper: safe area, white background, scrolling content with 16px gutters
@@ -32,6 +37,7 @@ export function Screen({
   onRefresh,
   refreshing = false,
   contentStyle,
+  onEndReached,
 }: {
   header?: React.ReactNode;
   children: React.ReactNode;
@@ -40,13 +46,42 @@ export function Screen({
   onRefresh?: () => void;
   refreshing?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /**
+   * Paged lists: called when the user scrolls near the bottom, or when the
+   * content is shorter than the screen. It may be called repeatedly; the
+   * caller ignores it while a page is loading or when there is no more.
+   */
+  onEndReached?: () => void;
 }) {
+  const viewport = useRef(0);
+  const nearEnd = (contentHeight: number, offset: number) =>
+    contentHeight - (offset + viewport.current) < END_DISTANCE;
   return (
     <SafeAreaView edges={["top"]} style={styles.page}>
       {header}
+      <OfflineBooksStatus />
       {scroll ? (
         <ScrollView
           keyboardShouldPersistTaps="handled"
+          onLayout={(e) => {
+            viewport.current = e.nativeEvent.layout.height;
+          }}
+          onScroll={
+            onEndReached
+              ? ({ nativeEvent: e }) => {
+                  if (nearEnd(e.contentSize.height, e.contentOffset.y))
+                    onEndReached();
+                }
+              : undefined
+          }
+          scrollEventThrottle={onEndReached ? 100 : undefined}
+          onContentSizeChange={
+            onEndReached
+              ? (_width, height) => {
+                  if (viewport.current && nearEnd(height, 0)) onEndReached();
+                }
+              : undefined
+          }
           contentContainerStyle={[styles.content, contentStyle]}
           refreshControl={
             onRefresh ? (

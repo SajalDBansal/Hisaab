@@ -2,6 +2,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { AppError } from "@repo/backend/lib/app-error";
+import { BATCH_READ_HEADER, BATCH_READ_TOKEN } from "../lib/batch-read";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -18,6 +19,10 @@ declare module "fastify" {
       reply: FastifyReply,
     ) => Promise<boolean>;
     checkPasswordLoginLimit: (
+      req: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<boolean>;
+    checkTwoFactorLimit: (
       req: FastifyRequest,
       reply: FastifyReply,
     ) => Promise<boolean>;
@@ -85,7 +90,10 @@ export async function registerRateLimits(
     redis,
     nameSpace: "hisaab-rate-limit:",
     skipOnError: true,
-    allowList: (req) => req.method === "OPTIONS",
+    // Reads inside one batch request were already counted as that request.
+    allowList: (req) =>
+      req.method === "OPTIONS" ||
+      req.headers[BATCH_READ_HEADER] === BATCH_READ_TOKEN,
     keyGenerator: apiKey,
     errorResponseBuilder: () =>
       new AppError("RATE_LIMITED", rateLimitBody().error.message, 429),
@@ -122,6 +130,17 @@ export async function registerRateLimits(
     keyGenerator: accountAndIpKey,
   });
 
+  // Two-factor codes per IP (doc 37, T58); the plugin also allows 5 tries per
+  // sign-in and locks the account for 15 minutes after 10 wrong codes.
+  const twoFactorCodes = app.createRateLimit({
+    skipOnError: false,
+    max: 30,
+    timeWindow: "10 minutes",
+    keyGenerator: (req) => `two-factor:${req.ip}`,
+  });
+  app.decorate("checkTwoFactorLimit", async (req, reply) =>
+    allowOrReply(reply, await twoFactorCodes(req)),
+  );
   app.decorate("checkAuthRateLimit", async (req, reply) =>
     allowOrReply(reply, await authOverall(req)),
   );

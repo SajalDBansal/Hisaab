@@ -39,6 +39,7 @@ import { colors, space } from "@/theme";
 const labels = {
   sale: "Sale invoice",
   purchase: "Purchase bill",
+  proforma: "Proforma invoice",
   "sales-order": "Sales order",
   "delivery-note": "Delivery note",
 };
@@ -196,7 +197,8 @@ function OrderForm({
     } catch (failure) {
       if (
         failure instanceof ApiFailure &&
-        failure.code === "CREDIT_LIMIT_EXCEEDED"
+        (failure.code === "CREDIT_LIMIT_EXCEEDED" ||
+          failure.code === "OVERDUE_BILLS")
       )
         setCreditRequest(requestKey);
       setError(
@@ -339,7 +341,7 @@ function OrderForm({
           ) : null}
           {needsApproval && settlementAccess.owner ? (
             <TextField
-              label="Credit-limit approval reason"
+              label="Owner approval reason"
               value={creditReason}
               onChangeText={setCreditReason}
               maxLength={500}
@@ -352,7 +354,7 @@ function OrderForm({
             variant="primary"
             label={
               needsApproval && settlementAccess.owner
-                ? "Approve credit and create invoice"
+                ? "Approve and create invoice"
                 : `Create ${labels[target].toLowerCase()}`
             }
             loading={mutation.isPending || approveCredit.isPending}

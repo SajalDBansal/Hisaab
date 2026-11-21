@@ -1,12 +1,15 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { TextInput, View } from "react-native";
 import {
   altQtyText,
+  canSeeCosts,
   formatINR,
   itemTaxType,
   taxTypeLabel,
   type ItemListRow,
+  type ItemPageSummary,
+  type TaxScope,
 } from "@repo/core";
 import {
   Avatar,
@@ -17,13 +20,15 @@ import {
   EmptyState,
   Icon,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TabTitle,
   TaxScopeFilter,
   Txt,
 } from "@/components";
-import { useItems, useStockLots } from "@/data/queries";
+import { useData } from "@/data/DataProvider";
+import { useItemPages } from "@/data/pagedQueries";
+import { useDebounced } from "@/data/useDebounced";
 import { useReportScope } from "@/data/reportScope";
 import { colors, radius, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
@@ -33,10 +38,20 @@ export default function ItemsScreen() {
   // Home's "Low stock" card opens this tab with ?filter=low
   const params = useLocalSearchParams<{ filter?: string }>();
   const [lowOnly, setLowOnly] = useState(params.filter === "low");
+  const [overOnly, setOverOnly] = useState(false);
+  const [tag, setTag] = useState<string | null>(null);
   const [group, setGroup] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const items = useItems();
-  const stock = useStockLots();
+  const [scope, setScope] = useReportScope();
+  const query = useDebounced(search);
+  const items = useItemPages({
+    search: query,
+    group: group ?? undefined,
+    low: lowOnly,
+    over: overOnly,
+    tag: tag ?? undefined,
+    scope,
+  });
 
   useEffect(() => {
     if (params.filter === "low") setLowOnly(true);
@@ -57,8 +72,9 @@ export default function ItemsScreen() {
           }
         />
       }
-      onRefresh={() => Promise.all([items.refetch(), stock.refetch()])}
-      refreshing={items.isRefetching || stock.isRefetching}
+      onRefresh={() => items.query.refetch()}
+      refreshing={items.query.isRefetching && !items.query.isFetchingNextPage}
+      onEndReached={items.loadMore}
       contentStyle={{ gap: space.lg, paddingTop: space.xs }}
     >
       <View style={{ flexDirection: "row", gap: space.sm }}>
@@ -88,83 +104,62 @@ export default function ItemsScreen() {
         </View>
       </View>
 
-      <QueryView query={items}>
-        {(rows) => (
+      <PagedView list={items} noun="items">
+        {({ items: rows, summary }) => (
           <ItemList
             rows={rows}
-            search={search}
+            summary={summary}
+            scope={scope}
+            setScope={setScope}
             lowOnly={lowOnly}
             setLowOnly={setLowOnly}
+            overOnly={overOnly}
+            setOverOnly={setOverOnly}
+            tag={tag}
+            setTag={setTag}
             group={group}
             setGroup={setGroup}
           />
         )}
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }
 
 function ItemList({
-  rows,
-  search,
+  rows: visible,
+  summary,
+  scope,
+  setScope,
   lowOnly,
   setLowOnly,
+  overOnly,
+  setOverOnly,
+  tag,
+  setTag,
   group,
   setGroup,
 }: {
   rows: ItemListRow[];
-  search: string;
+  summary: ItemPageSummary;
+  scope: TaxScope;
+  setScope: (scope: TaxScope) => void;
   lowOnly: boolean;
   setLowOnly: (v: boolean) => void;
+  overOnly: boolean;
+  setOverOnly: (v: boolean) => void;
+  tag: string | null;
+  setTag: (t: string | null) => void;
   group: string | null;
   setGroup: (g: string | null) => void;
 }) {
   const gst = useGstMode();
-  const groups = useMemo(
-    () => [...new Set(rows.map((r) => r.item.group))].sort(),
-    [rows],
-  );
-  const [scope, setScope] = useReportScope();
-  const stock = useStockLots();
-  const scopedRows = useMemo(
-    () =>
-      rows
-        .map((row) => {
-          const lots = (stock.data ?? []).filter(
-            (lot) =>
-              lot.itemId === row.item.id &&
-              (scope === "all" || lot.bookScope === scope),
-          );
-          const qty =
-            Math.round(lots.reduce((sum, lot) => sum + lot.qty, 0) * 1000) /
-            1000;
-          return {
-            ...row,
-            qty,
-            value: lots.reduce((sum, lot) => sum + lot.value, 0),
-            lowStock: qty < row.item.reorderLevel,
-          };
-        })
-        .filter((row) => scope === "all" || row.qty !== 0),
-    [rows, stock.data, scope],
-  );
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return scopedRows
-      .filter(
-        (r) =>
-          !q ||
-          `${r.item.name} ${r.item.code} ${r.item.hsn}`
-            .toLowerCase()
-            .includes(q),
-      )
-      .filter((r) => !lowOnly || r.lowStock)
-      .filter((r) => !group || r.item.group === group);
-  }, [scopedRows, search, lowOnly, group]);
-
-  const totalValue = scopedRows.reduce((s, r) => s + r.value, 0);
-  const lowCount = scopedRows.filter((r) => r.lowStock).length;
-  if (!stock.data) return <QueryView query={stock}>{() => null}</QueryView>;
+  // Stock is valued at purchase cost, which sales staff don't see.
+  const { role } = useData();
+  const showCosts = canSeeCosts(role);
+  const groups = summary.groups;
+  const totalValue = summary.value;
+  const lowCount = summary.lowCount;
 
   return (
     <>
@@ -176,12 +171,18 @@ function ItemList({
           borderRadius: radius.card,
         }}
       >
+        {showCosts ? (
+          <Summary
+            label="Stock value"
+            value={formatINR(totalValue, { decimals: false })}
+            flex={1.4}
+          />
+        ) : null}
         <Summary
-          label="Stock value"
-          value={formatINR(totalValue, { decimals: false })}
-          flex={1.4}
+          label="Items"
+          value={String(summary.count)}
+          divider={showCosts}
         />
-        <Summary label="Items" value={String(scopedRows.length)} divider />
         <Summary
           label="Low stock"
           value={String(lowCount)}
@@ -195,10 +196,12 @@ function ItemList({
       <ChipRow>
         <Chip
           label="All"
-          selected={!lowOnly && !group}
+          selected={!lowOnly && !overOnly && !group && !tag}
           onPress={() => {
             setLowOnly(false);
+            setOverOnly(false);
             setGroup(null);
+            setTag(null);
           }}
         />
         <Chip
@@ -206,6 +209,13 @@ function ItemList({
           selected={lowOnly}
           onPress={() => setLowOnly(!lowOnly)}
         />
+        {summary.overCount || overOnly ? (
+          <Chip
+            label={`Over stock · ${summary.overCount ?? 0}`}
+            selected={overOnly}
+            onPress={() => setOverOnly(!overOnly)}
+          />
+        ) : null}
         {groups.map((g) => (
           <Chip
             key={g}
@@ -215,6 +225,18 @@ function ItemList({
           />
         ))}
       </ChipRow>
+      {summary.tags?.length ? (
+        <ChipRow>
+          {summary.tags.map((t) => (
+            <Chip
+              key={t}
+              label={`#${t}`}
+              selected={tag === t}
+              onPress={() => setTag(tag === t ? null : t)}
+            />
+          ))}
+        </ChipRow>
+      ) : null}
 
       {visible.length === 0 ? (
         <EmptyState
@@ -233,7 +255,7 @@ function ItemList({
                 <View style={{ gap: 4 }}>
                   <Txt variant="caption" tone="body">
                     {gst.on
-                      ? `${r.item.hsn ? `HSN ${r.item.hsn} · ` : ""}${
+                      ? `${r.item.hsn ? `${r.item.kind === "service" ? "SAC" : "HSN"} ${r.item.hsn} · ` : ""}${
                           itemTaxType(r.item) === "taxable"
                             ? `GST ${r.item.gstRate}%`
                             : taxTypeLabel(itemTaxType(r.item))
@@ -241,7 +263,23 @@ function ItemList({
                       : ""}
                     {r.item.group}
                   </Txt>
-                  {r.lowStock ? <Badge label="Low stock" tone="warn" /> : null}
+                  <View
+                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}
+                  >
+                    {r.lowStock ? (
+                      <Badge label="Low stock" tone="warn" />
+                    ) : null}
+                    {r.overStock ? (
+                      <Badge label="Over stock" tone="warn" />
+                    ) : null}
+                    {r.item.kind === "service" ? (
+                      <Badge label="Service" />
+                    ) : null}
+                    {r.item.notForSale ? <Badge label="Not for sale" /> : null}
+                    {(r.item.tags ?? []).map((t) => (
+                      <Badge key={t} label={`#${t}`} />
+                    ))}
+                  </View>
                   {r.item.batch ? (
                     <Badge label={`Batch ${r.item.batch.number}`} />
                   ) : null}
@@ -252,16 +290,20 @@ function ItemList({
                   <Txt
                     variant="bodyStrong"
                     num
-                    tone={r.lowStock ? "warn" : "ink"}
+                    tone={r.lowStock || r.overStock ? "warn" : "ink"}
                     style={{ fontWeight: "600" }}
                   >
-                    {r.qty} {r.item.unit}
+                    {r.item.kind === "service"
+                      ? "Service"
+                      : `${r.qty} ${r.item.unit}`}
                   </Txt>
                   <Txt variant="caption" tone="body" num>
-                    {altQtyText(r.item, r.qty)
-                      ? `${altQtyText(r.item, r.qty)} · `
-                      : ""}
-                    {formatINR(r.value)}
+                    {[
+                      altQtyText(r.item, r.qty),
+                      showCosts ? formatINR(r.value) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </Txt>
                 </View>
               }

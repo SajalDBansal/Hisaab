@@ -12,6 +12,7 @@ import { InvoiceLine, OrderType, Voucher } from "./vouchers";
 export const FulfillmentTarget = z.enum([
   "sale",
   "purchase",
+  "proforma",
   "sales-order",
   "delivery-note",
 ]);

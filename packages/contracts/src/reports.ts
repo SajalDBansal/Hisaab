@@ -2,7 +2,7 @@ import { z } from "zod";
 import { Id, IsoDate, Paise } from "./common";
 import { Ledger } from "./ledgers";
 import { Party, PartyType } from "./parties";
-import { Voucher } from "./vouchers";
+import { OrderType, Voucher } from "./vouchers";
 import { CompositionQuarter } from "./gst";
 
 export const PeriodKey = z.enum(["this-month", "last-month", "quarter", "fy"]);
@@ -30,6 +30,20 @@ export const OutstandingQuery = z.object({
 });
 export const StockSummaryQuery = z.object({ tax: TaxScope.default("all") });
 
+/** A statement, optionally a page of its rows at a time (`limit`, `cursor`). */
+export const StatementQuery = StockSummaryQuery.extend({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z
+    .string()
+    .regex(/^\d{1,9}$/)
+    .optional(),
+});
+/** Present when a page was asked for. */
+export const StatementPaging = {
+  rowsTotal: z.number().int().optional(),
+  nextCursor: z.string().nullable().optional(),
+};
+
 export const ReportVoucher = Voucher.omit({ version: true }).extend({
   version: z.number().int().optional(),
 });
@@ -56,6 +70,13 @@ export const Ageing = z.object({
   "90+": Paise,
 });
 
+const DashboardPartyRank = z.object({
+  partyId: Id,
+  name: z.string(),
+  bills: z.number().int(),
+  value: Paise,
+});
+
 export const DashboardData = z.object({
   toCollect: Paise,
   customersWithBalance: z.number().int(),
@@ -79,7 +100,51 @@ export const DashboardData = z.object({
   composition: CompositionQuarter.nullable(),
   monthPurchases: Paise,
   lowStockCount: z.number().int(),
+  /** Batches expired or expiring within 30 days (T38). */
+  expiringStock: z.object({
+    expired: z.number().int(),
+    expiring: z.number().int(),
+    next: z.object({ itemName: z.string(), expiryDate: IsoDate }).nullable(),
+  }),
+  /** 0 for roles that may not see costs. */
   stockValue: Paise,
+  /** Regular GST firms only (T26). */
+  itcAtRisk: z
+    .object({
+      amount: Paise,
+      bills: z.number().int(),
+      reverseNow: Paise,
+      reverseNowBills: z.number().int(),
+      nextLimit: IsoDate.nullable(),
+      topSupplier: z
+        .object({ partyId: Id, name: z.string(), amount: Paise })
+        .nullable(),
+    })
+    .nullable(),
+  topCustomers: z.array(DashboardPartyRank),
+  topSuppliers: z.array(DashboardPartyRank),
+  receivablesAgeing: Ageing,
+  payablesDue: z.object({
+    thisWeek: Paise,
+    thisWeekBills: z.number().int(),
+    overdue: Paise,
+    overdueBills: z.number().int(),
+  }),
+  quietCustomers: z.object({
+    count: z.number().int(),
+    rows: z.array(
+      z.object({
+        partyId: Id,
+        name: z.string(),
+        lastSale: IsoDate,
+        daysSince: z.number().int(),
+        balance: Paise,
+      }),
+    ),
+  }),
+  openOrders: z.array(
+    z.object({ type: OrderType, count: z.number().int(), amount: Paise }),
+  ),
   salesVsPurchases: z.array(
     z.object({
       month: z.string(),

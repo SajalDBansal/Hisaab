@@ -1,4 +1,5 @@
 import {
+  canSeeCosts,
   computeDashboard,
   buildReport,
   ReportInputError,
@@ -16,7 +17,9 @@ import {
   type ISODate,
   type PartyType,
   type PeriodKey,
+  type Role,
   type TaxScope,
+  roleFlag,
 } from "@repo/core";
 import type { Db } from "@repo/backend/db/client";
 import { loadReportSnapshot } from "@repo/backend/modules/reports/books";
@@ -30,10 +33,34 @@ const books = async (db: Db, firmId: string, tax: TaxScope = "all") =>
 
 export const reportsService = {
   /** A repeatable-read snapshot keeps all exported totals consistent during concurrent edits. */
-  async exportReport(db: Db, firmId: string, request: ReportRequest) {
-    const b = await loadReportSnapshot(db, firmId, { includeDeleted: true });
+  async exportReport(
+    db: Db,
+    firmId: string,
+    request: ReportRequest,
+    role: Role,
+  ) {
+    const audit = request.report === "audit-trail";
+    const b = await loadReportSnapshot(db, firmId, {
+      includeDeleted: true,
+      ...(audit ? { audit: { from: request.from, to: request.to } } : {}),
+    });
+    // IP address and device only for roles with the audit right (doc 37, T55/T57).
+    const auditOrigin = roleFlag(role, "viewAudit");
     try {
-      return buildReport(b, request);
+      return buildReport(
+        audit
+          ? {
+              ...b,
+              auditOrigin,
+              auditLog: b.auditLog.map((e) =>
+                auditOrigin
+                  ? e
+                  : { ...e, ipAddress: undefined, device: undefined },
+              ),
+            }
+          : b,
+        request,
+      );
     } catch (error) {
       if (error instanceof ReportInputError)
         throw new AppError("INVALID_REPORT", error.message);
@@ -41,8 +68,11 @@ export const reportsService = {
     }
   },
 
-  /** Everything the Home screen needs, calculated from the firm's live books. */
-  async dashboard(db: Db, firmId: string, tax: TaxScope = "all") {
+  /**
+   * Everything the Home screen needs, calculated from the firm's live books in
+   * one read. Stock value is left at 0 for roles that may not see costs.
+   */
+  async dashboard(db: Db, firmId: string, tax: TaxScope = "all", role?: Role) {
     const b = await books(db, firmId, tax);
     return computeDashboard({
       parties: b.parties,
@@ -51,6 +81,7 @@ export const reportsService = {
       vouchers: b.vouchers,
       asOf: today(),
       firm: b.firm,
+      costs: role === undefined || canSeeCosts(role),
     });
   },
 

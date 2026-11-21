@@ -1,10 +1,31 @@
 import { formatDate } from "../dates";
+import { auditTrailSection } from "./audit";
 import { scopeBooks } from "../accounting/bookScope";
 import { balanceSheetSections, profitLossSection } from "./financial";
 import { cashMovementSections, comparativeProfitSection } from "./management";
 import { ledgerSections, trialBalanceSection } from "./ledger";
 import { daybookSection, moneyRegister, tradeRegister } from "./registers";
 import { expenseSection, outstandingSection, stockSection } from "./summaries";
+import {
+  ITC_REVERSE_DAYS,
+  ITC_WARN_DAYS,
+  LOST_CUSTOMER_DAYS,
+  customerTrackingSection,
+  expensesByPartySection,
+  gstr2Sections,
+  interestSection,
+  itcAtRiskSection,
+  msmePayablesSection,
+  orderRegisterSection,
+  taxSummarySection,
+  tFormatBalanceSheetSection,
+  tFormatProfitLossSections,
+  topPartiesSection,
+  tradeByItemSection,
+  tradeByPartySection,
+} from "./insights";
+import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
+import { expiringItemsSection, stockLevelsSection } from "./stockLevels";
 import {
   REPORTS,
   ReportInputError,
@@ -13,6 +34,9 @@ import {
   type ReportRequest,
   type ReportSection,
 } from "./types";
+
+/** Reports that take a yearly interest rate. */
+const RATE_REPORTS: string[] = ["interest-calculator", "msme-payables"];
 
 function validateRequest(books: ReportBooks, request: ReportRequest) {
   if (!REPORTS[request.report]) throw new ReportInputError("Choose a report.");
@@ -31,6 +55,28 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
       `These books begin on ${formatDate(books.firm.fyStart)}.`,
     );
   const definition = REPORTS[request.report];
+  if (request.interestRate !== undefined) {
+    if (!RATE_REPORTS.includes(request.report))
+      throw new ReportInputError(
+        "Only the interest calculator and MSME payables take a rate.",
+      );
+    if (
+      !Number.isFinite(request.interestRate) ||
+      request.interestRate < 0 ||
+      request.interestRate > 60
+    )
+      throw new ReportInputError("Use an interest rate from 0 to 60% a year.");
+  }
+  if (request.expiryDays !== undefined) {
+    if (request.report !== "expiring-items")
+      throw new ReportInputError("Only the expiring items report takes days.");
+    if (
+      !Number.isInteger(request.expiryDays) ||
+      request.expiryDays < 0 ||
+      request.expiryDays > 365
+    )
+      throw new ReportInputError("Use 0 to 365 days ahead.");
+  }
   if (request.accountKey && !definition.accounts)
     throw new ReportInputError("This report cannot be filtered by account.");
   if (
@@ -82,6 +128,45 @@ function buildSections(
       return [outstandingSection(books, request)];
     case "stock":
       return [stockSection(books, request)];
+    case "profit-loss-t":
+      return tFormatProfitLossSections(books, request);
+    case "balance-sheet-t":
+      return [tFormatBalanceSheetSection(books, request)];
+    case "itc-at-risk":
+      return [itcAtRiskSection(books, request)];
+    case "interest-calculator":
+      return [interestSection(books, request)];
+    case "msme-payables":
+      return [msmePayablesSection(books, request)];
+    case "customer-tracking":
+      return [customerTrackingSection(books, request)];
+    case "top-customers":
+    case "top-suppliers":
+      return [topPartiesSection(books, request)];
+    case "sales-by-party":
+    case "purchases-by-party":
+      return [tradeByPartySection(books, request)];
+    case "sales-by-item":
+    case "purchases-by-item":
+      return [tradeByItemSection(books, request)];
+    case "expenses-by-party":
+      return [expensesByPartySection(books, request)];
+    case "estimates-register":
+    case "proformas-register":
+    case "sales-orders-register":
+    case "delivery-notes-register":
+    case "purchase-orders-register":
+      return [orderRegisterSection(books, request)];
+    case "gstr2":
+      return gstr2Sections(books, request);
+    case "tax-summary":
+      return [taxSummarySection(books, request)];
+    case "audit-trail":
+      return [auditTrailSection(books, request)];
+    case "stock-levels":
+      return [stockLevelsSection(books, request)];
+    case "expiring-items":
+      return [expiringItemsSection(books, request)];
   }
 }
 
@@ -113,6 +198,36 @@ export function buildReport(
     notes.push(
       "Stock uses purchase-lot cost after discounts. Freight remains a period expense. Legacy unassigned movements use FIFO; opening costs use the saved migration baseline.",
     );
+  if (request.report === "itc-at-risk")
+    notes.push(
+      `Input GST on a supplier bill must be reversed if the bill is not paid within ${ITC_REVERSE_DAYS} days of its date (CGST Act s.16(2)); it can be claimed again once paid. ITC at risk is the bill's GST in proportion to what is still unpaid, as of the report date. Bills from ${ITC_WARN_DAYS} days are shown so they can be paid in time.`,
+    );
+  if (request.report === "stock-levels")
+    notes.push(
+      "Minimum is the item's reorder level. To order fills up to the maximum when one is set, otherwise back to the minimum. Services are not listed.",
+    );
+  if (request.report === "expiring-items")
+    notes.push(
+      "Stock lots still in hand with an expiry date from the purchase line (or the item's opening batch), valued at FIFO cost. Sales take the oldest purchase first, not the earliest expiry.",
+    );
+  if (request.report === "interest-calculator")
+    notes.push(
+      "Simple interest on the balance still due, from each invoice's due date to the report date. This is a working figure; it is not posted to the books.",
+    );
+  if (request.report === "msme-payables")
+    notes.push(
+      `Micro and small suppliers must be paid by the agreed date, at most ${MSME_MAX_DAYS} days from accepting the goods or services, or within ${MSME_NO_AGREEMENT_DAYS} days when no credit period was agreed (MSMED Act s.15). The bill date is taken as the acceptance date and the bill's due date as the agreed date. Medium enterprises are not covered and are not listed.`,
+      "Interest (s.16): compound interest with monthly rests at three times the bank rate notified by the RBI, from the day after the pay-by date to the report date. The default rate assumes the 5.75% bank rate in force from 7 Oct 2026; check the RBI's current bank rate and set the rate on the report. Worked out on what is still unpaid; it is a working figure, not posted to the books.",
+      "Income Tax s.43B(h): an amount due to a micro or small enterprise that is not paid within this time limit is allowed as an expense only in the year it is actually paid. Bills still overdue at the year end are added back to income for that year.",
+    );
+  if (request.report === "customer-tracking")
+    notes.push(
+      `New: first sale in the period. Lost: no sale in the ${LOST_CUSTOMER_DAYS} days before the report's end. Net sales take off returns in the period.`,
+    );
+  if (["gstr2", "tax-summary"].includes(request.report))
+    notes.push(
+      "Book workings from posted entries, including GST on paid expenses; returns are netted off. Not a filed return.",
+    );
   if (request.report === "comparative-profit-loss")
     notes.push(
       "Compares the selected period with the immediately preceding period of the same number of days. Prior periods before the books began are unavailable, not zero.",
@@ -120,6 +235,12 @@ export function buildReport(
   if (request.report === "cash-movement")
     notes.push(
       "Management summary of posted cash and bank movements, not a statutory cash-flow statement or forecast. Internal transfers are excluded. Posting dates, not bank-clearing dates, determine the period.",
+    );
+  if (request.report === "audit-trail")
+    notes.push(
+      books.auditOrigin
+        ? "Every entry created, edited, cancelled, converted or restored in the period (Indian time). The log can't be switched off or changed. Amount now is the entry's current total."
+        : "Every entry created, edited, cancelled, converted or restored in the period (Indian time). The log can't be switched off or changed. Amount now is the entry's current total. IP address and device are shown only to roles with the audit right.",
     );
   if (request.report === "tax-ledgers")
     notes.push(

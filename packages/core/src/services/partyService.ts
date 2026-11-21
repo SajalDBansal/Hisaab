@@ -10,7 +10,19 @@ import {
   type Bill,
 } from "../accounting/bills";
 import { newestFirst } from "../accounting/reports";
+import {
+  tradeRateHistory,
+  tradeRates,
+  type TradeRate,
+  type TradeRateEntry,
+} from "../accounting/tradeRates";
 import { today } from "../dates";
+import {
+  partyPage,
+  type PagedList,
+  type PartyPageQuery,
+  type PartyPageSummary,
+} from "../listPages";
 import { createParty, updateParty, allocatePartyPayments } from "../mock/db";
 import type { Party, PartyInput, PartyType, Paise, Voucher } from "../types";
 import { clone, delay, getDb } from "./client";
@@ -48,6 +60,26 @@ export const partyService = {
     await delay();
     return allocatePartyPayments(getDb(), id, today());
   },
+  /** One page of the Parties screen. Real API: http.get(`/parties/page?…`) */
+  async page(
+    query: PartyPageQuery & { type?: PartyType },
+  ): Promise<PagedList<PartyListRow, PartyPageSummary>> {
+    await delay();
+    const { parties, vouchers } = getDb();
+    const rows = parties
+      .filter((p) => !query.type || p.type === query.type)
+      .map((p) => listRow(p, vouchers));
+    return clone(
+      partyPage(rows, query, (r) => ({
+        id: r.party.id,
+        name: r.party.name,
+        phone: r.party.phone,
+        gstin: r.party.gstin,
+        balance: r.balance,
+        overdueAmount: r.overdueAmount,
+      })),
+    );
+  },
   /** Real API: http.get<PartyListRow[]>(`/parties?type=${type ?? ""}`) */
   async list(type?: PartyType): Promise<PartyListRow[]> {
     await delay();
@@ -67,7 +99,7 @@ export const partyService = {
     const party = parties.find((p) => p.id === id);
     if (!party) throw new Error("Party not found");
     const row = listRow(party, vouchers);
-    const bills = partyBills(party, vouchers, today());
+    const bills = partyBills(party, vouchers, today(), { taxable: true });
     const overLimitBy =
       party.creditLimit > 0 ? Math.max(row.balance - party.creditLimit, 0) : 0;
     const transactions = newestFirst(
@@ -77,7 +109,10 @@ export const partyService = {
           (v.partyId === id ||
             v.journalLines?.some((l) => l.account === `party:${id}`)),
       ),
-    );
+    )
+      // The latest few, without print copies; the tab pages through voucherService.page.
+      .slice(0, 20)
+      .map(({ snapshot: _print, ...voucher }) => voucher);
     return clone({
       ...row,
       unallocated: unallocatedMoney(party, vouchers),
@@ -87,6 +122,24 @@ export const partyService = {
       overLimitBy,
       transactions,
     });
+  },
+
+  /** Real API: http.get(`/parties/${id}/items`): products and latest rates. */
+  async items(id: string): Promise<{ rows: TradeRate[] }> {
+    await delay();
+    const db = getDb();
+    const party = db.parties.find((p) => p.id === id);
+    if (!party) throw new Error("Party not found");
+    return clone({ rows: tradeRates(db, { type: party.type, partyId: id }) });
+  },
+
+  /** Real API: http.get(`/parties/${id}/items/${itemId}`): every rate, newest first. */
+  async itemRates(id: string, itemId: string): Promise<TradeRateEntry[]> {
+    await delay();
+    const db = getDb();
+    const party = db.parties.find((p) => p.id === id);
+    if (!party) throw new Error("Party not found");
+    return clone(tradeRateHistory(db, party, itemId));
   },
 
   /** Real API: http.post<Party>("/parties", input) */

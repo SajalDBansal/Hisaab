@@ -1,10 +1,20 @@
+import { partyMsme } from "@repo/backend/lib/business-profile";
 import type { PartyInput, PartyRow } from "@repo/contracts";
-import { checkParty, cleanParty, today } from "@repo/core";
+import {
+  checkParty,
+  cleanParty,
+  storedCustomValues,
+  today,
+  type CustomFieldValues,
+  type Role,
+} from "@repo/core";
+import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
 import { v7 as uuidv7 } from "uuid";
 import type { Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { partiesRepo, type PartyRecord } from "./parties.repo";
+import { requirePartyWrite } from "./parties.permissions";
 import {
   editedElsewhere,
   invalidFields,
@@ -26,6 +36,8 @@ export const toPartyRow = (r: PartyRecord): PartyRow => ({
   openingGstBalance: r.openingGstBalance ?? undefined,
   openingDate: r.openingDate,
   openingBills: r.openingBills,
+  ...(r.customFields ? { customFields: r.customFields } : {}),
+  ...partyMsme(r),
   version: r.version,
   balance: Number(r.balance),
 });
@@ -39,21 +51,40 @@ async function validated(
 ) {
   const party = cleanParty(input);
   const others = await partiesRepo.clashes(db, firmId, party, exceptId);
-  const problems = checkParty(
+  const problems: Record<string, string | undefined> = checkParty(
     party,
     others.map((o) => ({
       ...o,
       gstin: o.gstin ?? undefined,
       openingGstBalance: o.openingGstBalance ?? undefined,
+      customFields: o.customFields ?? undefined,
+      msmeType: o.msmeType ?? undefined,
+      udyamNumber: o.udyamNumber ?? undefined,
     })),
     exceptId,
   );
+  // Custom values: checked against the firm's party fields (doc 37, T07).
+  // Not sent (older app) = keep what is stored.
+  let storedCustomFields: CustomFieldValues | null | undefined;
+  if (party.customFields !== undefined)
+    try {
+      storedCustomFields =
+        storedCustomValues(
+          await loadCustomFieldDefs(db, firmId),
+          "party",
+          party.customFields,
+        ) ?? null;
+    } catch (e) {
+      problems.customFields = (e as Error).message;
+    }
   const error = invalidFields(problems);
   if (error) throw error;
-  return party;
+  return { ...party, storedCustomFields };
 }
 
-const columnsOf = (p: PartyInput) => ({
+const columnsOf = (
+  p: PartyInput & { storedCustomFields?: CustomFieldValues | null },
+) => ({
   name: p.name,
   type: p.type,
   phone: p.phone,
@@ -63,6 +94,14 @@ const columnsOf = (p: PartyInput) => ({
   creditDays: p.creditDays,
   creditLimit: p.creditLimit,
   openingBalance: p.openingBalance,
+  // MSME (doc 37, T30): undefined (older app) leaves stored values alone; null clears.
+  ...(p.msmeType === undefined
+    ? {}
+    : { msmeType: p.msmeType, udyamNumber: p.udyamNumber ?? null }),
+  // undefined leaves stored values alone on update; null clears them.
+  ...(p.storedCustomFields === undefined
+    ? {}
+    : { customFields: p.storedCustomFields }),
 });
 
 const duplicate = () =>
@@ -71,7 +110,8 @@ const duplicate = () =>
   });
 
 export const partiesService = {
-  async create(db: Db, firmId: string, input: PartyInput) {
+  async create(db: Db, firmId: string, input: PartyInput, role: Role) {
+    requirePartyWrite(role, input.type);
     return withFirmWrite(db, firmId, async (tx) => {
       const party = await validated(tx, firmId, input);
       const id = uuidv7();
@@ -98,10 +138,12 @@ export const partiesService = {
     id: string,
     version: number,
     input: PartyInput,
+    role: Role,
   ) {
     return withFirmWrite(db, firmId, async (db) => {
       const current = await partiesRepo.get(db, firmId, id);
       if (!current) throw notFound("party");
+      requirePartyWrite(role, current.type, input.type);
       const party = await validated(db, firmId, input, id);
       if (
         current.openingBills?.length &&
@@ -151,9 +193,17 @@ export const partiesService = {
     });
   },
 
-  async remove(db: Db, firmId: string, id: string, version: number) {
+  async remove(
+    db: Db,
+    firmId: string,
+    id: string,
+    version: number,
+    role: Role,
+  ) {
     return withFirmWrite(db, firmId, async (db) => {
-      if (!(await partiesRepo.get(db, firmId, id))) throw notFound("party");
+      const current = await partiesRepo.get(db, firmId, id);
+      if (!current) throw notFound("party");
+      requirePartyWrite(role, current.type);
       if (await partiesRepo.hasEntries(db, firmId, id))
         throw new AppError(
           "PARTY_IN_USE",

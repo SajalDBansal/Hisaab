@@ -6,6 +6,7 @@ import type { OrderType, VoucherType } from "../types";
 /** In the order they usually happen. */
 export const ORDER_TYPES: OrderType[] = [
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -18,7 +19,8 @@ export const CONVERTS_TO: Record<
   OrderType,
   ("sale" | "purchase" | OrderType)[]
 > = {
-  estimate: ["sale", "sales-order"],
+  estimate: ["sale", "proforma", "sales-order"],
+  proforma: ["sale"],
   "sales-order": ["sale", "delivery-note"],
   "delivery-note": ["sale"],
   "purchase-order": ["purchase"],
@@ -27,6 +29,7 @@ export const CONVERTS_TO: Record<
 /** The voucher type a document is usually turned into first. */
 export const MAIN_CONVERSION: Record<OrderType, VoucherType> = {
   estimate: "sale",
+  proforma: "sale",
   "sales-order": "sale",
   "delivery-note": "sale",
   "purchase-order": "purchase",

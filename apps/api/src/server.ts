@@ -1,6 +1,6 @@
 import { buildApp } from "./app";
 import { readEnv } from "./config/env";
-import { createDb } from "@repo/backend/db/client";
+import { createDb, createReadinessPool } from "@repo/backend/db/client";
 import { createBullJobs } from "@repo/backend/jobs/queues";
 import { logSender, resendSender } from "./lib/email";
 import {
@@ -13,7 +13,19 @@ import { createPdfStorage } from "@repo/backend/modules/server-pdf/storage";
 
 const env = readEnv();
 const { db, pool } = createDb(env.DATABASE_URL);
+const readinessPool = createReadinessPool(env.DATABASE_URL);
 const redis = createRedis(env.REDIS_URL);
+// Start the real limiter/cache connection before the first authenticated request.
+redis.on("error", () => undefined);
+void redis.connect().catch(() => undefined);
+// Probe deadlines must not affect cache commands or BullMQ connections.
+const readinessRedis = redis.duplicate({
+  lazyConnect: false,
+  commandTimeout: 1_000,
+  socketTimeout: 1_000,
+});
+// Failed probes are logged by systemRoutes without connection details.
+readinessRedis.on("error", () => undefined);
 const recovery = env.APP_MODE === "recovery";
 const noRecoveryEmail = async () => {
   throw new Error("Email is disabled during isolated recovery.");
@@ -51,10 +63,34 @@ const app = await buildApp({
       ? resendSender(env.RESEND_API_KEY, env.EMAIL_FROM)
       : logSender((message) => app.log.warn(message)),
   readyChecks: [
-    { name: "database", run: async () => void (await pool.query("select 1")) },
-    { name: "redis", run: async () => void (await redis.ping()) },
+    {
+      name: "database",
+      // Pool.query destroys failed clients inside the query callback, before
+      // pg clears its active query after a read timeout. Keep that cleanup order.
+      run: async () => void (await readinessPool.query("select 1")),
+    },
+    {
+      name: "redis",
+      run: async () => {
+        if (redis.status !== "ready")
+          throw new Error("The application Redis connection is not ready");
+        await readinessRedis.ping();
+      },
+    },
   ],
 });
+// Idle socket failures must not crash the server or include connection secrets.
+pool.on("error", () => {
+  app.log.warn({ check: "database" }, "Application database connection failed");
+});
+readinessPool.on("error", () => {
+  app.log.warn({ check: "database" }, "Readiness connection failed");
+});
+app.addHook("onClose", async () => {
+  readinessRedis.disconnect();
+  await readinessPool.end();
+});
+
 installProcessErrorHandlers(
   app.log,
   "api",

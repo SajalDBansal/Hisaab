@@ -3,6 +3,7 @@
  * Each function returns the first problem as a sentence the user can act on, or null if all is well.
  */
 import type { Bill } from "./accounting/bills";
+import { checkMsme } from "./businessProfile";
 import { formatINR } from "./money";
 import { stateFromGstin } from "./states";
 import type {
@@ -99,6 +100,29 @@ export function checkJournal(
 /** GSTIN: 2-digit state + 10-char PAN + entity digit + "Z" + check character. */
 export const GSTIN_PATTERN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 export const PAN_PATTERN = /^[A-Z]{5}\d{4}[A-Z]$/;
+/** A real GSTIN to show in messages; its check character is correct. */
+export const GSTIN_EXAMPLE = "27AAPFU0939F1ZV";
+
+const GSTIN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/** The 15th GSTIN character is a mod-36 check over the first 14; it catches most typos. */
+export function gstinCheckOk(gstin: string): boolean {
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const product = GSTIN_CHARS.indexOf(gstin[i]) * (i % 2 ? 2 : 1);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return gstin[14] === GSTIN_CHARS[(36 - (sum % 36)) % 36];
+}
+
+/** Why a typed GSTIN is wrong, or null when its shape and check character are right. */
+export function gstinProblem(gstin: string): string | null {
+  if (!GSTIN_PATTERN.test(gstin))
+    return `GSTIN should be 15 characters, like ${GSTIN_EXAMPLE}.`;
+  if (!gstinCheckOk(gstin))
+    return "This GSTIN has a typing mistake: its last character doesn't match. Check it against the registration certificate.";
+  return null;
+}
 
 /** Firm profile form. Returns an error per field; an empty object means OK. */
 export function checkFirm(
@@ -109,8 +133,7 @@ export function checkFirm(
     Record<"name" | "gstin" | "pan" | "phone" | "email", string>
   > = {};
   if (!f.name.trim()) errors.name = "Enter the firm name.";
-  if (f.gstin && !GSTIN_PATTERN.test(f.gstin))
-    errors.gstin = "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.";
+  if (f.gstin && gstinProblem(f.gstin)) errors.gstin = gstinProblem(f.gstin)!;
   else if (f.gstin && f.gstin.slice(0, 2) !== stateCode)
     errors.gstin = `GSTIN should start with your state code ${stateCode}.`;
   if (f.pan && !PAN_PATTERN.test(f.pan))
@@ -135,7 +158,14 @@ export function checkFirm(
 
 export type PartyErrors = Partial<
   Record<
-    "name" | "phone" | "gstin" | "stateCode" | "creditDays" | "creditLimit",
+    | "name"
+    | "phone"
+    | "gstin"
+    | "stateCode"
+    | "creditDays"
+    | "creditLimit"
+    | "msmeType"
+    | "udyamNumber",
     string
   >
 >;
@@ -156,8 +186,7 @@ export function checkParty(
   if (p.phone && digits.length !== 10)
     e.phone = "Enter a 10-digit mobile number.";
   if (p.gstin) {
-    if (!GSTIN_PATTERN.test(p.gstin))
-      e.gstin = "GSTIN should be 15 characters, like 09AAGFA7788Q1Z1.";
+    if (gstinProblem(p.gstin)) e.gstin = gstinProblem(p.gstin)!;
     else if (!stateFromGstin(p.gstin))
       e.gstin = "The first two digits aren't a valid state code.";
     else if (p.gstin.slice(0, 2) !== p.stateCode)
@@ -170,6 +199,14 @@ export function checkParty(
   if (!Number.isInteger(p.creditDays) || p.creditDays < 0 || p.creditDays > 365)
     e.creditDays = "Credit days should be 0 to 365.";
   if (p.creditLimit < 0) e.creditLimit = "Credit limit can't be negative.";
+  if (p.type === "supplier")
+    Object.assign(
+      e,
+      checkMsme({
+        msmeType: p.msmeType ?? undefined,
+        udyamNumber: p.udyamNumber ?? undefined,
+      }),
+    );
   return e;
 }
 
@@ -185,10 +222,14 @@ export type ItemErrors = Partial<
     | "purchasePrice"
     | "mrp"
     | "reorderLevel"
+    | "maxStock"
+    | "tags"
     | "openingStock",
     string
   >
 >;
+
+export const MAX_ITEM_TAGS = 10;
 
 /** Item form. Returns blocking errors; see `itemWarnings` for things worth a second look. */
 export function checkItem(
@@ -213,7 +254,10 @@ export function checkItem(
   // composition firms and firms without GST may leave it empty
   const hsnRequired = mode === "regular" && i.taxType !== "nongst";
   if (hsnRequired && !i.hsn.trim())
-    e.hsn = "Enter the HSN code (4, 6 or 8 digits).";
+    e.hsn =
+      i.kind === "service"
+        ? "Enter the SAC code (6 digits, starting 99)."
+        : "Enter the HSN code (4, 6 or 8 digits).";
   else if (i.hsn.trim() && !/^\d{4}(\d{2}(\d{2})?)?$/.test(i.hsn.trim()))
     e.hsn = "HSN/SAC should be 4, 6 or 8 digits.";
   if (!i.unit.trim()) e.unit = "Pick a unit.";
@@ -236,6 +280,23 @@ export function checkItem(
     e.mrp = "Sale price can't be more than MRP.";
   if (i.reorderLevel < 0) e.reorderLevel = "Can't be negative.";
   if (i.openingStock < 0) e.openingStock = "Can't be negative.";
+  if (i.maxStock !== undefined && i.maxStock < 0)
+    e.maxStock = "Can't be negative.";
+  else if (i.maxStock && i.maxStock < i.reorderLevel)
+    e.maxStock = "The maximum can't be below the minimum.";
+  const tags = i.tags ?? [];
+  if (tags.length > MAX_ITEM_TAGS) e.tags = `Use up to ${MAX_ITEM_TAGS} tags.`;
+  else if (tags.some((t) => !t.trim() || t.trim().length > 30))
+    e.tags = "Each tag needs 1 to 30 characters.";
+  // Services (doc 37, T39): SAC code, no stock.
+  if (i.kind === "service") {
+    if (i.hsn.trim() && !e.hsn && !i.hsn.trim().startsWith("99"))
+      e.hsn = "A SAC code for services starts with 99.";
+    if (i.openingStock || i.openingLots?.length || i.batch)
+      e.openingStock = "Services don't keep stock.";
+    if (i.reorderLevel || i.maxStock)
+      e.reorderLevel = "Services don't have stock levels.";
+  }
   return e;
 }
 
@@ -244,7 +305,7 @@ export function itemWarnings(i: ItemInput): string[] {
   const w: string[] = [];
   if (i.purchasePrice > 0 && i.salePrice > 0 && i.salePrice < i.purchasePrice)
     w.push("Sale price is below purchase price — you'll sell at a loss.");
-  if (i.purchasePrice === 0)
+  if (i.purchasePrice === 0 && i.kind !== "service")
     w.push(
       "Without a purchase price, stock value and profit will show as zero.",
     );
@@ -321,8 +382,7 @@ export function checkNewFirm(
       errors.gstin = "Leave GSTIN empty for a firm not registered under GST.";
   } else if (!gstin)
     errors.gstin = "Enter the GSTIN, or choose Not registered.";
-  else if (!GSTIN_PATTERN.test(gstin))
-    errors.gstin = "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.";
+  else if (gstinProblem(gstin)) errors.gstin = gstinProblem(gstin)!;
   else if (gstin.slice(0, 2) !== f.stateCode)
     errors.gstin = `GSTIN should start with the state code ${f.stateCode}.`;
   return errors;

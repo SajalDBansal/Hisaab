@@ -1,5 +1,9 @@
-import type { ISODate, InvoiceLine, Voucher } from "../types";
+import type { ISODate, InvoiceLine, Item, Voucher } from "../types";
 import { isPosted } from "./bills";
+
+/** Services (doc 37, T39) never hold stock: no lots, no movements, no stock reports. */
+export const tracksStock = (item: Pick<Item, "kind"> | undefined) =>
+  item?.kind !== "service";
 
 /** Convert a packed quantity into base units, retaining three decimal places. */
 export function baseQty(line: InvoiceLine): number {

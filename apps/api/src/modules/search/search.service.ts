@@ -1,7 +1,12 @@
 import type { SearchResults } from "@repo/contracts";
-import type { Role } from "@repo/core";
+import { roleFlag, type Role } from "@repo/core";
 import type { Db } from "@repo/backend/db/client";
-import { canReadBooks, readableVoucherTypes } from "../../lib/read-permissions";
+import {
+  canReadBooks,
+  onlyOwn,
+  ownVoucherIds,
+  readableVoucherTypes,
+} from "../../lib/read-permissions";
 import { searchRepo } from "./search.repo";
 
 export const searchService = {
@@ -10,6 +15,7 @@ export const searchService = {
     firmId: string,
     query: string,
     role: Role,
+    userId?: string,
   ): Promise<SearchResults> {
     const q = query.trim();
     const [parties, items, vouchers, ledgers] = await Promise.all([
@@ -23,6 +29,17 @@ export const searchService = {
       searchRepo.vouchers(db, firmId, q, readableVoucherTypes(role)),
       searchRepo.ledgers(db, firmId, q),
     ]);
-    return { query: q, parties, items, vouchers, ledgers };
+    const own = userId
+      ? await ownVoucherIds(db, firmId, role, userId)
+      : roleFlag(role, "ownRecordsOnly")
+        ? new Set<string>()
+        : null;
+    return {
+      query: q,
+      parties,
+      items,
+      vouchers: onlyOwn(vouchers, own),
+      ledgers,
+    };
   },
 };

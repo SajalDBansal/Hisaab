@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { OpeningStockLot } from "@repo/core";
+import type { CustomFieldValues } from "@repo/core";
 import {
   boolean,
   bigint,
@@ -16,6 +17,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
+import { msmeType } from "./firms";
 import { moment, paise, primaryId, quantity, stamps } from "./columns";
 
 export const partyType = pgEnum("party_type", ["customer", "supplier"]);
@@ -27,6 +29,8 @@ export const taxType = pgEnum("tax_type", [
   "nongst",
 ]);
 export const ledgerKind = pgEnum("ledger_kind", ["cash", "bank"]);
+// Goods carry stock; services (SAC code in hsn) never do (doc 37, T39).
+export const itemKind = pgEnum("item_kind", ["goods", "service"]);
 
 const firmId = () =>
   uuid("firm_id")
@@ -52,6 +56,11 @@ export const parties = pgTable(
     openingGstBalance: bigint("opening_gst_balance", { mode: "number" }),
     openingDate: date("opening_date", { mode: "string" }).notNull(),
     deletedAt: moment("deleted_at"),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
+    // Suppliers' MSME class and Udyam number (doc 37, T30); null = not an MSME.
+    msmeType: msmeType("msme_type"),
+    udyamNumber: text("udyam_number"),
     ...stamps,
   },
   (t) => [
@@ -101,6 +110,17 @@ export const items = pgTable(
     batchNumber: text("batch_number"),
     batchExpiry: date("batch_expiry", { mode: "string" }),
     deletedAt: moment("deleted_at"),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
+    // Item master extras (doc 37, T39). reorder_level is the minimum stock level.
+    kind: itemKind("kind").notNull().default("goods"),
+    notForSale: boolean("not_for_sale").notNull().default(false),
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // Maximum stock level (doc 37, T37); null = none.
+    maxStock: quantity("max_stock"),
     ...stamps,
   },
   (t) => [

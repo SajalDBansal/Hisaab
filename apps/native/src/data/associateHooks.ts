@@ -1,7 +1,12 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as c from "@repo/contracts/src/associates";
 import { useData } from "./DataProvider";
-import { useServiceMutation, useServiceQuery } from "./scopedHooks";
+import {
+  useServiceMutation,
+  useServicePages,
+  useServiceQuery,
+} from "./scopedHooks";
 import type { Services } from "./services";
 import type { AssociateService } from "./associateServices";
 
@@ -20,10 +25,19 @@ export function useAssociateAccess() {
   const connected: Services & { associateService?: AssociateService } =
     services;
   return {
-    write: role === "owner" || role === "accountant",
-    select: role === "owner" || role === "accountant" || role === "sales",
+    write: !!role && can(role, "accounts"),
+    select: !!role && can(role, "sales"),
     connected: !!connected.associateService,
   };
+}
+/** The register screen, a page at a time as the user scrolls. */
+export function useAssociatePages() {
+  const access = useAssociateAccess();
+  return useServicePages({
+    queryKey: ["associatePages"],
+    queryFn: (s, cursor) => service(s).listPage(cursor),
+    enabled: access.write && access.connected,
+  });
 }
 export function useAssociates() {
   const access = useAssociateAccess();

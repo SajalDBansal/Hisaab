@@ -7,22 +7,39 @@ import {
   Percentage,
   Quantity,
 } from "./common";
-import { CompositionType, GstRegistration } from "./firms";
+import {
+  BusinessType,
+  CompositionType,
+  GstRegistration,
+  MsmeType,
+  OwnershipType,
+} from "./firms";
 import {
   BankAccount,
   GstMode,
+  ChargeHead,
   InvoiceSettings,
   InvoiceTemplate,
 } from "./settings";
-import { VoucherSnapshot, VoucherType } from "./vouchers";
+import { ReturnAmounts, VoucherSnapshot, VoucherType } from "./vouchers";
 import { LoanDirection, LoanStatus, LoanTerms } from "./loans";
 import { ImportApplyResult, ImportKind } from "./imports";
 import { ExtendedBackupData, ExtendedBackupRows } from "./backupExtensions";
-import { OpeningStockLot } from "./items";
+import { OpeningStockLots } from "./items";
 import { InventoryAdjustment } from "./inventory";
 import { DeliverySnapshot, CommissionSnapshot } from "./associates";
+import { RoleRights } from "./roles";
+import {
+  CustomFieldDefinition,
+  CustomFieldEntity,
+  CustomFieldKey,
+  CustomFieldValues,
+} from "./customFields";
 
-export const FIRM_EXPORT_VERSION = 4;
+// Version 5 (Phase 0 foundations, doc 37): voucher numbering rules; edit-log IP and
+// device; custom field definitions and values; logo and signature; custom roles; credit control,
+// business profile and MSME suppliers, firm security (optional).
+export const FIRM_EXPORT_VERSION = 5;
 export const MAX_FIRM_EXPORT_BYTES = 10 * 1024 * 1024;
 export const MAX_FIRM_EXPORT_ROWS = 25_000;
 export const RESTORE_UNAVAILABLE =
@@ -57,6 +74,18 @@ export const BackupRows = {
     phone: Text.nullable(),
     email: Text.nullable(),
     pan: Text.nullable(),
+    // Business profile (doc 37, T61); optional in version 5 files made before it.
+    ownershipType: OwnershipType.nullable().optional(),
+    businessType: BusinessType.nullable().optional(),
+    industry: Text.nullable().optional(),
+    cin: Text.nullable().optional(),
+    tan: Text.nullable().optional(),
+    udyamNumber: Text.nullable().optional(),
+    msmeType: MsmeType.nullable().optional(),
+    iec: Text.nullable().optional(),
+    fssai: Text.nullable().optional(),
+    drugLicence: Text.nullable().optional(),
+    website: Text.nullable().optional(),
   }),
   invoiceSettings: z.strictObject({
     ...firm,
@@ -68,6 +97,29 @@ export const BackupRows = {
     bankAccount: BankAccount.strict().nullable(),
     prefixes: InvoiceSettings.shape.prefixes,
     billOfSupplyPrefix: Text,
+    numbering: InvoiceSettings.shape.numbering,
+    chargeHeads: z.array(ChargeHead).max(30).default([]),
+  }),
+  firmBranding: z.strictObject({
+    ...firm,
+    ...stamps,
+    // data:image URIs, up to about 150 KB each (doc 37, T16)
+    logo: z.string().max(200_000).nullable(),
+    signature: z.string().max(200_000).nullable(),
+  }),
+  // Credit control (doc 37, T11)
+  salesControls: z.strictObject({
+    ...firm,
+    ...stamps,
+    overdueSales: z.enum(["off", "warn", "block"]),
+    // Stock control (doc 37, T37); files made before it have none.
+    stockPolicy: z.enum(["warn", "block"]).default("warn"),
+  }),
+  // Firm security (doc 37, T58)
+  firmSecurity: z.strictObject({
+    ...firm,
+    ...stamps,
+    requireTwoFactor: z.boolean(),
   }),
   reminderSettings: z.strictObject({
     ...firm,
@@ -93,6 +145,10 @@ export const BackupRows = {
     openingGstBalance: Paise.nullable(),
     openingDate: IsoDate,
     deletedAt: IsoDateTime.nullable(),
+    customFields: CustomFieldValues.nullable(),
+    // MSME suppliers (doc 37, T30); optional in version 5 files made before it.
+    msmeType: MsmeType.nullable().optional(),
+    udyamNumber: Text.nullable().optional(),
   }),
   items: z.strictObject({
     ...row,
@@ -113,10 +169,16 @@ export const BackupRows = {
     openingStock: Quantity,
     openingCost: Paise.nullable(),
     openingBookScope: Scope,
-    openingLots: z.array(OpeningStockLot).nullable(),
+    openingLots: OpeningStockLots.nullable(),
     batchNumber: Text.nullable(),
     batchExpiry: IsoDate.nullable(),
     deletedAt: IsoDateTime.nullable(),
+    customFields: CustomFieldValues.nullable(),
+    // Item master extras and maximum stock (doc 37, T37/T39); older files have none.
+    kind: z.enum(["goods", "service"]).default("goods"),
+    notForSale: z.boolean().default(false),
+    tags: z.array(Text).max(10).default([]),
+    maxStock: Quantity.nullable().default(null),
   }),
   units: z.strictObject({
     ...firm,
@@ -198,6 +260,10 @@ export const BackupRows = {
     inventoryAdjustment: InventoryAdjustment.nullable(),
     delivery: DeliverySnapshot.strict().nullable(),
     commission: CommissionSnapshot.strict().nullable(),
+    customFields: CustomFieldValues.nullable(),
+    // Subtotal discount (doc 37, T09); older version 5 files have none.
+    billDiscountPercent: Percentage.nullable().default(null),
+    billDiscountAmount: Paise.default(0),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -208,18 +274,33 @@ export const BackupRows = {
     perFactor: Quantity.nullable(),
     discountPercent: Percentage.nullable(),
     discountAmount: Paise,
+    billDiscount: Paise.default(0),
     gstRate: Count,
     taxType: z.enum(["taxable", "nil", "exempt", "nongst"]).nullable(),
     sourceLine: Count.nullable(),
+    returnAmounts: ReturnAmounts.strict().nullable().default(null),
     stockLotId: Text.nullable(),
     stockCost: Paise.nullable(),
     bookScope: Scope,
+    // Exports made before exact line maths existed omit this; those lines keep float totals.
+    exactMath: z.boolean().default(false),
+    // Purchase batch and expiry (doc 37, T38); older files have none.
+    batchNumber: Text.nullable().default(null),
+    expiryDate: IsoDate.nullable().default(null),
   }),
   voucherCharges: z.strictObject({
     ...entry,
     name: Text,
     amount: Paise,
     gstRate: Count,
+    // Charge heads (doc 37, T09); older version 5 files have none.
+    headId: Text.nullable().default(null),
+    taxType: z
+      .enum(["taxable", "nil", "exempt", "nongst"])
+      .nullable()
+      .default(null),
+    sac: Text.nullable().default(null),
+    account: Text.nullable().default(null),
   }),
   journalLines: z.strictObject({
     ...entry,
@@ -281,6 +362,7 @@ export const BackupRows = {
       "cancelled",
       "converted",
       "reopened",
+      "restored",
       "bank-date",
     ]),
     at: IsoDateTime,
@@ -290,6 +372,23 @@ export const BackupRows = {
       z.strictObject({ field: Text, before: Text, after: Text }),
     ),
     note: Text.nullable(),
+    ipAddress: Text.nullable(),
+    device: Text.nullable(),
+  }),
+  customRoles: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    description: Text,
+    rights: RoleRights,
+  }),
+  customFields: z.strictObject({
+    ...row,
+    ...stamps,
+    key: CustomFieldKey,
+    entity: CustomFieldEntity,
+    definition: CustomFieldDefinition,
+    position: Count,
   }),
   bookControls: z.strictObject({
     ...firm,
@@ -372,6 +471,11 @@ export const FirmExportData = z.strictObject({
   firmProfile: BackupRows.firmProfile,
   invoiceSettings: BackupRows.invoiceSettings,
   reminderSettings: BackupRows.reminderSettings,
+  firmBranding: BackupRows.firmBranding.nullable(),
+  // Optional: version 5 files made before credit control have none (default "warn").
+  salesControls: BackupRows.salesControls.nullable().optional(),
+  // Optional: version 5 files made before firm security have none (nothing required).
+  firmSecurity: BackupRows.firmSecurity.nullable().optional(),
   parties: rows(BackupRows.parties),
   items: rows(BackupRows.items),
   units: rows(BackupRows.units),
@@ -395,6 +499,8 @@ export const FirmExportData = z.strictObject({
   loanRepaymentReferences: rows(BackupRows.loanRepaymentReferences),
   loanEvents: rows(BackupRows.loanEvents),
   masterImportBatches: rows(BackupRows.masterImportBatches),
+  customFields: rows(BackupRows.customFields),
+  customRoles: rows(BackupRows.customRoles),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 
@@ -436,7 +542,47 @@ export const FirmExportFile = z.strictObject({
 export type FirmExportFile = z.infer<typeof FirmExportFile>;
 
 // Older files are checked against their exact original schema before a lossless upgrade.
-const LegacyDataV3 = FirmExportData.omit({
+const invoiceSettingsV4 = BackupRows.invoiceSettings.omit({ numbering: true });
+const firmProfileV4 = BackupRows.firmProfile.omit({
+  ownershipType: true,
+  businessType: true,
+  industry: true,
+  cin: true,
+  tan: true,
+  udyamNumber: true,
+  msmeType: true,
+  iec: true,
+  fssai: true,
+  drugLicence: true,
+  website: true,
+});
+const partiesV4 = BackupRows.parties.omit({
+  customFields: true,
+  msmeType: true,
+  udyamNumber: true,
+});
+const LegacyDataV4 = FirmExportData.extend({
+  firmProfile: firmProfileV4,
+  invoiceSettings: invoiceSettingsV4,
+  auditLog: rows(BackupRows.auditLog.omit({ ipAddress: true, device: true })),
+  parties: rows(partiesV4),
+  items: rows(BackupRows.items.omit({ customFields: true })),
+  vouchers: rows(BackupRows.vouchers.omit({ customFields: true })),
+}).omit({
+  customFields: true,
+  firmBranding: true,
+  customRoles: true,
+  salesControls: true,
+  firmSecurity: true,
+});
+export const LegacyFirmExportFileV4 = FirmExportFile.extend({
+  payload: FirmExportPayload.extend({
+    version: z.literal(4),
+    data: LegacyDataV4,
+  }),
+});
+
+const LegacyDataV3 = LegacyDataV4.omit({
   settlementEntries: true,
   settlementAllocations: true,
   creditApprovals: true,

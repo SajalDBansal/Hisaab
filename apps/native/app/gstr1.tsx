@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import { Share, View } from "react-native";
 import { formatINR, type Gstr1, count } from "@repo/core";
 import {
@@ -8,13 +9,15 @@ import {
   FooterBar,
   Header,
   KeyValue,
+  Notice,
   QueryView,
   Screen,
   TableRow,
   Txt,
 } from "@/components";
 import { stateName } from "@/data/labels";
-import { useGstr1 } from "@/data/queries";
+import { useGstr1, useGstr1Json } from "@/data/queries";
+import { saveJsonFile } from "@/data/reportFile";
 import { colors, fonts, radius, space } from "@/theme";
 
 const box = {
@@ -25,15 +28,41 @@ const box = {
 };
 const inr = (p: number) => formatINR(p, { decimals: false });
 
-/** GSTR-1: every sale of the month, in the sections the GST portal asks for. */
+const summaryScope =
+  "Book summary of posted sales saved under Regular GST for the selected month. Includes nil-rated, exempt and non-GST items on those sales; excludes sales saved under Composition or No GST.";
+
+/** Monthly book summary of sales saved under Regular GST. */
 export default function Gstr1Screen() {
   const { month = "" } = useLocalSearchParams<{ month: string }>();
   const data = useGstr1(month);
+  const file = useGstr1Json();
+  const [download, setDownload] = useState<{
+    warnings: string[];
+    problem?: string;
+    fileName?: string;
+  } | null>(null);
+
+  const downloadJson = async () => {
+    setDownload(null);
+    try {
+      const made = await file.mutateAsync(month);
+      await saveJsonFile(made.fileName, made.json);
+      setDownload({ warnings: made.warnings, fileName: made.fileName });
+    } catch (error) {
+      setDownload({
+        warnings: [],
+        problem:
+          error instanceof Error
+            ? error.message
+            : "Couldn't make the file. Please try again.",
+      });
+    }
+  };
 
   const share = async (g: Gstr1) => {
-    // Mock export: shares a text summary. The real app will download the portal JSON from the API.
     const text = [
-      `GSTR-1 · ${g.title}`,
+      `GSTR-1 book summary · ${g.title}`,
+      summaryScope,
       `Invoices: ${g.totals.invoices}`,
       `Taxable value: ${formatINR(g.totals.taxable)}`,
       `Tax: ${formatINR(g.totals.tax)}`,
@@ -48,7 +77,10 @@ export default function Gstr1Screen() {
   return (
     <Screen
       header={
-        <Header title="GSTR-1" subtitle={data.data?.title ?? "Sales details"} />
+        <Header
+          title="GSTR-1 summary"
+          subtitle={data.data?.title ?? "Sales book summary"}
+        />
       }
       onRefresh={() => data.refetch()}
       refreshing={data.isRefetching}
@@ -71,17 +103,57 @@ export default function Gstr1Screen() {
       }
     >
       <QueryView query={data}>
-        {(g) =>
-          g.totals.invoices === 0 ? (
-            <EmptyState
-              icon="file-text"
-              title="No sales this month"
-              message="File a nil GSTR-1 for this month."
-            />
-          ) : (
-            <Body g={g} />
-          )
-        }
+        {(g) => (
+          <>
+            <Notice tone="info" text={summaryScope} />
+            {g.totals.invoices === 0 ? (
+              <EmptyState
+                icon="file-text"
+                title="No matching sales recorded"
+                message={`There are no posted sales saved under Regular GST for ${g.title}.`}
+              />
+            ) : (
+              <>
+                <Card style={{ gap: space.sm }}>
+                  <Txt variant="heading">File for the GST portal</Txt>
+                  <Txt variant="caption" tone="body">
+                    A GSTR-1 JSON file made from these figures, invoice by
+                    invoice. Upload it yourself on the GST portal (Returns →
+                    GSTR-1 → Prepare offline) or open it in the GST Offline
+                    Tool. Check it there before filing.
+                  </Txt>
+                  <Button
+                    label="Download JSON"
+                    icon="download"
+                    block
+                    loading={file.isPending}
+                    disabled={file.isPending}
+                    onPress={() => void downloadJson()}
+                  />
+                  {download?.problem ? (
+                    <Txt variant="small" tone="give">
+                      {download.problem}
+                    </Txt>
+                  ) : null}
+                  {download?.fileName ? (
+                    <Txt variant="caption" tone="body">
+                      Saved {download.fileName}.json
+                    </Txt>
+                  ) : null}
+                  {download?.warnings.length ? (
+                    <Notice
+                      text={[
+                        "Check before uploading:",
+                        ...download.warnings.map((w) => `• ${w}`),
+                      ].join("\n")}
+                    />
+                  ) : null}
+                </Card>
+                <Body g={g} />
+              </>
+            )}
+          </>
+        )}
       </QueryView>
     </Screen>
   );

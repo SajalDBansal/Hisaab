@@ -60,7 +60,8 @@ export const documents = pgTable(
 
 /**
  * Remembers the answer to a create request, so a retry (bad network) returns the
- * same answer instead of creating a second bill. Cleaned up after 7 days.
+ * same answer instead of creating a second bill. After 7 days, only copies with
+ * a permanent operation receipt can be cleaned up.
  */
 export const idempotencyKeys = pgTable(
   "idempotency_keys",

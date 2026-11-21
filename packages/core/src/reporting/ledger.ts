@@ -1,7 +1,12 @@
 import { acc, describeAccount } from "../accounting/accounts";
-import { accountBalances, openingPostings } from "../accounting/generalLedger";
-import { formatDate } from "../dates";
-import type { ISODate, Voucher } from "../types";
+import {
+  accountBalances,
+  openingPostings,
+  partyOpeningMovements,
+  type PartyOpeningMovement,
+} from "../accounting/generalLedger";
+import { addDays, formatDate } from "../dates";
+import type { Voucher } from "../types";
 import {
   moneyColumn,
   namedPostings,
@@ -26,18 +31,11 @@ interface Movement {
   debit: number;
   credit: number;
 }
-interface OpeningAdjustment {
-  date: ISODate;
-  partyId: string;
-  counterAccount: string;
-  debit: number;
-  credit: number;
-}
 interface LedgerRows {
   key: string;
   opening: number;
   movements: Movement[];
-  openingAdjustments: OpeningAdjustment[];
+  openingAdjustments: PartyOpeningMovement[];
 }
 
 /** Index postings once so exporting all ledgers does not rescan every voucher per account. */
@@ -56,33 +54,12 @@ export function ledgerIndex(books: ReportBooks, request: ReportRequest) {
   books.parties.forEach((p) => account(acc.party(p.id)));
   books.ledgers.forEach((l) => account(acc.ledger(l.id)));
   books.accounts?.forEach((a) => account(acc.account(a.id)));
-  for (const p of openingPostings(books, request.from))
+  for (const p of openingPostings(books, addDays(request.from, -1)))
     account(p.account).opening += p.debit - p.credit;
-  // Later party openings are dated balance adjustments, not synthetic vouchers.
-  for (const party of books.parties) {
-    if (
-      !party.openingBalance ||
-      party.openingDate <= request.from ||
-      party.openingDate > request.to
-    )
-      continue;
-    const key = acc.party(party.id);
-    const adjustment = {
-      date: party.openingDate,
-      partyId: party.id,
-      debit: Math.max(party.openingBalance, 0),
-      credit: Math.max(-party.openingBalance, 0),
-    };
-    account(key).openingAdjustments.push({
-      ...adjustment,
-      counterAccount: acc.capital,
-    });
-    account(acc.capital).openingAdjustments.push({
-      ...adjustment,
-      counterAccount: key,
-      debit: adjustment.credit,
-      credit: adjustment.debit,
-    });
+  // Openings on the first day belong to period movements, like that day's vouchers.
+  for (const movement of partyOpeningMovements(books)) {
+    if (movement.date < request.from || movement.date > request.to) continue;
+    account(movement.account).openingAdjustments.push(movement);
   }
   const all = reportVouchers(books, {
     ...request,

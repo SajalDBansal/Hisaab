@@ -1,10 +1,20 @@
 import {
-  can,
+  canSeeCosts,
+  canVoucher,
+  draftSaleMargin,
+  withoutCosts,
+  type SaleMargin,
+  type SaleMarginInput,
   describeAccount,
   calcInvoice,
   cancelBlocker,
   cancelVoucher,
+  cursorOffset,
+  pageCursor,
+  restoreBlocker,
+  restoreVoucher,
   CONVERTS_TO,
+  counterYear,
   createContra,
   createExpense,
   createJournal,
@@ -17,24 +27,33 @@ import {
   createSales,
   editBlocker,
   financialYear,
+  formatVoucherNumber,
   invoiceStatus,
   isOrderType,
   newestFirst,
+  nextSequence,
+  numberingRule,
   orderStatus,
   openingBillId,
   partyBills,
   postingTotals,
+  returnAmountBasis,
+  roleFlag,
+  seriesPrefix,
   setCleared,
   settledAmounts,
   today,
   updateInvoice,
   voucherPostings,
+  type InvoiceSettings as InvoiceSettingsCore,
   type Permission,
   type Role,
+  type VoucherAction,
   type Voucher as CoreVoucher,
   type VoucherType,
 } from "@repo/core";
 import type {
+  CancelledEntry,
   InvoiceRow,
   NewContraInput,
   NewExpenseInput,
@@ -103,6 +122,7 @@ export const NEEDS: Record<VoucherType, Permission> = {
   "credit-note": "sales",
   receipt: "sales",
   estimate: "sales",
+  proforma: "sales",
   "sales-order": "sales",
   "delivery-note": "sales",
   purchase: "purchase",
@@ -114,8 +134,16 @@ export const NEEDS: Record<VoucherType, Permission> = {
   journal: "accounts",
 };
 
-export function requireRight(role: Role, type: VoucherType) {
-  if (!can(role, NEEDS[type]))
+/**
+ * The role must allow this action on this voucher type (doc 37, T57). Built-in
+ * roles allow create/edit/cancel exactly where they could change entries before.
+ */
+export function requireRight(
+  role: Role,
+  type: VoucherType,
+  action: VoucherAction = "create",
+) {
+  if (!canVoucher(role, type, action))
     throw new AppError(
       "FORBIDDEN",
       "Your role can't change this kind of entry. Ask the owner of the firm.",
@@ -193,11 +221,26 @@ export async function change(
     // A create that was already done: give back the same answer, save nothing
     if (ctx.idem) {
       const seen = await replayOf<Voucher | Voucher[]>(tx, ctx.id, ctx.idem);
-      if (seen) return seen;
+      if (seen) {
+        for (const voucher of [seen].flat())
+          requireRight(ctx.role, voucher.type, "create");
+        return seen;
+      }
     }
     const snap = await loadBooks(tx, ctx.firmId, ctx, scope);
     const result = await work(snap, tx);
-    for (const v of [result].flat()) requireRight(member.role as Role, v.type);
+    // New entries need "create", newly cancelled ones "cancel", the rest "edit".
+    for (const v of [result].flat()) {
+      const before = snap.before.get(v.id);
+      const was = before ? (JSON.parse(before) as CoreVoucher) : undefined;
+      const action: VoucherAction = !was
+        ? "create"
+        : v.status === "cancelled" && was.status !== "cancelled"
+          ? "cancel"
+          : "edit";
+      requireRight(member.role as Role, v.type, action);
+      if (was) requireOwnRecord(member.role as Role, ctx, was);
+    }
     const saved = await saveChanges(tx, ctx.firmId, ctx, snap);
     await syncAssociateVouchers(tx, ctx, snap, saved);
     for (const v of [result].flat()) {
@@ -406,6 +449,24 @@ export const vouchersService = {
   async sale(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "sale", input);
   },
+
+  /**
+   * Profit margin of a sale being made (doc 37, T12), from the stock saving it
+   * would take. Read only; the cost itself only for roles that may see costs.
+   */
+  async saleMargin(
+    db: Db,
+    firmId: string,
+    role: Role,
+    input: SaleMarginInput,
+  ): Promise<SaleMargin> {
+    const books = await db.transaction((tx) => loadReportBooks(tx, firmId), {
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    });
+    const result = core(() => draftSaleMargin(books, input));
+    return canSeeCosts(role) ? result : withoutCosts(result);
+  },
   async purchase(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "purchase", input);
   },
@@ -418,8 +479,11 @@ export const vouchersService = {
   },
 
   async expense(db: Db, ctx: Ctx, input: NewExpenseInput) {
-    const voucher = await change(db, ctx, {}, (snap) => {
+    const supplierId = input.gst?.partyId;
+    const scope = supplierId ? { parties: [supplierId] } : {};
+    const voucher = await change(db, ctx, scope, (snap) => {
       checkLedger(snap, input.ledgerId, "ledgerId");
+      if (supplierId) findParty(snap, supplierId, "supplier");
       return core(() => createExpense(snap.books, input));
     });
     return voucher;
@@ -471,6 +535,13 @@ export const vouchersService = {
         );
       },
     );
+    // Historical order keys hashed /orders/:type, so also verify the saved order kind.
+    if (voucher.type !== type)
+      throw new AppError(
+        "KEY_REUSED",
+        "This request key belongs to another order type.",
+        422,
+      );
     return voucher;
   },
 
@@ -561,6 +632,69 @@ export const vouchersService = {
       },
     );
     return voucher;
+  },
+
+  /**
+   * Put a cancelled voucher back as it was (doc 37, T47). Owner only until custom
+   * roles add a restore right. The period lock is checked when saving, and the
+   * order and associate hooks run as for any change.
+   */
+  async restore(db: Db, ctx: Ctx, id: string, version: number) {
+    requireOwner(ctx.role);
+    return change(
+      db,
+      ctx,
+      { vouchers: [id] },
+      (snap) => {
+        const v = existing(snap, ctx, id, version);
+        const blocked = restoreBlocker(snap.books, v);
+        if (blocked) throw new AppError("CANNOT_RESTORE", blocked, 409);
+        return core(() => restoreVoucher(snap.books, id));
+      },
+      // Orders: a restored conversion uses the order's quantities again.
+      (tx, saved) => afterOrderVoucherChange(tx, ctx.firmId, saved.id),
+    );
+  },
+
+  /** Cancelled entries, newest cancellation first, with why each can't be restored. */
+  async cancelled(
+    db: Db,
+    firmId: string,
+    role: Role,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: CancelledEntry[]; nextCursor: string | null }> {
+    requireOwner(role);
+    const { books, apiVoucher } = await readBooks(db, firmId);
+    const rows = books.vouchers
+      .filter((v) => v.status === "cancelled")
+      .sort(
+        (a, b) =>
+          (b.cancelledAt ?? "").localeCompare(a.cancelledAt ?? "") ||
+          b.date.localeCompare(a.date),
+      );
+    const offset = cursorOffset(cursor);
+    const page = rows.slice(offset, offset + limit).map((v) => {
+      const party =
+        v.snapshot?.party ?? books.parties.find((p) => p.id === v.partyId);
+      return {
+        id: v.id,
+        type: v.type,
+        number: v.number,
+        date: v.date,
+        partyName: party?.name,
+        amount: v.amount,
+        reason: v.cancelReason,
+        cancelledAt: v.cancelledAt,
+        version: apiVoucher(v).version,
+        restoreBlocker: restoreBlocker(books, v) ?? undefined,
+      };
+    });
+    return {
+      items: page,
+      nextCursor:
+        offset + limit < rows.length ? pageCursor(offset + limit) : null,
+    };
   },
 
   /** Bank reconciliation: the date an entry showed up in the bank statement. */
@@ -738,14 +872,14 @@ export const vouchersService = {
       .where(eq(schema.invoiceSettings.firmId, firmId));
     if (!settings) throw new Error("Invoice settings missing");
 
-    const prefixes = settings.prefixes as Record<string, string>;
-    const prefix =
-      series === "nongst"
-        ? `N${prefixes[type]}`
-        : series === "bos"
-          ? settings.billOfSupplyPrefix
-          : prefixes[type];
-    const year = financialYear(date).short;
+    const numbering = {
+      prefixes: settings.prefixes as Record<VoucherType, string>,
+      billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      numbering: settings.numbering as InvoiceSettingsCore["numbering"],
+    };
+    const prefix = seriesPrefix(numbering, type, series);
+    const rule = numberingRule(numbering, type);
+    const year = counterYear(rule, date);
     const [counter] = await db
       .select()
       .from(schema.voucherCounters)
@@ -755,8 +889,12 @@ export const vouchersService = {
           and ${schema.voucherCounters.series} = ${prefix}
           and ${schema.voucherCounters.financialYear} = ${year}`,
       );
-    const next = (counter?.lastNumber ?? 0) + 1;
-    return `${prefix}/${year}/${String(next).padStart(4, "0")}`;
+    return formatVoucherNumber(
+      prefix,
+      financialYear(date).short,
+      nextSequence(counter?.lastNumber, rule),
+      rule,
+    );
   },
 
   async returnable(
@@ -768,6 +906,7 @@ export const vouchersService = {
     const bill = books.vouchers.find((voucher) => voucher.id === billId);
     if (!bill || (bill.type !== "sale" && bill.type !== "purchase"))
       throw notFound("bill");
+    const amounts = returnAmountBasis(bill, books.vouchers);
 
     return {
       bill: apiVoucher(bill),
@@ -783,6 +922,7 @@ export const vouchersService = {
           returned: row.returned,
           returnable: row.returnable,
           rate: row.line.rate,
+          amountBasis: amounts[row.index],
         };
       }),
     };
@@ -792,7 +932,7 @@ export const vouchersService = {
 };
 
 type OrderKind =
-  "estimate" | "sales-order" | "delivery-note" | "purchase-order";
+  "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
 
 async function invoice(
   db: Db,
@@ -855,10 +995,35 @@ async function money(
 }
 
 /** The voucher named in the URL, if it is in this firm and the caller may change it and saw its latest version. */
+/** Restoring cancelled entries needs its own right (the owner by default; doc 37, T47/T57). */
+function requireOwner(role: Role) {
+  if (!roleFlag(role, "restoreCancelled"))
+    throw new AppError(
+      "FORBIDDEN",
+      "Only the owner can see and restore cancelled entries.",
+      403,
+    );
+}
+
+/** Roles limited to their own records may only touch entries they created (doc 37, T57). */
+export function requireOwnRecord(
+  role: Role,
+  ctx: { id: string },
+  v: { createdBy?: string },
+) {
+  if (roleFlag(role, "ownRecordsOnly") && v.createdBy !== ctx.id)
+    throw new AppError(
+      "FORBIDDEN",
+      "Your role can only change entries you made yourself.",
+      403,
+    );
+}
+
 function existing(snap: Snapshot, ctx: Ctx, id: string, version: number) {
   const v = snap.books.vouchers.find((x) => x.id === id);
   if (!v) throw notFound("entry");
-  requireRight(ctx.role, v.type);
+  requireRight(ctx.role, v.type, "view");
+  requireOwnRecord(ctx.role, ctx, v);
   if (snap.versions.get(id) !== version) throw editedElsewhere("entry");
   return v;
 }
@@ -878,7 +1043,7 @@ export function toVoucher(v: CoreVoucher, version: number): Voucher {
   return { ...rest, version };
 }
 
-async function readBooks(db: Db, firmId: string) {
+export async function readBooks(db: Db, firmId: string) {
   const [books, versionRows] = await Promise.all([
     loadReportBooks(db, firmId),
     db

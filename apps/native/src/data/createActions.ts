@@ -122,6 +122,12 @@ const SECTIONS: { title: string; actions: CreateAction[] }[] = [
         permission: "sales",
       },
       {
+        label: "Proforma Invoice",
+        icon: "file",
+        href: "/order/new?type=proforma",
+        permission: "sales",
+      },
+      {
         label: "Sales Order",
         icon: "check-square",
         href: "/order/new?type=sales-order",

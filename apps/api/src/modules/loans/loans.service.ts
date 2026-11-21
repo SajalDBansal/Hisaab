@@ -1,4 +1,11 @@
-import { acc, accountBalances, today, type MockDb } from "@repo/core";
+import {
+  acc,
+  accountBalances,
+  can,
+  type MockDb,
+  type Role,
+  today,
+} from "@repo/core";
 import {
   loanSchedule,
   loanRateUpdateAllowed,
@@ -23,9 +30,16 @@ import {
 import { AppError } from "@repo/backend/lib/app-error";
 import { assertOpenPeriod } from "@repo/backend/lib/book-period";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
-import { isUniqueViolation, notFound } from "@repo/backend/modules/masters/shared";
+import {
+  isUniqueViolation,
+  notFound,
+} from "@repo/backend/modules/masters/shared";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
-import { rememberAnswer, replayOf, type Idem } from "@repo/backend/modules/vouchers/idempotency";
+import {
+  rememberAnswer,
+  replayOf,
+  type Idem,
+} from "@repo/backend/modules/vouchers/idempotency";
 import {
   repaymentAmounts,
   repaymentReferenceMatches,
@@ -224,7 +238,7 @@ async function write(
             eq(schema.member.userId, actor.userId),
           ),
         );
-      if (!member || !["owner", "accountant"].includes(member.role))
+      if (!member || !can(member.role as Role, "accounts"))
         throw new AppError(
           "FORBIDDEN",
           "Only an owner or accountant can change loans.",

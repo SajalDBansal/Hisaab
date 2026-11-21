@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { Id, Paise } from "./common";
+import { Id, IsoDate, Paise } from "./common";
 import { CUSTOM_ACCOUNT_GROUPS } from "@repo/core";
-import { ReportVoucher } from "./reports";
+import { ReportVoucher, StatementPaging } from "./reports";
 
 export const AccountParams = z.object({ key: z.string().min(1) });
 
@@ -102,18 +102,33 @@ export const FinalAccounts = z.object({
   }),
 });
 
+const StatementMovement = z.object({
+  date: IsoDate,
+  debit: Paise,
+  credit: Paise,
+  balance: Paise,
+});
+
 export const AccountStatement = AccountInfo.extend({
+  ...StatementPaging,
   opening: Paise,
   totalDebit: Paise,
   totalCredit: Paise,
   closing: Paise,
   rows: z.array(
-    z.object({
-      voucher: ReportVoucher,
-      debit: Paise,
-      credit: Paise,
-      balance: Paise,
-    }),
+    z.discriminatedUnion("kind", [
+      StatementMovement.extend({
+        kind: z.literal("voucher"),
+        voucher: ReportVoucher,
+      }),
+      StatementMovement.extend({
+        kind: z.literal("opening"),
+        voucher: z.null(),
+        partyId: Id,
+        counterAccount: z.string(),
+        counterName: z.string(),
+      }),
+    ]),
   ),
 });
 

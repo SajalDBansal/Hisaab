@@ -1,7 +1,10 @@
+import { canVoucher, roleFlag } from "@repo/core";
 import {
   BankDateInput,
   CancelInput,
+  CancelledEntry,
   IdParams,
+  ListPageQuery,
   InvoiceListQuery,
   InvoiceRow,
   NewContraInput,
@@ -19,6 +22,8 @@ import {
   PrintableVoucher,
   PrintableVoucherQuery,
   ReturnableBill,
+  SaleMargin,
+  SaleMarginInput,
   Voucher,
   VoucherDetail,
   VoucherListParams,
@@ -40,7 +45,11 @@ import {
   requireVoucherRead,
   requireVoucherTypeRead,
 } from "../../lib/read-permissions";
-import { dateIdCursor, expectedVersion, pageByDateId } from "@repo/backend/modules/masters/shared";
+import {
+  dateIdCursor,
+  expectedVersion,
+  pageByDateId,
+} from "@repo/backend/modules/masters/shared";
 import { idemOf } from "@repo/backend/modules/vouchers/idempotency";
 import { requireRight, vouchersService, type Ctx } from "./vouchers.service";
 
@@ -87,6 +96,7 @@ export async function voucherRoutes(
       req.firm.id,
       req.firm.role,
       IdParams.parse(req.params).id,
+      req.user.id,
     );
   typed.post(
     "/sales/split",
@@ -98,6 +108,34 @@ export async function voucherRoutes(
       reply
         .code(201)
         .send(await vouchersService.sales(db, createCtx(req), req.body)),
+  );
+
+  // Profit margin while making a sale (doc 37, T12): only with the "see profit
+  // margin" right, which sales staff never have (doc 33 R1). Saves nothing.
+  typed.post(
+    "/sales/margin",
+    {
+      preHandler: app.inFirm("sales"),
+      schema: { body: SaleMarginInput, response: { 200: SaleMargin } },
+    },
+    async (req) => {
+      const role = req.firm.role;
+      if (
+        !roleFlag(role, "viewProfitMargin") ||
+        !(
+          canVoucher(role, "sale", "create") || canVoucher(role, "sale", "edit")
+        )
+      )
+        throw new AppError(
+          "FORBIDDEN",
+          "Your role can't see profit margins. Ask the owner of the firm.",
+          403,
+        );
+      for (const id of [req.body.editingId, req.body.sourceId])
+        if (id)
+          await requireVoucherRead(db, req.firm.id, role, id, req.user.id);
+      return vouchersService.saleMargin(db, req.firm.id, role, req.body);
+    },
   );
 
   typed.get(
@@ -126,6 +164,9 @@ export async function voucherRoutes(
       const rows = await vouchersService.list(db, req.firm.id, {
         ...req.query,
         types,
+        createdBy: roleFlag(req.firm.role, "ownRecordsOnly")
+          ? req.user.id
+          : undefined,
         cursor: dateIdCursor(req.query.cursor),
       });
       return pageByDateId(rows, req.query.limit);
@@ -429,6 +470,41 @@ export async function voucherRoutes(
         req.params.id,
         expectedVersion(req.headers["if-match"]),
         req.body.reason,
+      ),
+  );
+
+  // Cancelled entries the owner can put back (doc 37, T47).
+  typed.get(
+    "/vouchers/cancelled",
+    {
+      preHandler: app.inFirm(),
+      schema: {
+        querystring: ListPageQuery,
+        response: { 200: pageSchema(CancelledEntry) },
+      },
+    },
+    async (req) =>
+      vouchersService.cancelled(
+        db,
+        req.firm.id,
+        req.firm.role,
+        req.query.limit,
+        req.query.cursor,
+      ),
+  );
+
+  typed.post(
+    "/vouchers/:id/restore",
+    {
+      preHandler: app.inFirm(),
+      schema: { params: IdParams, response: { 200: Voucher } },
+    },
+    async (req) =>
+      vouchersService.restore(
+        db,
+        ctxOf(req),
+        req.params.id,
+        expectedVersion(req.headers["if-match"]),
       ),
   );
 

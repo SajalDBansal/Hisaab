@@ -6,6 +6,8 @@ import { matchVersion } from "./masterServices";
 export function loanServices(client: Client) {
   return {
     list: () => client.pages("/loans", c.LoanSummary),
+    listPage: (cursor?: string) =>
+      client.page("/loans", c.LoanSummary, {}, cursor),
     get: (id: string) => client.request(`/loans/${id}`, c.LoanDetail),
     history: (id: string) => client.pages(`/loans/${id}/history`, c.LoanEvent),
     candidates: (id: string) =>

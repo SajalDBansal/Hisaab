@@ -1,7 +1,12 @@
+import { can } from "@repo/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type { InventoryAdjustmentInput } from "@repo/contracts/src/inventory";
 import { useData } from "./DataProvider";
-import { useServiceMutation, useServiceQuery } from "./scopedHooks";
+import {
+  useServiceMutation,
+  useServicePages,
+  useServiceQuery,
+} from "./scopedHooks";
 import type { Services } from "./services";
 
 function service(s: Services) {
@@ -13,9 +18,18 @@ export function useInventoryAccess() {
   const { role, services } = useData();
   return {
     connected: !!services.inventoryService,
-    write: role === "owner" || role === "accountant",
-    read: role !== "sales",
+    write: !!role && can(role, "accounts"),
+    read: !!role && can(role, "reports"),
   };
+}
+/** The register screen, a page at a time as the user scrolls. */
+export function useInventoryAdjustmentPages() {
+  const access = useInventoryAccess();
+  return useServicePages({
+    queryKey: ["inventoryAdjustmentPages"],
+    queryFn: (s, cursor) => service(s).listPage(cursor),
+    enabled: access.read && access.connected,
+  });
 }
 export function useInventoryAdjustments() {
   const access = useInventoryAccess();

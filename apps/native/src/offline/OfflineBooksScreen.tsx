@@ -9,11 +9,12 @@ import { downloadOfflineBooks } from "@/data/offlineWarmup";
 import { offlineDefinition } from "@/data/offlineOperation";
 import type { OfflineBooks, OutboxEntry } from "@/data/offlineBooks";
 import { colors, space } from "@/theme";
+import type { ReplicaState } from "@repo/core";
 
 const date = (value?: number) =>
   value ? new Date(value).toLocaleString() : "Not downloaded";
 const terminal = (entry: OutboxEntry) =>
-  ["committed", "cancelled", "superseded"].includes(entry.state);
+  ["committed", "cancelled", "superseded", "retained"].includes(entry.state);
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 
 function Entry({
@@ -28,6 +29,10 @@ function Entry({
   run(work: () => Promise<unknown>): void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [reviewNote, setReviewNote] = useState(
+    entry.recoveryReview?.note ?? "",
+  );
+  const quarantine = books.getSnapshot().quarantine;
   const [body, setBody] = useState(json(entry.request.body));
   const [version, setVersion] = useState(
     String(entry.request.expectedVersion ?? ""),
@@ -74,13 +79,70 @@ function Entry({
       }}
     >
       <Txt variant="bodyStrong">
-        {label} - {entry.state}
+        {label} -{" "}
+        {entry.recoveryReview ? "retained recovery history" : entry.state}
       </Txt>
       <Txt variant="small">{date(entry.createdAt)}</Txt>
       <Txt variant="small" selectable>
         {entry.key}
       </Txt>
       {entry.error ? <Notice tone="warn" text={entry.error} /> : null}
+      {quarantine ? (
+        <View style={{ gap: space.sm }}>
+          <Notice
+            tone="warn"
+            text="This request will not be replayed after recovery. Check the restored entry and original answer; keep missing work for manual reconciliation."
+          />
+          <Button
+            label="Check restored answer"
+            disabled={busy}
+            onPress={() => run(() => books.inspectRecovery(entry.key))}
+          />
+          {entry.recoveryLookup?.epoch === quarantine.current ? (
+            <>
+              <Txt variant="small" selectable>
+                {json(entry.recoveryLookup.result)}
+              </Txt>
+              <TextField
+                label="What did you reconcile?"
+                value={reviewNote}
+                onChangeText={setReviewNote}
+                multiline
+              />
+              <Button
+                label="Record review and keep original"
+                disabled={busy || reviewNote.trim().length < 10}
+                onPress={() =>
+                  confirmAction(
+                    "Record this recovery review?",
+                    "No financial entry will be posted or deleted. Keep the original request and attachments. Missing or different entries must be reconciled with the owner/accountant before manual re-entry.",
+                    "Record review",
+                    () =>
+                      run(() => books.reviewRecovery(entry.key, reviewNote)),
+                  )
+                }
+              />
+            </>
+          ) : null}
+          {entry.recoveryReview?.epoch === quarantine.current ? (
+            <Txt variant="small">
+              Recovery review recorded; original retained.
+            </Txt>
+          ) : null}
+        </View>
+      ) : null}
+      {entry.state === "retained" ? (
+        <Notice
+          tone="info"
+          text="Preserved after recovery for manual reconciliation. This request will never be replayed automatically."
+        />
+      ) : null}
+      {entry.recoveryReview ? (
+        <Txt
+          variant="small"
+          selectable
+        >{`Recovery review: ${entry.recoveryReview.note}. Restored answer: ${entry.recoveryLookup?.result.state ?? "not checked"}. Original local state: ${entry.state}.`}</Txt>
+      ) : null}
       {entry.replacedBy ? (
         <Txt variant="small" selectable>
           Replacement: {entry.replacedBy}
@@ -93,16 +155,16 @@ function Entry({
           size="sm"
           onPress={() => setExpanded(!expanded)}
         />
-        {!terminal(entry) ? (
+        {!terminal(entry) && !quarantine ? (
           <Button
-            label="Check original answer"
+            label="Check and save now"
             icon="refresh-cw"
             size="sm"
             disabled={busy}
             onPress={() => run(() => books.reconcile(entry.key))}
           />
         ) : null}
-        {!terminal(entry) ? (
+        {!terminal(entry) && !quarantine ? (
           <Button
             label={
               conflict ? "Discard rejected request" : "Cancel original request"
@@ -150,7 +212,7 @@ function Entry({
           <Txt variant="small" selectable>
             {json(entry.request.body)}
           </Txt>
-          {conflict ? (
+          {conflict && !quarantine ? (
             <>
               <Txt variant="bodyStrong">Current server record</Txt>
               <Txt variant="small" selectable>
@@ -184,9 +246,9 @@ function Entry({
                 disabled={busy}
                 onPress={() =>
                   confirmAction(
-                    "Queue reviewed replacement?",
-                    "The original key remains rejected. The edited values and selected server version will be queued with a new key. Existing attachment copies retain their original binding plan, including both invoices for a mixed sale. No server version is selected automatically.",
-                    "Queue replacement",
+                    "Save reviewed replacement?",
+                    "The original key remains rejected. The edited values and selected server version are saved now under a new key, so you need to be online. Existing attachment copies retain their original binding plan, including both invoices for a mixed sale. No server version is selected automatically.",
+                    "Save replacement",
                     () =>
                       run(async () => {
                         const input: unknown = JSON.parse(body);
@@ -216,9 +278,17 @@ function Entry({
 }
 
 export default function OfflineBooksScreen() {
-  const { services, firmId, role } = useData();
-  const { books, entries, online, syncing, error, downloadedAt, cachedAt } =
-    useOfflineBooks();
+  const { services, firmId, role, replica } = useData();
+  const {
+    books,
+    entries,
+    online,
+    syncing,
+    error,
+    downloadedAt,
+    cachedAt,
+    quarantine,
+  } = useOfflineBooks();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
   const [history, setHistory] = useState(false);
@@ -245,11 +315,17 @@ export default function OfflineBooksScreen() {
       ) : (
         <>
           <Txt variant="bodyStrong">
-            {online ? "Connected" : "Offline"} - {pending.length} pending
+            {online ? "Connected" : "Offline - view only"} - {pending.length} to
+            review
+          </Txt>
+          <Txt variant="small">
+            Offline you can read downloaded books. Creating or changing entries
+            needs a connection; nothing is saved on this device to send later.
           </Txt>
           <Txt variant="small" selectable>
             {firmId} - {role}
           </Txt>
+          {replica ? <PhoneBooks replica={replica} /> : null}
           <Txt variant="small">
             Last completed download: {date(downloadedAt)}
           </Txt>
@@ -261,22 +337,49 @@ export default function OfflineBooksScreen() {
           {failure || error ? (
             <Notice tone="warn" text={failure || error} />
           ) : null}
+          {quarantine ? (
+            <View style={{ gap: space.sm }}>
+              <Notice
+                tone="warn"
+                text="Server recovery detected. Automatic saves are paused. Review every retained request below, including completed history. Existing attachments remain in Pending uploads and require their own original-record check."
+              />
+              <Button
+                label="Resume new work after review"
+                disabled={
+                  busy ||
+                  syncing ||
+                  entries.some(
+                    (entry) =>
+                      entry.recoveryReview?.epoch !== quarantine.current,
+                  )
+                }
+                onPress={() =>
+                  confirmAction(
+                    "Resume new work?",
+                    "Confirm that the retained requests were reconciled with the restored books. Old requests remain preserved and are not replayed. Cached answers will be refreshed; retained attachments remain protected separately.",
+                    "Resume new work",
+                    () => run(() => books.finishRecovery()),
+                  )
+                }
+              />
+            </View>
+          ) : null}
           <View
             style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}
           >
             <Button
-              label="Sync pending"
+              label="Check retained entries"
               icon="refresh-cw"
               size="sm"
               loading={syncing}
-              disabled={busy}
+              disabled={busy || !!quarantine}
               onPress={() => run(() => books.sync())}
             />
             <Button
               label="Download books"
               icon="download"
               size="sm"
-              disabled={busy || syncing}
+              disabled={busy || syncing || !!quarantine}
               onPress={() => run(() => downloadOfflineBooks(books, services))}
             />
             <Button
@@ -308,10 +411,10 @@ export default function OfflineBooksScreen() {
             size="sm"
             onPress={() => setHistory(!history)}
           />
-          {!(history ? entries : pending).length ? (
+          {!(history || quarantine ? entries : pending).length ? (
             <Txt variant="body">No pending changes.</Txt>
           ) : null}
-          {(history ? entries : pending).map((entry) => (
+          {(history || quarantine ? entries : pending).map((entry) => (
             <Entry
               key={entry.key}
               entry={entry}
@@ -323,5 +426,30 @@ export default function OfflineBooksScreen() {
         </>
       )}
     </Screen>
+  );
+}
+
+/** The whole books kept on this phone, synced by themselves (no download needed). */
+function PhoneBooks({ replica }: { replica: ReplicaState }) {
+  const status =
+    replica.phase === "downloading"
+      ? `Downloading your firm's books… ${Math.round(replica.progress * 100)}%`
+      : replica.phase === "syncing"
+        ? "Bringing the books up to date…"
+        : replica.ready
+          ? `Up to date: ${replica.rows} entries, last synced ${date(replica.syncedAt ? Date.parse(replica.syncedAt) : undefined)}`
+          : replica.error
+            ? `Not downloaded yet: ${replica.error}`
+            : "Not downloaded yet.";
+  return (
+    <>
+      <Txt variant="bodyStrong">Books on this phone</Txt>
+      <Txt variant="small">{status}</Txt>
+      <Txt variant="small" tone="body">
+        Screens read the books from this phone, online and offline. Every
+        change saved online is copied here within moments. Saving always needs
+        a connection, and waits until this phone has caught up.
+      </Txt>
+    </>
   );
 }

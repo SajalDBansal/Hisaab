@@ -2,14 +2,16 @@ import {
   checkVoucherDate,
   postingTotals,
   stockMovements,
+  tracksStock,
   voucherPostings,
   today,
   type Voucher,
 } from "@repo/core";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "../../db/client";
 import { AppError } from "../../lib/app-error";
+import { currentOrigin } from "../../lib/request-origin";
 import type { Actor, Snapshot } from "./snapshot";
 import { assertOpenPeriod } from "../../lib/book-period";
 
@@ -59,6 +61,7 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     snapshot: v.snapshot ?? null,
     delivery: v.delivery ?? null,
     commission: v.commission ?? null,
+    customFields: v.customFields ?? null,
     inventoryAdjustment: v.inventoryAdjustment
       ? {
           ...v.inventoryAdjustment,
@@ -88,6 +91,8 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     tdsSection: v.tds?.section ?? null,
     tdsRate: v.tds?.rate ?? null,
     tdsAmount: v.tds?.amount ?? 0,
+    billDiscountPercent: v.billDiscount?.percent ?? null,
+    billDiscountAmount: v.billDiscount?.amount ?? 0,
     againstId: ids.optional(v.againstId),
     sourceId: ids.optional(v.sourceId),
     convertedToId: ids.optional(v.convertedToId),
@@ -146,6 +151,43 @@ export async function saveChanges(
         : [v.date];
     }),
   );
+  const partyChanges = changed.flatMap((v) => {
+    const stored = snap.before.get(v.id);
+    if (!stored || v.type === "journal") return [];
+    const previous = JSON.parse(stored) as Voucher;
+    return previous.partyId !== v.partyId
+      ? [{ voucher: v, previousPartyId: ids.optional(previous.partyId) }]
+      : [];
+  });
+  if (partyChanges.length) {
+    // Match the upload writer's lock before any write takes the sync cursor lock.
+    // Otherwise a concurrent reservation can copy the old party after this update.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`documents:${firmId}`}, 0))`,
+    );
+    for (const { voucher: v, previousPartyId } of partyChanges) {
+      const { documents } = schema;
+      await tx
+        .update(documents)
+        .set({
+          partyId: ids.optional(v.partyId),
+          version: sql`${documents.version} + 1`,
+          // Relinking must not renew a pending upload's quota reservation.
+          updatedAt: sql`case when ${documents.readyAt} is null then ${documents.updatedAt} else now() end`,
+        })
+        .where(
+          and(
+            eq(documents.firmId, firmId),
+            eq(documents.voucherId, ids.uuid(v.id)),
+            isNull(documents.deletedAt),
+            // Only the copied link follows the voucher; explicit links stay put.
+            previousPartyId
+              ? eq(documents.partyId, previousPartyId)
+              : isNull(documents.partyId),
+          ),
+        );
+    }
+  }
   // Lot identities must also remain unique across API processes and restarts.
   const newLots = new Map(
     created
@@ -184,6 +226,8 @@ export async function saveChanges(
       .update(schema.vouchers)
       .set({
         ...headerColumns(v, ids),
+        // Bills may move within their financial year; the number never changes.
+        date: v.date,
         version: sql`${schema.vouchers.version} + 1`,
         updatedAt: new Date(),
       })
@@ -252,12 +296,17 @@ export async function saveChanges(
           perFactor: l.per?.factor ?? null,
           discountPercent: l.discountPercent ?? null,
           discountAmount: l.discountAmount ?? 0,
+          billDiscount: l.billDiscountShare ?? 0,
           gstRate: l.gstRate,
           taxType: l.taxType ?? null,
           sourceLine: l.sourceLine ?? null,
+          returnAmounts: l.returnAmounts ?? null,
           stockLotId: l.stockLotId ?? null,
           stockCost: l.stockCost ?? null,
           bookScope: l.bookScope ?? null,
+          exactMath: l.exactMath ?? false,
+          batchNumber: l.batchNumber ?? null,
+          expiryDate: l.expiryDate ?? null,
         })),
       );
     if (v.charges?.length)
@@ -270,6 +319,10 @@ export async function saveChanges(
           name: c.name,
           amount: c.amount,
           gstRate: c.gstRate,
+          headId: c.headId ?? null,
+          taxType: c.taxType ?? null,
+          sac: c.sac ?? null,
+          account: c.account ?? null,
         })),
       );
     if (v.journalLines?.length)
@@ -317,16 +370,19 @@ export async function saveChanges(
         ...(v.lines ?? []).map((l) => l.itemId),
         ...(v.inventoryAdjustment ? [v.inventoryAdjustment.itemId] : []),
       ]),
-    ].flatMap((itemId) =>
-      stockMovements(itemId, [v]).map((m) => ({
-        id: uuidv7(),
-        firmId,
-        voucherId,
-        itemId,
-        date: m.date,
-        qty: m.qty,
-      })),
-    );
+    ]
+      // Services hold no stock (doc 37, T39).
+      .filter((itemId) => tracksStock(books.items.find((i) => i.id === itemId)))
+      .flatMap((itemId) =>
+        stockMovements(itemId, [v]).map((m) => ({
+          id: uuidv7(),
+          firmId,
+          voucherId,
+          itemId,
+          date: m.date,
+          qty: m.qty,
+        })),
+      );
     if (moves.length) await tx.insert(schema.stockMovements).values(moves);
   }
 
@@ -362,10 +418,13 @@ export async function saveChanges(
       });
   }
 
-  // 5. Edit log
+  // 5. Edit log, with the request's IP address and device when there is one
+  const origin = currentOrigin();
   if (books.auditLog.length)
     await tx.insert(schema.auditLog).values(
       books.auditLog.map((e) => ({
+        ipAddress: origin.ipAddress,
+        device: origin.device,
         id: uuidv7(),
         firmId,
         voucherId: ids.uuid(e.voucherId),

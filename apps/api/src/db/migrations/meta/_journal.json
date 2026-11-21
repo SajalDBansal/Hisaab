@@ -176,6 +176,132 @@
       "when": 1792247766410,
       "tag": "0024_production_completion_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792972800000,
+      "tag": "0025_durable_retry_answers",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793059200000,
+      "tag": "0026_return_amounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793145600000,
+      "tag": "0027_document_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "0028_backup_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793318400000,
+      "tag": "0029_exact_line_math",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793404800000,
+      "tag": "0030_live_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794819552615,
+      "tag": "0031_voucher_numbering",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794820674162,
+      "tag": "0032_audit_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794821081056,
+      "tag": "0033_audit_restored",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794831310130,
+      "tag": "0034_custom_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794897786980,
+      "tag": "0035_firm_branding",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794900713150,
+      "tag": "0036_custom_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794983789498,
+      "tag": "0037_proforma",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794992102013,
+      "tag": "0038_sales_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795017795727,
+      "tag": "0039_business_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795063824634,
+      "tag": "0040_discounts_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795064209610,
+      "tag": "0041_two_factor",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795064391441,
+      "tag": "0042_item_extras_and_expiry",
+      "breakpoints": true
     }
   ]
 }

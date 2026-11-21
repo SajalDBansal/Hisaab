@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import type { OrderFulfillmentInput } from "@repo/contracts/src/orderFulfillment";
 import { useQueryClient } from "@tanstack/react-query";
 import { useData } from "./DataProvider";
@@ -17,8 +18,8 @@ export function useOrderFulfillmentAccess() {
   const { role, services } = useData();
   return {
     connected: !!(services as Connected).orderFulfillmentService,
-    sales: role === "owner" || role === "accountant" || role === "sales",
-    purchase: role === "owner" || role === "accountant",
+    sales: !!role && can(role, "sales"),
+    purchase: !!role && can(role, "purchase"),
   };
 }
 export function useOrderFulfillment(id: string) {

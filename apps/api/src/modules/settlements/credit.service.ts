@@ -1,7 +1,16 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
-import { createSales, partyBalance, today, updateInvoice } from "@repo/core";
+import {
+  can,
+  createSales,
+  creditApprovalReason,
+  overdueBeforeSale,
+  partyBalance,
+  type Role,
+  today,
+  updateInvoice,
+} from "@repo/core";
 import { NewInvoiceInput, type Voucher } from "@repo/contracts";
 import type { CreditApprovalInput } from "@repo/contracts/src/settlements";
 import { schema, type Db } from "@repo/backend/db/client";
@@ -11,6 +20,7 @@ import {
 } from "@repo/backend/db/schema/settlements";
 import { loadBooks } from "@repo/backend/modules/vouchers/snapshot";
 import { assertOpenPeriod } from "@repo/backend/lib/book-period";
+import { loadSalesControls } from "@repo/backend/modules/salesControls/salesControls.repo";
 import { settlementBooks } from "./settlements.service";
 import {
   invalid,
@@ -54,9 +64,19 @@ export async function saveCreditApproval(
   projectedBalance: number,
   saleHash: string,
   reason: string,
+  /** Overdue bills that stop this new sale under the firm's "block" policy (doc 37, T11). */
+  blockingOverdue = 0,
 ) {
-  if (party.creditLimit <= 0 || projectedBalance <= party.creditLimit)
-    invalid("This sale does not need a credit-limit override.");
+  if (
+    !creditApprovalReason({
+      creditLimit: party.creditLimit,
+      balanceAfter: projectedBalance,
+      overdueAmount: blockingOverdue,
+      policy: "block",
+      newSale: true,
+    })
+  )
+    invalid("This sale does not need an owner approval.");
   const [approval] = await tx
     .insert(creditApprovals)
     .values({
@@ -141,6 +161,7 @@ export async function approveSaleCredit(
         input.sale.date,
         ...(original ? [original.date] : []),
       ]);
+      let created: { id: string }[] = [];
       try {
         if (edit)
           updateInvoice(
@@ -149,17 +170,25 @@ export async function approveSaleCredit(
             input.sale,
             new Date().toISOString(),
           );
-        else createSales(snapshot.books, input.sale);
+        else created = createSales(snapshot.books, input.sale);
       } catch (error) {
         invalid(error instanceof Error ? error.message : "Invalid sale.");
       }
+      const customer = required(
+        snapshot.books.parties.find((p) => p.id === party.id),
+        "Customer not found.",
+      );
       const projectedBalance = partyBalance(
-        required(
-          snapshot.books.parties.find((p) => p.id === party.id),
-          "Customer not found.",
-        ),
+        customer,
         snapshot.books.vouchers,
         today(),
+      );
+      const blockingOverdue = await overdueBlockingNewSale(
+        tx,
+        actor.firmId,
+        customer,
+        snapshot.books.vouchers,
+        edit ? null : created.map((v) => v.id),
       );
       return saveCreditApproval(
         tx,
@@ -168,10 +197,29 @@ export async function approveSaleCredit(
         projectedBalance,
         saleCreditHash(input.sale, edit),
         input.reason,
+        blockingOverdue,
       );
     },
     true,
   );
+}
+
+/**
+ * Overdue bills that stop a new sale under the firm's "block" policy (doc 37,
+ * T11); 0 for edits (pass null) or when the policy is off or warn.
+ */
+export async function overdueBlockingNewSale(
+  tx: Pick<SettlementTx, "select">,
+  firmId: string,
+  customer: Parameters<typeof overdueBeforeSale>[0],
+  vouchers: Parameters<typeof overdueBeforeSale>[1],
+  newSaleIds: string[] | null,
+) {
+  if (!newSaleIds) return 0;
+  const { overdueSales } = await loadSalesControls(tx, firmId);
+  if (overdueSales !== "block") return 0;
+  return overdueBeforeSale(customer, vouchers, today(), newSaleIds)
+    .overdueAmount;
 }
 
 /** Call after saveChanges, before committing the same firm-locked sale transaction. */
@@ -189,6 +237,7 @@ export async function enforceSaleCredit(
       partyId: input.partyId,
       creditOverrideId: input.creditOverrideId,
       saleHash: saleCreditHash(input, edit),
+      newSale: !edit,
     },
     saved,
   );
@@ -198,7 +247,13 @@ export async function enforceSaleCredit(
 export async function enforceCreditForPostedSales(
   tx: SettlementTx,
   ctx: { firmId: string; id: string },
-  input: { partyId: string; creditOverrideId?: string; saleHash: string },
+  input: {
+    partyId: string;
+    creditOverrideId?: string;
+    saleHash: string;
+    /** New invoices (not edits) also answer to the overdue policy. */
+    newSale: boolean;
+  },
   saved: Voucher[],
 ) {
   const sales = saved.filter((v) => v.type === "sale" && v.status === "posted");
@@ -237,7 +292,7 @@ export async function enforceCreditForPostedSales(
       ),
     )
     .for("share");
-  if (!member || !["owner", "accountant", "sales"].includes(member.role))
+  if (!member || !can(member.role as Role, "sales"))
     invalid("Your role can no longer post sales.", "FORBIDDEN", 403);
   const [party] = await tx
     .select()
@@ -249,16 +304,34 @@ export async function enforceCreditForPostedSales(
       ),
     );
   if (!party || party.deletedAt) invalid("Customer not found.");
+  const policy = input.newSale
+    ? (await loadSalesControls(tx, ctx.firmId)).overdueSales
+    : "off";
+  // Nothing to enforce: skip reloading the whole book.
+  if (!party.creditLimit && policy !== "block") return;
   const books = await settlementBooks(tx, ctx.firmId);
-  const balance = partyBalance(
-    required(
-      books.parties.find((p) => p.id === party.id),
-      "Customer not found.",
-    ),
-    books.vouchers,
-    today(),
+  const customer = required(
+    books.parties.find((p) => p.id === party.id),
+    "Customer not found.",
   );
-  if (!party.creditLimit || balance <= party.creditLimit) return;
+  const balance = partyBalance(customer, books.vouchers, today());
+  const overdue =
+    policy === "block"
+      ? overdueBeforeSale(
+          customer,
+          books.vouchers,
+          today(),
+          sales.map((v) => v.id),
+        ).overdueAmount
+      : 0;
+  const reason = creditApprovalReason({
+    creditLimit: party.creditLimit,
+    balanceAfter: balance,
+    overdueAmount: overdue,
+    policy,
+    newSale: input.newSale,
+  });
+  if (!reason) return;
   const [approval] = input.creditOverrideId
     ? await tx
         .select()
@@ -272,8 +345,10 @@ export async function enforceCreditForPostedSales(
     : [];
   if (!approval)
     invalid(
-      "This sale exceeds the customer credit limit. Obtain an owner approval for this exact sale.",
-      "CREDIT_LIMIT_EXCEEDED",
+      reason === "limit"
+        ? "This sale exceeds the customer credit limit. Obtain an owner approval for this exact sale."
+        : "This customer has overdue bills. Obtain an owner approval for this exact sale.",
+      reason === "limit" ? "CREDIT_LIMIT_EXCEEDED" : "OVERDUE_BILLS",
       409,
     );
   const [owner] = await tx

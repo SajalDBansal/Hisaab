@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { useState } from "react";
 import { View } from "react-native";
 import {
   formatDate,
@@ -17,17 +18,28 @@ import {
   IconButton,
   KeyValue,
   ListRow,
+  PagedView,
   QueryView,
   Screen,
+  Segmented,
   Txt,
+  CustomFieldValuesView,
 } from "@/components";
-import { useItem, useStockLots } from "@/data/queries";
+import {
+  useCustomFields,
+  useItem,
+  useItemParties,
+  useStockLots,
+} from "@/data/queries";
+import { TradeRateList } from "@/lists/TradeRateList";
+import { useItemMovementPages } from "@/data/pagedQueries";
 import { space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
 export default function ItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const item = useItem(id);
+  const movements = useItemMovementPages(id);
   return (
     <Screen
       header={
@@ -42,17 +54,30 @@ export default function ItemScreen() {
           }
         />
       }
-      onRefresh={() => item.refetch()}
+      onRefresh={() => {
+        item.refetch();
+        movements.query.refetch();
+      }}
       refreshing={item.isRefetching}
+      onEndReached={movements.loadMore}
     >
-      <QueryView query={item}>{(d) => <ItemBody d={d} />}</QueryView>
+      <QueryView query={item}>
+        {(d) => <ItemBody d={d} movements={movements} />}
+      </QueryView>
     </Screen>
   );
 }
 
-function ItemBody({ d }: { d: ItemDetail }) {
+function ItemBody({
+  d,
+  movements,
+}: {
+  d: ItemDetail;
+  movements: ReturnType<typeof useItemMovementPages>;
+}) {
   const stock = useStockLots();
   const gst = useGstMode();
+  const customDefs = useCustomFields().data;
   const { item } = d;
   const margin =
     d.profit.salesValue > 0
@@ -69,7 +94,16 @@ function ItemBody({ d }: { d: ItemDetail }) {
           </Txt>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Badge label={item.code} />
-            {gst.on && item.hsn ? <Badge label={`HSN ${item.hsn}`} /> : null}
+            {gst.on && item.hsn ? (
+              <Badge
+                label={`${item.kind === "service" ? "SAC" : "HSN"} ${item.hsn}`}
+              />
+            ) : null}
+            {item.kind === "service" ? <Badge label="Service" /> : null}
+            {item.notForSale ? <Badge label="Not for sale" /> : null}
+            {(item.tags ?? []).map((t) => (
+              <Badge key={t} label={`#${t}`} />
+            ))}
             {gst.on ? (
               <Badge
                 label={
@@ -80,59 +114,81 @@ function ItemBody({ d }: { d: ItemDetail }) {
               />
             ) : null}
             {d.lowStock ? <Badge label="Low stock" tone="warn" /> : null}
+            {d.overStock ? <Badge label="Over stock" tone="warn" /> : null}
+          </View>
+          <View>
+            <CustomFieldValuesView
+              defs={customDefs}
+              entity="item"
+              values={item.customFields}
+            />
           </View>
         </View>
       </View>
 
-      <View style={{ flexDirection: "row", gap: space.md }}>
-        <Card style={{ flex: 1 }}>
+      {item.kind === "service" ? (
+        <Card>
           <Txt variant="small" tone="body">
-            In stock
+            Service: no stock is kept. It sells without a purchase and never
+            appears in stock reports.
           </Txt>
-          <Txt variant="title" num tone={d.lowStock ? "warn" : "ink"}>
-            {d.qty} {item.unit}
-          </Txt>
-          {altQtyText(item, d.qty) ? (
-            <Txt variant="caption" tone="body" num>
-              {altQtyText(item, d.qty)}
+        </Card>
+      ) : (
+        <View style={{ flexDirection: "row", gap: space.md }}>
+          <Card style={{ flex: 1 }}>
+            <Txt variant="small" tone="body">
+              In stock
             </Txt>
-          ) : null}
-          <Txt variant="caption" tone="body">
-            Reorder at {item.reorderLevel}
-          </Txt>
-        </Card>
-        <Card style={{ flex: 1 }}>
-          <Txt variant="small" tone="body">
-            Stock value
-          </Txt>
-          <Txt variant="title" num adjustsFontSizeToFit numberOfLines={1}>
-            {formatINR(d.value, { decimals: false })}
-          </Txt>
-          <Txt variant="caption" tone="body">
-            at historical lot cost
-          </Txt>
-        </Card>
-      </View>
+            <Txt variant="title" num tone={d.lowStock ? "warn" : "ink"}>
+              {d.qty} {item.unit}
+            </Txt>
+            {altQtyText(item, d.qty) ? (
+              <Txt variant="caption" tone="body" num>
+                {altQtyText(item, d.qty)}
+              </Txt>
+            ) : null}
+            <Txt variant="caption" tone="body">
+              Min {item.reorderLevel}
+              {item.maxStock ? ` · Max ${item.maxStock}` : ""}
+            </Txt>
+          </Card>
+          <Card style={{ flex: 1 }}>
+            <Txt variant="small" tone="body">
+              Stock value
+            </Txt>
+            <Txt variant="title" num adjustsFontSizeToFit numberOfLines={1}>
+              {formatINR(d.value, { decimals: false })}
+            </Txt>
+            <Txt variant="caption" tone="body">
+              at historical lot cost
+            </Txt>
+          </Card>
+        </View>
+      )}
 
-      <View>
-        <Txt variant="heading">Stock lots</Txt>
-        <QueryView query={stock}>
-          {(lots) => (
-            <>
-              {lots
-                .filter((l) => l.itemId === item.id && l.qty !== 0)
-                .map((lot) => (
-                  <ListRow
-                    key={lot.id}
-                    title={`${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`}
-                    subtitle={`${lot.qty} ${item.unit} | Cost ${formatINR(Math.round(lot.unitCost))} / ${item.unit}`}
-                    right={<Txt>{formatINR(lot.value)}</Txt>}
-                  />
-                ))}
-            </>
-          )}
-        </QueryView>
-      </View>
+      <ItemPartiesSection itemId={item.id} unit={item.unit} />
+
+      {item.kind === "service" ? null : (
+        <View>
+          <Txt variant="heading">Stock lots</Txt>
+          <QueryView query={stock}>
+            {(lots) => (
+              <>
+                {lots
+                  .filter((l) => l.itemId === item.id && l.qty !== 0)
+                  .map((lot) => (
+                    <ListRow
+                      key={lot.id}
+                      title={`${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`}
+                      subtitle={`${lot.qty} ${item.unit} | Cost ${formatINR(Math.round(lot.unitCost))} / ${item.unit}${lot.batchNumber ? ` | Batch ${lot.batchNumber}` : ""}${lot.expiryDate ? ` | Expires ${formatDate(lot.expiryDate)}` : ""}`}
+                      right={<Txt>{formatINR(lot.value)}</Txt>}
+                    />
+                  ))}
+              </>
+            )}
+          </QueryView>
+        </View>
+      )}
       <View>
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
           Prices and units
@@ -151,7 +207,9 @@ function ItemBody({ d }: { d: ItemDetail }) {
               : item.unit
           }
         />
-        <KeyValue label="Stock in units" value={formatQty(item, d.qty)} />
+        {item.kind === "service" ? null : (
+          <KeyValue label="Stock in units" value={formatQty(item, d.qty)} />
+        )}
         {item.batch ? (
           <KeyValue
             label={`Batch ${item.batch.number}`}
@@ -179,33 +237,99 @@ function ItemBody({ d }: { d: ItemDetail }) {
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
           Stock movements
         </Txt>
-        {d.movements.length === 0 ? (
-          <Txt variant="small" tone="body">
-            No movements yet.
-          </Txt>
-        ) : (
-          d.movements.slice(0, 20).map((m, i, list) => (
-            <ListRow
-              key={`${m.voucherId}-${i}`}
-              title={m.number}
-              subtitle={`${m.type === "sale" ? "Sale" : "Purchase"} · ${formatDate(m.date)}${m.entered ? ` · billed as ${m.entered}` : ""}`}
-              onPress={() => router.push(`/voucher/${m.voucherId}`)}
-              right={
-                <Txt
-                  variant="bodyStrong"
-                  num
-                  tone={m.qty > 0 ? "get" : "give"}
-                  style={{ fontWeight: "600" }}
-                >
-                  {m.qty > 0 ? "+" : "−"}
-                  {Math.abs(m.qty)} {item.unit}
-                </Txt>
-              }
-              last={i === list.length - 1}
-            />
-          ))
-        )}
+        <PagedView list={movements} noun="movements">
+          {({ items: list }) =>
+            list.length === 0 ? (
+              <Txt variant="small" tone="body">
+                No movements yet.
+              </Txt>
+            ) : (
+              list.map((m, i) => (
+                <ListRow
+                  key={`${m.voucherId}-${i}`}
+                  title={m.number}
+                  subtitle={`${m.type === "sale" ? "Sale" : "Purchase"} · ${formatDate(m.date)}${m.entered ? ` · billed as ${m.entered}` : ""}`}
+                  onPress={() => router.push(`/voucher/${m.voucherId}`)}
+                  right={
+                    <Txt
+                      variant="bodyStrong"
+                      num
+                      tone={m.qty > 0 ? "get" : "give"}
+                      style={{ fontWeight: "600" }}
+                    >
+                      {m.qty > 0 ? "+" : "−"}
+                      {Math.abs(m.qty)} {item.unit}
+                    </Txt>
+                  }
+                  last={i === list.length - 1}
+                />
+              ))
+            )
+          }
+        </PagedView>
       </View>
     </>
+  );
+}
+
+/** Who supplies this product (rate, stock left from each) and who buys it. */
+function ItemPartiesSection({
+  itemId,
+  unit,
+}: {
+  itemId: string;
+  unit: string;
+}) {
+  const parties = useItemParties(itemId);
+  const [tab, setTab] = useState<"supplier" | "customer">("supplier");
+  return (
+    <View style={{ gap: space.md }}>
+      <Txt variant="heading">Suppliers and customers</Txt>
+      <QueryView query={parties}>
+        {({ suppliers, customers, openingStock }) => {
+          // Sales staff don't see purchase rates: customers only.
+          const shown = suppliers ? tab : "customer";
+          return (
+            <>
+              {suppliers && customers ? (
+                <Segmented
+                  options={[
+                    {
+                      value: "supplier",
+                      label: `Suppliers · ${suppliers.length}`,
+                    },
+                    {
+                      value: "customer",
+                      label: `Customers · ${customers.length}`,
+                    },
+                  ]}
+                  value={tab}
+                  onChange={setTab}
+                />
+              ) : null}
+              {shown === "supplier" && openingStock && openingStock.qty > 0 ? (
+                <Txt variant="caption" tone="body">
+                  {`Opening stock, no supplier: ${openingStock.qty} ${unit} on hand.`}
+                </Txt>
+              ) : null}
+              <TradeRateList
+                key={shown}
+                rows={(shown === "supplier" ? suppliers : customers) ?? []}
+                type={shown}
+                view="item"
+                emptyTitle={
+                  shown === "supplier" ? "No purchases yet" : "No sales yet"
+                }
+                emptyMessage={
+                  shown === "supplier"
+                    ? "Suppliers appear here after the first purchase bill with this product."
+                    : "Customers appear here after the first sale invoice with this product."
+                }
+              />
+            </>
+          );
+        }}
+      </QueryView>
+    </View>
   );
 }

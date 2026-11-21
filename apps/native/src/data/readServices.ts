@@ -1,11 +1,28 @@
 import * as c from "@repo/contracts";
+import { matchVersion } from "./masterServices";
 import { z } from "zod";
-import { type Client, queryString } from "./client";
+import { PAGE_SIZE } from "@repo/core";
+import { type Client, pageQuery, queryString, statementPageOf } from "./client";
 import { type Services } from "./services";
 
 export function readServices({ request, pages }: Client) {
   const team = () => request("/settings/team", c.TeamView);
+  const rolePath = (id: string) =>
+    `/firms/current/roles/${id.replace(/^r_/, "")}`;
   return {
+    roleService: {
+      list: () => request("/firms/current/roles", c.RolesView),
+      save: (input: c.RoleInput, id?: string, version?: number) =>
+        id
+          ? request(rolePath(id), c.RolesView, {
+              method: "PUT",
+              body: input,
+              headers: matchVersion(version),
+            })
+          : request("/firms/current/roles", c.RolesView, { body: input }),
+      remove: (id: string) =>
+        request(rolePath(id), c.RolesView, { method: "DELETE" }),
+    } satisfies Services["roleService"],
     bookControlService: {
       get: () => request("/settings/books", c.BookControlView),
       history: (cursor) =>
@@ -31,6 +48,8 @@ export function readServices({ request, pages }: Client) {
     } satisfies Services["bookControlService"],
     auditService: {
       list: (limit) => pages("/audit-log", c.AuditEntry, {}, limit),
+      page: (query) =>
+        request(`/audit-log/page${pageQuery(query)}`, c.AuditPage),
     } satisfies Services["auditService"],
     bankService: {
       reconciliation: (ledgerId, asOf) =>
@@ -92,12 +111,21 @@ export function readServices({ request, pages }: Client) {
           `/accounts/${encodeURIComponent(key)}/statement${queryString({ tax })}`,
           c.AccountStatement,
         ),
+      statementPage: async (key, tax, query) =>
+        statementPageOf(
+          await request(
+            `/accounts/${encodeURIComponent(key)}/statement${pageQuery({ tax, limit: PAGE_SIZE, cursor: query.cursor })}`,
+            c.AccountStatement,
+          ),
+        ),
       pickable: () => request("/accounts", z.array(c.AccountInfo)),
     } satisfies Services["accountService"],
     gstService: {
       months: (count) =>
         request(`/gst/months${queryString({ count })}`, z.array(c.GstMonth)),
       gstr1: (month) => request(`/gst/gstr1${queryString({ month })}`, c.Gstr1),
+      gstr1Json: (month) =>
+        request(`/gst/gstr1/download${queryString({ month })}`, c.Gstr1Export),
       gstr3b: (month) =>
         request(`/gst/gstr3b${queryString({ month })}`, c.Gstr3b),
       compositionQuarters: (count) =>
@@ -142,6 +170,21 @@ export function readServices({ request, pages }: Client) {
           method: "PATCH",
           body,
         }),
+      branding: () => request("/settings/branding", c.BrandingView),
+      updateBranding: (body, version?: number) =>
+        request("/settings/branding", c.BrandingView, {
+          method: "PUT",
+          body,
+          headers: matchVersion(version ?? 0),
+        }),
+      salesControls: () =>
+        request("/settings/sales-controls", c.SalesControlsView),
+      updateSalesControls: (body, version?: number) =>
+        request("/settings/sales-controls", c.SalesControlsView, {
+          method: "PUT",
+          body,
+          headers: matchVersion(version ?? 0),
+        }),
       team,
       updateMember: async (id, patch) => {
         const target = (await team()).members.find(
@@ -169,6 +212,14 @@ export function readServices({ request, pages }: Client) {
           },
         );
         return { ...target, ...patch };
+      },
+      presence: () => request("/firms/current/presence", c.FirmPresence),
+      transferOwnership: async (input) => {
+        await request(
+          "/firms/current/transfer-ownership",
+          z.object({ ok: z.boolean() }),
+          { body: input },
+        );
       },
       invite: async (input) => {
         const invitation = await request(

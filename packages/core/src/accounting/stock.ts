@@ -2,17 +2,24 @@
  * Stock quantities and values, worked out from opening stock and posted vouchers.
  */
 import type { ISODate, InvoiceLine, Item, Paise, Voucher } from "../types";
+import { thousandths } from "../money";
 import { isPosted } from "./bills";
 import { calcLine } from "./invoice";
 import { stockLots } from "./stockLots";
-import { baseQty } from "./stockInputs";
-export { baseQty, stockVouchersAsOf } from "./stockInputs";
+import { baseQty, tracksStock } from "./stockInputs";
+export { baseQty, stockVouchersAsOf, tracksStock } from "./stockInputs";
 
 export interface StockMovement {
   voucherId: string;
   number: string;
   date: ISODate;
-  type: "sale" | "purchase" | "credit-note" | "debit-note" | "delivery-note" | "journal";
+  type:
+    | "sale"
+    | "purchase"
+    | "credit-note"
+    | "debit-note"
+    | "delivery-note"
+    | "journal";
   /** Positive for stock in, negative for stock out (base units). */
   qty: number;
   /** How it was entered on the bill when not in the base unit, e.g. "2 Box". */
@@ -38,7 +45,13 @@ export function stockMovements(
   const rows: StockMovement[] = [];
   for (const v of vouchers) {
     if (isPosted(v) && v.inventoryAdjustment?.itemId === itemId) {
-      rows.push({ voucherId: v.id, number: v.number, date: v.date, type: "journal", qty: v.inventoryAdjustment.quantity });
+      rows.push({
+        voucherId: v.id,
+        number: v.number,
+        date: v.date,
+        type: "journal",
+        qty: v.inventoryAdjustment.quantity,
+      });
       continue;
     }
     // Stock comes in on purchases and sales returns, goes out on sales and purchase returns
@@ -47,7 +60,8 @@ export function stockMovements(
     const outward =
       v.type === "sale" ||
       v.type === "debit-note" ||
-      (v.type === "delivery-note" && (!v.convertedToId || v.fulfillmentManaged));
+      (v.type === "delivery-note" &&
+        (!v.convertedToId || v.fulfillmentManaged));
     if (!isPosted(v) || (!inward && !outward)) continue;
     for (const line of v.lines ?? []) {
       if (line.itemId !== itemId) continue;
@@ -65,8 +79,16 @@ export function stockMovements(
   return rows.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** An item's movements; none for a service. */
+export function itemStockMovements(
+  item: Item,
+  vouchers: Voucher[],
+): StockMovement[] {
+  return tracksStock(item) ? stockMovements(item.id, vouchers) : [];
+}
+
 export function stockQty(item: Item, vouchers: Voucher[]): number {
-  return stockMovements(item.id, vouchers).reduce(
+  return itemStockMovements(item, vouchers).reduce(
     (q, m) => q + m.qty,
     item.openingStock,
   );
@@ -75,21 +97,35 @@ export function stockQty(item: Item, vouchers: Voucher[]): number {
 /** Value an opening quantity at its frozen cost, never the current buying default. */
 export function stockValue(item: Item, qty: number): Paise {
   if (item.openingLots) {
-    const total = item.openingLots.reduce((sum, lot) => sum + Math.round(lot.qty * lot.unitCost), 0);
-    return item.openingStock ? Math.round(total * qty / item.openingStock) : 0;
+    const total = item.openingLots.reduce(
+      (sum, lot) => sum + Math.round(lot.qty * lot.unitCost),
+      0,
+    );
+    return item.openingStock
+      ? Math.round((total * qty) / item.openingStock)
+      : 0;
   }
   return Math.round(qty * (item.openingCost ?? item.purchasePrice));
 }
 
+/** Below the minimum stock level (`reorderLevel`). Never for services. */
 export function isLowStock(item: Item, qty: number): boolean {
-  return qty < item.reorderLevel;
+  return tracksStock(item) && qty < item.reorderLevel;
+}
+
+/** Above the maximum stock level, when one is set (doc 37, T37). Never for services. */
+export function isOverStock(item: Item, qty: number): boolean {
+  return tracksStock(item) && !!item.maxStock && qty > item.maxStock;
 }
 
 /** Stock in the second unit: 30 Nos with 1 Box = 12 → "2 Box 6 Nos". Null when it's less than one box. */
 export function altQtyText(item: Item, qty: number): string | null {
   if (!item.altUnit || Math.abs(qty) < item.altUnit.factor) return null;
-  const boxes = Math.trunc(qty / item.altUnit.factor);
-  const rest = qty % item.altUnit.factor;
+  // Whole thousandths avoid leftovers like "6.100000000000001 Nos".
+  const q = thousandths(qty);
+  const factor = thousandths(item.altUnit.factor);
+  const boxes = Math.trunc(q / factor);
+  const rest = (q - boxes * factor) / 1000;
   return `${boxes} ${item.altUnit.name}${rest ? ` ${rest} ${item.unit}` : ""}`;
 }
 

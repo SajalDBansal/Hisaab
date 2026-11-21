@@ -108,3 +108,6 @@ export function splitNonGst(lines: InvoiceLine[]): {
 }
 
 export const NON_GST_MIX_MESSAGE = "Non-GST goods must be on a separate bill.";
+/** A supplier without a GSTIN can't charge GST, so its bill can't claim GST either. */
+export const UNREGISTERED_SUPPLIER_GST_MESSAGE =
+  "This supplier has no GSTIN, so the bill can't carry GST. Add the supplier's GSTIN, or turn on Purchase without GST.";

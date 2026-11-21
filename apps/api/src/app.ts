@@ -12,6 +12,8 @@ import type { Db } from "@repo/backend/db/client";
 import type { JobQueueClient } from "@repo/backend/jobs/queues";
 import type { EmailSender } from "./lib/email";
 import { createErrorReporter } from "@repo/backend/lib/observability";
+import { runWithOrigin } from "@repo/backend/lib/request-origin";
+import { safeError } from "@repo/backend/lib/safe-error";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import { fakeStorage, type FileStorage } from "./lib/storage";
 import { accountRoutes } from "./modules/accounts/accounts.routes";
@@ -25,11 +27,18 @@ import { notificationRoutes } from "./modules/notifications/notifications.routes
 import { reportRoutes } from "./modules/reports/reports.routes";
 import { searchRoutes } from "./modules/search/search.routes";
 import { syncRoutes } from "./modules/sync/sync.routes";
+import { readRoutes } from "./modules/reads/reads.routes";
+import { liveRoutes } from "./modules/live/live.routes";
+import { publishLive } from "@repo/backend/lib/live";
 import { voucherRoutes } from "./modules/vouchers/vouchers.routes";
 import { partyRoutes } from "./modules/masters/parties.routes";
+import { tradeRateRoutes } from "./modules/masters/tradeRates.routes";
+import { listRoutes } from "./modules/lists/lists.routes";
+import { replicaRoutes } from "./modules/replica/replica.routes";
 import { meRoutes } from "./modules/me/me.routes";
 import { registerAuth } from "./plugins/auth";
 import { registerCacheHelpers } from "./plugins/cache";
+import { registerBooksCache } from "./plugins/books-cache";
 import { registerFirmContext } from "./plugins/firm";
 import { systemRoutes, type ReadyCheck } from "./modules/system/system.routes";
 import { registerErrorHandling } from "./plugins/errors";
@@ -39,7 +48,10 @@ import { registerRateLimits } from "./plugins/rate-limit";
 import { registerSecurity } from "./plugins/security";
 import { registerSwagger } from "./plugins/swagger";
 import { settingsRoutes } from "./modules/settings/settings.routes";
+import { securityRoutes } from "./modules/settings/security.routes";
 import { auditRoutes } from "./modules/settings/audit.routes";
+import { customFieldRoutes } from "./modules/customFields/customFields.routes";
+import { roleRoutes } from "./modules/roles/roles.routes";
 import { bookControlRoutes } from "./modules/settings/bookControls";
 import { openingAllocationRoutes } from "./modules/settings/openingAllocations";
 import { yearEndRoutes } from "./modules/settings/yearEnd";
@@ -55,6 +67,7 @@ import { recoveryOperationsRoutes } from "./modules/recovery-operations/recovery
 import { cashForecastRoutes } from "./modules/reports/cashForecast";
 import { reminderRoutes } from "./modules/reminders/reminders.routes";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
+import { recoveryEpoch, registerRecoveryEpoch } from "./plugins/recovery";
 
 export type BuildAppOptions = {
   env: Pick<
@@ -75,7 +88,10 @@ export type BuildAppOptions = {
         | "TRUSTED_PROXY_CIDRS"
         | "DOCUMENT_STORAGE_MAX_BYTES"
         | "DOCUMENT_STORAGE_MAX_FILES"
+        | "LIVE_TICKET_SECRET"
+        | "LIVE_PUBLIC_URL"
         | "APP_MODE"
+        | "RECOVERY_EPOCH"
       >
     >;
   db: Db;
@@ -106,6 +122,7 @@ export async function buildApp({
       : false,
     logger: {
       level: env.LOG_LEVEL,
+      serializers: { err: safeError },
       redact: [
         "req.headers.authorization",
         "req.headers.cookie",
@@ -131,8 +148,17 @@ export async function buildApp({
   app.addHook("onSend", async (req, reply) => {
     reply.header("x-request-id", req.id);
   });
+  // The edit log records each change's IP address and device (doc 37, T55).
+  // req.ip honours TRUSTED_PROXY_CIDRS; authentication adds the device.
+  app.addHook("onRequest", (req, _reply, done) => {
+    runWithOrigin({ ipAddress: req.ip || null, device: null }, done);
+  });
 
   registerErrorHandling(app);
+  registerRecoveryEpoch(
+    app,
+    recoveryEpoch(env.RECOVERY_EPOCH, env.NODE_ENV === "production"),
+  );
   await registerSecurity(app, env);
   await app.register(compress, { global: true, threshold: 1024 });
   await registerRateLimits(app, redis);
@@ -152,7 +178,8 @@ export async function buildApp({
   }
   registerJobs(app, jobs);
   app.addHook("onClose", async () => pdfStorage?.close());
-  registerCacheHelpers(app, redis);
+  registerCacheHelpers(app, redis, (event) => publishLive(db, event));
+  registerBooksCache(app);
   if (env.NODE_ENV !== "production") await registerSwagger(app);
   const auth = createAuth({ env, db, email, log: app.log });
   await registerAuth(app, auth, db);
@@ -160,17 +187,23 @@ export async function buildApp({
   registerFirmContext(app, db);
 
   await app.register(systemRoutes, { readyChecks });
-  await app.register(meRoutes, { db, prefix: "/v1" });
+  await app.register(meRoutes, { db, auth, prefix: "/v1" });
   await app.register(firmRoutes, { db, auth, prefix: "/v1" });
   await app.register(partyRoutes, { db, prefix: "/v1" });
   await app.register(itemRoutes, { db, prefix: "/v1" });
+  await app.register(tradeRateRoutes, { db, prefix: "/v1" });
+  await app.register(listRoutes, { db, prefix: "/v1" });
+  await app.register(replicaRoutes, { db, prefix: "/v1" });
   await app.register(ledgerRoutes, { db, prefix: "/v1" });
   await app.register(voucherRoutes, { db, pdfStorage, prefix: "/v1" });
   await app.register(accountRoutes, { db, prefix: "/v1" });
   await app.register(reportRoutes, { db, prefix: "/v1" });
   await app.register(gstRoutes, { db, prefix: "/v1" });
   await app.register(settingsRoutes, { db, prefix: "/v1" });
+  await app.register(securityRoutes, { db, prefix: "/v1" });
   await app.register(auditRoutes, { db, prefix: "/v1" });
+  await app.register(customFieldRoutes, { db, prefix: "/v1" });
+  await app.register(roleRoutes, { db, prefix: "/v1" });
   await app.register(bookControlRoutes, { db, prefix: "/v1" });
   await app.register(openingAllocationRoutes, { db, prefix: "/v1" });
   await app.register(yearEndRoutes, { db, prefix: "/v1" });
@@ -205,6 +238,16 @@ export async function buildApp({
   await app.register(searchRoutes, { db, prefix: "/v1" });
   await app.register(notificationRoutes, { db, prefix: "/v1" });
   await app.register(syncRoutes, { db, prefix: "/v1" });
+  await app.register(readRoutes, { prefix: "/v1" });
+  await app.register(liveRoutes, {
+    db,
+    redis,
+    live:
+      env.LIVE_TICKET_SECRET && env.LIVE_PUBLIC_URL
+        ? { secret: env.LIVE_TICKET_SECRET, url: env.LIVE_PUBLIC_URL }
+        : undefined,
+    prefix: "/v1",
+  });
 
   return app;
 }

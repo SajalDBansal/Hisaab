@@ -1,0 +1,39 @@
+{
+  "name": "realtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hisaab live updates: a stateless WebSocket service, separate from the API.",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "build": "tsup",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@repo/backend": "*",
+    "@repo/contracts": "*",
+    "@repo/core": "*",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.6",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "ws": "^8.22.0",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "*",
+    "@repo/typescript-config": "*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9.39.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "5.9.2"
+  }
+}

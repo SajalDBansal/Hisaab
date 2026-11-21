@@ -16,9 +16,8 @@ import {
 } from "./accounts";
 import { isPosted } from "./bills";
 import { voucherPostings, type Posting } from "./postings";
-import { newestFirst } from "./reports";
-import { stockValue, stockVouchersAsOf } from "./stock";
-import { inventoryValue } from "./stockLots";
+import { stockValue } from "./stock";
+import { stockLotsFor } from "./stockLots";
 import { addDays } from "../dates";
 
 /** Opening balance of an account not covered by parties, cash/bank or stock (e.g. furniture). */
@@ -60,8 +59,9 @@ export function closingStockValue(
   vouchers: Voucher[],
   asOf?: ISODate,
 ): Paise {
-  const upTo = asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers;
-  return items.reduce((s, i) => s + inventoryValue(i, upTo), 0);
+  return stockLotsFor(items, vouchers, asOf)
+    .flat()
+    .reduce((s, lot) => s + lot.value, 0);
 }
 
 /**
@@ -92,13 +92,48 @@ export function openingPostings(books: Books, asOf?: ISODate): Posting[] {
   return rows;
 }
 
+export interface PartyOpeningMovement {
+  account: string;
+  date: ISODate;
+  partyId: string;
+  counterAccount: string;
+  debit: Paise;
+  credit: Paise;
+}
+
+/** Party openings and their capital counterparts take effect on the opening date. */
+export function partyOpeningMovements(books: Books): PartyOpeningMovement[] {
+  return books.parties.flatMap((party) => {
+    if (!party.openingBalance) return [];
+    const account = acc.party(party.id);
+    const movement = {
+      date: party.openingDate,
+      partyId: party.id,
+      debit: Math.max(party.openingBalance, 0),
+      credit: Math.max(-party.openingBalance, 0),
+    };
+    return [
+      { ...movement, account, counterAccount: acc.capital },
+      {
+        ...movement,
+        account: acc.capital,
+        counterAccount: account,
+        debit: movement.credit,
+        credit: movement.debit,
+      },
+    ];
+  });
+}
+
 /** Every posting of every posted voucher, with its voucher. */
 function allPostings(books: Books, asOf?: ISODate) {
   const out: { voucher: Voucher; posting: Posting }[] = [];
+  const partyNames = new Map(books.parties.map((p) => [p.id, p.name]));
+  const ledgerNames = new Map(books.ledgers.map((l) => [l.id, l.name]));
   for (const v of books.vouchers) {
     if (!isPosted(v) || (asOf && v.date > asOf)) continue;
-    const party = books.parties.find((p) => p.id === v.partyId)?.name;
-    const ledger = books.ledgers.find((l) => l.id === v.ledgerId)?.name;
+    const party = v.partyId ? partyNames.get(v.partyId) : undefined;
+    const ledger = v.ledgerId ? ledgerNames.get(v.ledgerId) : undefined;
     for (const posting of voucherPostings(v, { party, ledger }))
       out.push({ voucher: v, posting });
   }
@@ -261,13 +296,33 @@ export function finalAccounts(
   const netProfit = grossProfit - sum(indirectIncomes) - sum(indirectExpenses);
 
   // ---- Balance sheet ----
-  // Capital = capital account + this year's profit − drawings.
+  // Books run continuously, so retained profit is cumulative. With a period,
+  // show earlier periods' profit apart from the period's own result.
+  const period = from && asOf ? periodProfitAndLoss(books, from, asOf) : null;
+  const earlierProfit = period ? netProfit - period.netProfit : 0;
   const capitalRows = inGroup("Capital Account");
   const capitalLines: StatementLine[] = [
     ...lines(capitalRows, -1),
+    ...(earlierProfit
+      ? [
+          {
+            name:
+              earlierProfit >= 0
+                ? "Add: profit of earlier periods"
+                : "Less: loss of earlier periods",
+            amount: earlierProfit,
+          },
+        ]
+      : []),
     {
-      name: netProfit >= 0 ? "Add: net profit" : "Less: net loss",
-      amount: netProfit,
+      name: period
+        ? period.netProfit >= 0
+          ? "Add: net profit for the period"
+          : "Less: net loss for the period"
+        : netProfit >= 0
+          ? "Add: net profit"
+          : "Less: net loss",
+      amount: period ? period.netProfit : netProfit,
     },
   ];
   const liabilities: BalanceSheetSide["sections"] = [
@@ -315,20 +370,19 @@ export function finalAccounts(
   const totalA = assets.reduce((s, x) => s + x.total, 0);
 
   return {
-    profitAndLoss:
-      from && asOf
-        ? periodProfitAndLoss(books, from, asOf)
-        : {
-            sales,
-            openingStock,
-            purchases,
-            directExpenses: lines(direct, 1),
-            closingStock,
-            grossProfit,
-            indirectIncomes: lines(indirectIncomes, -1),
-            indirectExpenses: lines(indirectExpenses, 1),
-            netProfit,
-          },
+    profitAndLoss: period
+      ? period
+      : {
+          sales,
+          openingStock,
+          purchases,
+          directExpenses: lines(direct, 1),
+          closingStock,
+          grossProfit,
+          indirectIncomes: lines(indirectIncomes, -1),
+          indirectExpenses: lines(indirectExpenses, 1),
+          netProfit,
+        },
     balanceSheet: {
       liabilities: { sections: liabilities, total: totalL },
       assets: { sections: assets, total: totalA },
@@ -384,29 +438,70 @@ export function periodProfitAndLoss(
 // Statement of one account
 // ---------------------------------------------------------------------------
 
+export type AccountStatementRow = {
+  date: ISODate;
+  debit: Paise;
+  credit: Paise;
+  /** Running balance after this row (Dr positive). */
+  balance: Paise;
+} & (
+  | { kind: "voucher"; voucher: Voucher }
+  | {
+      kind: "opening";
+      voucher: null;
+      partyId: string;
+      counterAccount: string;
+      counterName: string;
+    }
+);
+
 export interface AccountStatement {
   key: string;
   name: string;
   group: GroupName;
+  /** Undated opening balances; dated party openings appear in rows and totals. */
   opening: Paise;
   totalDebit: Paise;
   totalCredit: Paise;
   closing: Paise;
-  /** Newest first. `balance` is the running balance after the row (Dr positive). */
-  rows: { voucher: Voucher; debit: Paise; credit: Paise; balance: Paise }[];
+  /** Newest first. Openings take effect before vouchers on the same date. */
+  rows: AccountStatementRow[];
+}
+
+function statementOrder(a: AccountStatementRow, b: AccountStatementRow) {
+  const dateOrder = a.date.localeCompare(b.date);
+  if (dateOrder) return dateOrder;
+  if (a.kind === "opening")
+    return b.kind === "opening" ? a.partyId.localeCompare(b.partyId) : -1;
+  if (b.kind === "opening") return 1;
+  return (
+    a.voucher.createdAt.localeCompare(b.voucher.createdAt) ||
+    a.voucher.id.localeCompare(b.voucher.id)
+  );
 }
 
 export function accountStatement(books: Books, key: string): AccountStatement {
   const info = describeAccount(key, names(books));
-  const opening = openingPostings(books)
+  const opening = openingPostings({ ...books, parties: [] })
     .filter((p) => p.account === key)
     .reduce((s, p) => s + p.debit - p.credit, 0);
   let balance = opening;
   let totalDebit = 0;
   let totalCredit = 0;
-  const rows: AccountStatement["rows"] = [];
-  const oldestFirst = [...newestFirst(books.vouchers)].reverse();
-  for (const v of oldestFirst) {
+  const rows: AccountStatementRow[] = partyOpeningMovements(books)
+    .filter((movement) => movement.account === key)
+    .map((movement) => ({
+      kind: "opening",
+      voucher: null,
+      date: movement.date,
+      partyId: movement.partyId,
+      counterAccount: movement.counterAccount,
+      counterName: describeAccount(movement.counterAccount, names(books)).name,
+      debit: movement.debit,
+      credit: movement.credit,
+      balance: 0,
+    }));
+  for (const v of books.vouchers) {
     if (!isPosted(v)) continue;
     const party = books.parties.find((p) => p.id === v.partyId)?.name;
     const ledger = books.ledgers.find((l) => l.id === v.ledgerId)?.name;
@@ -416,10 +511,20 @@ export function accountStatement(books: Books, key: string): AccountStatement {
     if (mine.length === 0) continue;
     const debit = mine.reduce((s, p) => s + p.debit, 0);
     const credit = mine.reduce((s, p) => s + p.credit, 0);
-    balance += debit - credit;
-    totalDebit += debit;
-    totalCredit += credit;
-    rows.push({ voucher: v, debit, credit, balance });
+    rows.push({
+      kind: "voucher",
+      voucher: v,
+      date: v.date,
+      debit,
+      credit,
+      balance: 0,
+    });
+  }
+  for (const row of rows.sort(statementOrder)) {
+    balance += row.debit - row.credit;
+    totalDebit += row.debit;
+    totalCredit += row.credit;
+    row.balance = balance;
   }
   return {
     ...info,

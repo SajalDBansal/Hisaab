@@ -1,4 +1,10 @@
-import type { Firm, ISODate, VoucherType, TaxScope } from "../types";
+import type {
+  AuditEntry,
+  Firm,
+  ISODate,
+  VoucherType,
+  TaxScope,
+} from "../types";
 import type { Books } from "../accounting/generalLedger";
 
 export const REPORT_IDS = [
@@ -23,6 +29,31 @@ export const REPORT_IDS = [
   "payables",
   "stock",
   "tax-ledgers",
+  // Phase 1 (doc 37)
+  "profit-loss-t",
+  "balance-sheet-t",
+  "itc-at-risk",
+  "interest-calculator",
+  "msme-payables",
+  "customer-tracking",
+  "top-customers",
+  "top-suppliers",
+  "sales-by-party",
+  "sales-by-item",
+  "purchases-by-party",
+  "purchases-by-item",
+  "expenses-by-party",
+  "estimates-register",
+  "proformas-register",
+  "sales-orders-register",
+  "delivery-notes-register",
+  "purchase-orders-register",
+  "gstr2",
+  "tax-summary",
+  "audit-trail",
+  // Stock levels and expiry (doc 37, T37/T38)
+  "stock-levels",
+  "expiring-items",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -129,6 +160,109 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     category: "Tax",
     zeroBalances: true,
   },
+  "profit-loss-t": {
+    title: "Profit and loss (T format)",
+    category: "Financial statements",
+  },
+  "balance-sheet-t": {
+    title: "Balance sheet (T format)",
+    category: "Financial statements",
+    asOf: true,
+  },
+  "itc-at-risk": {
+    title: "ITC at risk (unpaid 150+ days)",
+    category: "Tax",
+    asOf: true,
+    parties: true,
+  },
+  "interest-calculator": {
+    title: "Interest on overdue invoices",
+    category: "Outstanding",
+    asOf: true,
+    parties: true,
+  },
+  "msme-payables": {
+    title: "MSME payables (45-day rule)",
+    category: "Outstanding",
+    asOf: true,
+    parties: true,
+  },
+  "customer-tracking": {
+    title: "Customer tracking",
+    category: "Customers and suppliers",
+    parties: true,
+  },
+  "top-customers": {
+    title: "Most valuable customers",
+    category: "Customers and suppliers",
+  },
+  "top-suppliers": {
+    title: "Most valuable suppliers",
+    category: "Customers and suppliers",
+  },
+  "sales-by-party": {
+    title: "Sales by customer",
+    category: "Trading",
+    parties: true,
+  },
+  "sales-by-item": {
+    title: "Sales by item",
+    category: "Trading",
+    parties: true,
+  },
+  "purchases-by-party": {
+    title: "Purchases by supplier",
+    category: "Trading",
+    parties: true,
+  },
+  "purchases-by-item": {
+    title: "Purchases by item",
+    category: "Trading",
+    parties: true,
+  },
+  "expenses-by-party": {
+    title: "Expenses by supplier",
+    category: "Cash and expenses",
+  },
+  "estimates-register": {
+    title: "Estimates",
+    category: "Orders",
+    parties: true,
+  },
+  "proformas-register": {
+    title: "Proforma invoices",
+    category: "Orders",
+    parties: true,
+  },
+  "sales-orders-register": {
+    title: "Sales orders",
+    category: "Orders",
+    parties: true,
+  },
+  "delivery-notes-register": {
+    title: "Delivery notes",
+    category: "Orders",
+    parties: true,
+  },
+  "purchase-orders-register": {
+    title: "Purchase orders",
+    category: "Orders",
+    parties: true,
+  },
+  gstr2: { title: "GSTR-2 purchases", category: "Tax" },
+  "tax-summary": { title: "GST summary by rate", category: "Tax" },
+  "audit-trail": { title: "Audit trail (edit log)", category: "Audit" },
+  "stock-levels": {
+    title: "Stock levels (minimum and maximum)",
+    category: "Inventory",
+    asOf: true,
+    zeroBalances: true,
+  },
+  "expiring-items": {
+    title: "Expiring items",
+    category: "Inventory",
+    asOf: true,
+  },
 };
 
 export interface ReportRequest {
@@ -140,6 +274,10 @@ export interface ReportRequest {
   partyId?: string;
   includeNarration: boolean;
   includeZeroBalances: boolean;
+  /** Interest calculator (default 18) and MSME payables (default 17.25): yearly rate in percent. */
+  interestRate?: number;
+  /** Expiring items: days ahead to include (default 30). */
+  expiryDays?: number;
 }
 
 export interface ReportColumn {
@@ -166,7 +304,13 @@ export interface ReportDocument {
   notes: string[];
   sections: ReportSection[];
 }
-export type ReportBooks = Books & { firm: Firm };
+export type ReportBooks = Books & {
+  firm: Firm;
+  /** Edit log for the audit trail report; the API loads it only for that report. */
+  auditLog?: AuditEntry[];
+  /** The reader may see each change's IP address and device. */
+  auditOrigin?: boolean;
+};
 
 export const ENTRY_LABELS: Record<VoucherType, string> = {
   sale: "Sale",
@@ -179,6 +323,7 @@ export const ENTRY_LABELS: Record<VoucherType, string> = {
   "credit-note": "Credit note",
   "debit-note": "Debit note",
   estimate: "Estimate",
+  proforma: "Proforma invoice",
   "sales-order": "Sales order",
   "purchase-order": "Purchase order",
   "delivery-note": "Delivery note",

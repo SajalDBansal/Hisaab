@@ -7,23 +7,24 @@ import {
   EmptyState,
   Header,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TextField,
 } from "@/components";
 import { AssociateGate } from "@/components/associates/AssociateGate";
-import { useAssociates } from "@/data/associateHooks";
+import { useAssociatePages } from "@/data/associateHooks";
 import { space } from "@/theme";
 
 export default function Associates() {
-  const query = useAssociates();
+  const query = useAssociatePages();
   const [search, setSearch] = useState("");
   const [archived, setArchived] = useState(false);
   return (
     <Screen
       header={<Header title="Business associates" />}
-      onRefresh={() => void query.refetch()}
-      refreshing={query.isRefetching}
+      onRefresh={() => void query.query.refetch()}
+      refreshing={query.query.isRefetching && !query.query.isFetchingNextPage}
+      onEndReached={query.loadMore}
     >
       <AssociateGate>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
@@ -49,8 +50,8 @@ export default function Associates() {
           checked={archived}
           onChange={setArchived}
         />
-        <QueryView query={query}>
-          {(rows) => {
+        <PagedView list={query} noun="associates">
+          {({ items: rows }) => {
             const visible = rows.filter(
               (r) =>
                 (archived || r.active) &&
@@ -74,7 +75,7 @@ export default function Associates() {
               <EmptyState title="No associates found" />
             );
           }}
-        </QueryView>
+        </PagedView>
       </AssociateGate>
     </Screen>
   );

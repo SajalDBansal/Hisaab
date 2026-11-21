@@ -1,20 +1,46 @@
+import { pageRows, type PageQuery } from "../paging";
 import {
   isLowStock,
+  isOverStock,
   itemProfit,
-  stockMovements,
+  itemStockMovements,
   stockQty,
   type StockMovement,
 } from "../accounting/stock";
 import { createItem, updateItem } from "../mock/db";
 import type { Item, ItemInput, Paise } from "../types";
 import { clone, delay, getDb } from "./client";
-import { inventoryValue, stockLots } from "../accounting/stockLots";
+import {
+  inventoryValue,
+  stockLots,
+  stockLotsFor,
+} from "../accounting/stockLots";
+import {
+  itemPage,
+  type ItemPageQuery,
+  type ItemPageSummary,
+  type PagedList,
+} from "../listPages";
+import {
+  openingStockLeft,
+  tradeRates,
+  type TradeRate,
+} from "../accounting/tradeRates";
+
+/** Who supplies and who buys one product. Suppliers are null for roles that can't see costs. */
+export interface ItemParties {
+  suppliers: TradeRate[] | null;
+  customers: TradeRate[] | null;
+  /** Opening stock still on hand: it has no supplier. */
+  openingStock: { qty: number; value: number } | null;
+}
 
 export interface ItemListRow {
   item: Item;
   qty: number;
   value: Paise;
   lowStock: boolean;
+  overStock?: boolean;
 }
 
 export interface ItemDetail extends ItemListRow {
@@ -29,6 +55,14 @@ export const itemService = {
     const db = getDb();
     return clone(db.items.flatMap((i) => stockLots(i, db.vouchers, date)));
   },
+  /** One page of the Items screen. Real API: http.get(`/items/page?…`) */
+  async page(
+    query: ItemPageQuery,
+  ): Promise<PagedList<ItemListRow, ItemPageSummary>> {
+    await delay();
+    const { items, vouchers } = getDb();
+    return clone(itemPage(items, stockLotsFor(items, vouchers), query));
+  },
   /** Real API: http.get<ItemListRow[]>("/items") */
   async list(): Promise<ItemListRow[]> {
     await delay();
@@ -41,9 +75,24 @@ export const itemService = {
           qty,
           value: inventoryValue(item, vouchers),
           lowStock: isLowStock(item, qty),
+          overStock: isOverStock(item, qty),
         };
       }),
     );
+  },
+
+  /** One page of an item's movements, newest first. Real API: `/items/${id}/movements?cursor` */
+  async movementPage(id: string, query: PageQuery) {
+    await delay();
+    const { items, vouchers } = getDb();
+    const item = items.find((i) => i.id === id);
+    return clone({
+      ...pageRows(
+        item ? itemStockMovements(item, vouchers).reverse() : [],
+        query,
+      ),
+      summary: null,
+    });
   },
 
   /** Real API: http.get<ItemDetail>(`/items/${id}`) */
@@ -58,8 +107,20 @@ export const itemService = {
       qty,
       value: inventoryValue(item, vouchers),
       lowStock: isLowStock(item, qty),
-      movements: stockMovements(id, vouchers).reverse(),
+      overStock: isOverStock(item, qty),
+      movements: itemStockMovements(item, vouchers).reverse().slice(0, 20),
       profit: itemProfit(item, vouchers),
+    });
+  },
+
+  /** Real API: http.get<ItemParties>(`/items/${id}/parties`) */
+  async parties(id: string): Promise<ItemParties> {
+    await delay();
+    const db = getDb();
+    return clone({
+      suppliers: tradeRates(db, { type: "supplier", itemId: id }),
+      customers: tradeRates(db, { type: "customer", itemId: id }),
+      openingStock: openingStockLeft(db, id),
     });
   },
 

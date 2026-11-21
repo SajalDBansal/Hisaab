@@ -3,22 +3,11 @@ import { API_URL } from "./config";
 import { PLATFORM, deviceName } from "./device";
 import { secretsSupported } from "./storage";
 import { sessionStore } from "./session";
-
-/** A failed call: `code` is the machine-readable reason ("ACTIVE_ELSEWHERE"), `message` is for the person. */
-export class ApiFailure extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly details: Record<string, unknown> = {},
-  ) {
-    super(message);
-  }
-  /** True when the phone couldn't reach the server at all. */
-  get offline() {
-    return this.status === 0;
-  }
-}
+import { ApiFailure } from "./apiFailure";
+import { parseApiBody, requestApi } from "./apiRequest";
+import { RECOVERY_EPOCH_HEADER } from "@repo/contracts";
+import { serverRecovery, recoveryRequired } from "../data/recoveryEpoch";
+export { ApiFailure } from "./apiFailure";
 
 // Cookies from several Set-Cookie headers, reduced to "name=value; name2=value2"
 function cookieFromHeader(
@@ -43,21 +32,57 @@ function cookieFromHeader(
   return [...jar].map(([name, value]) => `${name}=${value}`).join("; ") || null;
 }
 
-/** Calls the API. Adds who we are (app or web), keeps the login cookie, and turns errors into ApiFailure. */
+type ApiOptions = {
+  method?: string;
+  body?: object;
+  headers?: Record<string, string>;
+};
+
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_MAX_WAIT_SECONDS = 30;
+
+/**
+ * Calls the API. A read the server rate-limited (429) waits as long as the
+ * server asks (Retry-After, at most 30 s) and tries again, up to three times.
+ * Writes are never repeated here; their retry identity is handled by callers.
+ */
 export async function api<T>(
   path: string,
-  options: {
-    method?: string;
-    body?: object;
-    headers?: Record<string, string>;
-  } = {},
+  options: ApiOptions = {},
 ): Promise<T> {
+  const method = options.method ?? (options.body ? "POST" : "GET");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await apiOnce<T>(path, options);
+    } catch (error) {
+      if (
+        !(error instanceof ApiFailure) ||
+        error.status !== 429 ||
+        !["GET", "HEAD"].includes(method) ||
+        attempt >= RATE_LIMIT_RETRIES
+      )
+        throw error;
+      const asked = (error as { retryAfterSeconds?: number }).retryAfterSeconds;
+      const seconds = Math.min(
+        asked && asked > 0 ? asked : 2 ** (attempt + 1),
+        RATE_LIMIT_MAX_WAIT_SECONDS,
+      );
+      await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    }
+  }
+}
+
+/** One API call. Adds who we are (app or web), keeps the login cookie, and turns errors into ApiFailure. */
+async function apiOnce<T>(path: string, options: ApiOptions): Promise<T> {
   const revision = sessionStore.revision;
+  const generation = serverRecovery.snapshot();
+  const method = options.method ?? (options.body ? "POST" : "GET");
   const headers: Record<string, string> = {
     // The server rejects a JSON content type with no body, so only say it when there is one
     ...(options.body ? { "content-type": "application/json" } : {}),
     "x-platform": PLATFORM,
     "x-device-name": deviceName(),
+    ...(generation.value ? { [RECOVERY_EPOCH_HEADER]: generation.value } : {}),
     ...options.headers,
   };
   let stored: string | null = null;
@@ -68,22 +93,31 @@ export async function api<T>(
     headers["expo-origin"] = "hisaab://";
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: options.method ?? (options.body ? "POST" : "GET"),
+  const { response, text } = await requestApi(
+    `${API_URL}${path}`,
+    {
+      method,
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       // On the web the browser keeps the cookie; on a phone we do it ourselves
       credentials: Platform.OS === "web" ? "include" : "omit",
-    });
-  } catch {
-    throw new ApiFailure(
-      0,
-      "OFFLINE",
-      "Can't reach the server. Check your internet and try again.",
-    );
-  }
+    },
+    undefined,
+    undefined,
+    (reply) => {
+      const epoch = serverRecovery.observe(
+        reply.headers.get(RECOVERY_EPOCH_HEADER),
+        generation,
+      );
+      if (
+        path.startsWith("/v1/") &&
+        !["GET", "HEAD"].includes(method) &&
+        headers[RECOVERY_EPOCH_HEADER] &&
+        headers[RECOVERY_EPOCH_HEADER] !== epoch
+      )
+        throw recoveryRequired();
+    },
+  );
 
   if (secretsSupported) {
     const next = cookieFromHeader(response.headers.get("set-cookie"), stored);
@@ -92,8 +126,7 @@ export async function api<T>(
     }
   }
 
-  const text = await response.text();
-  const data = text ? safeJson(text) : null;
+  const data = parseApiBody(text, response.headers.get("content-type"));
   if (!response.ok) {
     // Our routes reply { error: { code, message } }; Better Auth replies { code, message }
     const body = (data && typeof data === "object" ? data : {}) as Record<
@@ -103,7 +136,7 @@ export async function api<T>(
     const inner = (
       body.error && typeof body.error === "object" ? body.error : body
     ) as Record<string, unknown>;
-    throw new ApiFailure(
+    const failure = new ApiFailure(
       response.status,
       String(inner.code ?? "ERROR"),
       friendlyMessage(
@@ -112,16 +145,14 @@ export async function api<T>(
       ),
       body,
     );
+    if (response.status === 429)
+      Object.assign(failure, {
+        retryAfterSeconds:
+          Number(response.headers.get("retry-after")) || undefined,
+      });
+    throw failure;
   }
   return data as T;
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
 }
 
 // Plain-language versions of the codes the server can send
@@ -138,6 +169,18 @@ const MESSAGES: Record<string, string> = {
   PASSWORD_TOO_SHORT: "Use at least 8 characters for the password.",
   SESSION_REPLACED:
     "You were logged out because this account was opened on another device.",
+  // Two-factor sign-in (doc 37, T58)
+  INVALID_CODE:
+    "That code isn't right. Check the time on your phone and try the newest code.",
+  INVALID_BACKUP_CODE: "That recovery code isn't right or was already used.",
+  INVALID_TWO_FACTOR_COOKIE:
+    "The sign-in took too long. Enter your password again.",
+  TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE:
+    "Too many wrong codes. Enter your password again.",
+  ACCOUNT_TEMPORARILY_LOCKED:
+    "Too many wrong codes. Wait 15 minutes and try again.",
+  INVALID_PASSWORD: "That password isn't right.",
+  TOTP_ALREADY_ENABLED: "Two-factor sign-in is already on.",
 };
 const friendlyMessage = (code: string, fallback: string) =>
   MESSAGES[code] ?? fallback;

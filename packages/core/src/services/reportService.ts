@@ -14,15 +14,26 @@ import type { PartyType, TaxScope } from "../types";
 import { buildReport, type ReportRequest } from "../reporting";
 import { clone, delay, getDb } from "./client";
 import { scopeBooks } from "../accounting/bookScope";
+import { roleFlag } from "../roles";
 
 export const reportService = {
   async exportReport(request: ReportRequest) {
     await delay();
-    return buildReport(getDb(), request);
+    const db = getDb();
+    const role =
+      db.team.find((m) => m.id === db.currentUserId)?.role ?? "owner";
+    return buildReport(
+      { ...db, auditOrigin: roleFlag(role, "viewAudit") },
+      request,
+    );
   },
 
   /** Everything the Home screen shows. Real API: http.get<DashboardData>("/reports/dashboard") */
-  async dashboard(tax: TaxScope = "all"): Promise<DashboardData> {
+  async dashboard(
+    tax: TaxScope = "all",
+    /** False for roles that may not see costs (the phone's offline copy). */
+    options: { costs?: boolean } = {},
+  ): Promise<DashboardData> {
     await delay();
     const { parties, items, ledgers, vouchers, firm } = scopeBooks(
       getDb(),
@@ -36,6 +47,7 @@ export const reportService = {
         vouchers,
         asOf: today(),
         firm,
+        costs: options.costs,
       }),
     );
   },

@@ -6,14 +6,24 @@ export * from "./dates";
 export * from "./reporting";
 export * from "./accounting";
 export * from "./accounting/stockLots";
+export * from "./paging";
+export * from "./replica";
+export * from "./listPages";
+export * from "./accounting/tradeRates";
+export * from "./accounting/creditControl";
+export * from "./accounting/saleMargin";
+export * from "./accounting/stockPolicy";
 export * from "./accounting/bookScope";
 export * from "./validation";
 export * from "./permissions";
+export * from "./roles";
 export * from "./states";
 export * from "./units";
+export * from "./customFields";
+export * from "./businessProfile";
 
 // Data services — the only way apps should read or write data.
-export { API_BASE_URL, resetDb } from "./services/client";
+export { API_BASE_URL, resetDb, setReplicaBooks } from "./services/client";
 export { firmService, type FirmWithYear } from "./services/firmService";
 export {
   partyService,
@@ -24,6 +34,7 @@ export {
   itemService,
   type ItemListRow,
   type ItemDetail,
+  type ItemParties,
 } from "./services/itemService";
 export {
   ledgerService,
@@ -33,6 +44,7 @@ export {
   voucherService,
   type InvoiceRow,
   allowedDates,
+  type CancelledEntry,
   type OrderRow,
   type ReturnableBill,
   type VoucherDetail,
@@ -43,10 +55,16 @@ export { accountService } from "./services/accountService";
 export { gstService } from "./services/gstService";
 export {
   settingsService,
+  type Branding,
   type InvoiceSettingsView,
+  type TeamPresence,
 } from "./services/settingsService";
 export { documentService, type DocumentRow } from "./services/documentService";
 export { unitService, type UnitRow } from "./services/unitService";
+export {
+  customFieldService,
+  type CustomFieldInput,
+} from "./services/customFieldService";
 export * from "./print/voucherHtml";
 export * from "./print/messages";
 export { printService, type PrintableVoucher } from "./services/printService";
@@ -80,6 +98,8 @@ export { cleanItem, cleanParty } from "./mock/db";
 export {
   cancelBlocker,
   cancelVoucher,
+  restoreBlocker,
+  restoreVoucher,
   createContra,
   createExpense,
   createJournal,
@@ -92,11 +112,23 @@ export {
   createReceipt,
   createSale,
   createSales,
+  draftSaleMargin,
+  type SaleMarginInput,
   editBlocker,
   setCleared,
   updateInvoice,
   updateInvoiceSettings,
 } from "./mock/db";
+export {
+  ALL_YEARS,
+  DEFAULT_NUMBERING,
+  counterYear,
+  formatVoucherNumber,
+  nextSequence,
+  numberingRule,
+  seriesPrefix,
+} from "./books/base";
 export * from "./precision";
 export * from "./accounting/voucherSnapshot";
 export { checkInvoiceNumbers } from "./accounting/invoiceValidation";
+export * from "./dashboardLayout";

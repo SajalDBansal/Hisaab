@@ -8,13 +8,15 @@ import {
   Header,
   KeyValue,
   ListRow,
-  QueryView,
+  PagedView,
   Screen,
   TaxScopeFilter,
   Txt,
 } from "@/components";
 import { drCr, voucherTypeLabel } from "@/data/labels";
-import { useAccountStatement, useAccountMasters } from "@/data/queries";
+import { useAccountMasters } from "@/data/queries";
+import { useAccountStatementPages } from "@/data/pagedQueries";
+import { useReportScope } from "@/data/reportScope";
 import { space } from "@/theme";
 
 /** Statement of any account (Sales, Rent, Output CGST, Capital…) with the running balance. */
@@ -23,20 +25,24 @@ export default function AccountStatementScreen() {
   const key = raw ?? "";
   const masters = useAccountMasters();
   const master = masters.data?.find((a) => `account:${a.id}` === key);
-  const statement = useAccountStatement(key);
-  const st = statement.data;
+  const [tax] = useReportScope();
+  const statement = useAccountStatementPages(key, tax);
+  const st = statement.summary;
 
   return (
     <Screen
       header={
         <Header title={st?.name ?? "Account"} subtitle={st?.group ?? ""} />
       }
-      onRefresh={() => statement.refetch()}
-      refreshing={statement.isRefetching}
+      onRefresh={() => statement.query.refetch()}
+      refreshing={
+        statement.query.isRefetching && !statement.query.isFetchingNextPage
+      }
+      onEndReached={statement.loadMore}
     >
       <TaxScopeFilter />
-      <QueryView query={statement}>
-        {(st) => (
+      <PagedView list={statement} noun="entries">
+        {({ items: rows, summary: st }) => (
           <>
             <Card style={{ gap: 0 }}>
               <KeyValue label="Opening balance" value={drCr(st.opening)} />
@@ -62,7 +68,7 @@ export default function AccountStatementScreen() {
               </View>
             ) : null}
 
-            {st.rows.length === 0 ? (
+            {rows.length === 0 ? (
               <EmptyState
                 icon="list"
                 title="No entries yet"
@@ -73,16 +79,30 @@ export default function AccountStatementScreen() {
                 <Txt variant="heading" style={{ marginBottom: space.xs }}>
                   Entries · newest first
                 </Txt>
-                {st.rows.map((r, i) => (
+                {rows.map((r, i) => (
                   <ListRow
-                    key={`${r.voucher.id}-${i}`}
-                    title={
-                      r.voucher.narration ||
-                      r.voucher.expenseHead ||
-                      `${voucherTypeLabel[r.voucher.type]} ${r.voucher.number}`
+                    key={
+                      r.kind === "opening"
+                        ? `opening:${r.partyId}`
+                        : `${r.voucher.id}-${i}`
                     }
-                    subtitle={`${voucherTypeLabel[r.voucher.type]} · ${r.voucher.number} · ${formatDate(r.voucher.date)}`}
-                    onPress={() => router.push(`/voucher/${r.voucher.id}`)}
+                    title={
+                      r.kind === "opening"
+                        ? "Opening balance"
+                        : r.voucher.narration ||
+                          r.voucher.expenseHead ||
+                          `${voucherTypeLabel[r.voucher.type]} ${r.voucher.number}`
+                    }
+                    subtitle={
+                      r.kind === "opening"
+                        ? `${r.counterName} · ${formatDate(r.date)}`
+                        : `${voucherTypeLabel[r.voucher.type]} · ${r.voucher.number} · ${formatDate(r.date)}`
+                    }
+                    onPress={
+                      r.kind === "voucher"
+                        ? () => router.push(`/voucher/${r.voucher.id}`)
+                        : undefined
+                    }
                     right={
                       <View style={{ alignItems: "flex-end" }}>
                         <Txt
@@ -99,14 +119,14 @@ export default function AccountStatementScreen() {
                         </Txt>
                       </View>
                     }
-                    last={i === st.rows.length - 1}
+                    last={i === rows.length - 1}
                   />
                 ))}
               </View>
             )}
           </>
         )}
-      </QueryView>
+      </PagedView>
       <VoucherAttachments key={key} accountKey={key} />
     </Screen>
   );

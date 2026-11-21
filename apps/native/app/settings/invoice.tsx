@@ -1,12 +1,16 @@
 import { router } from "expo-router";
 import { backOrReplace } from "@/navigation";
 import { useState } from "react";
-import { Pressable, Switch, View } from "react-native";
+import { Image, Pressable, Switch, View } from "react-native";
+import { pickBrandingImage } from "@/documents/brandingImage";
 import {
+  DEFAULT_NUMBERING,
   financialYear,
+  formatVoucherNumber,
   today,
   type InvoiceSettingsView,
   type InvoiceTemplate,
+  type NumberingRule,
   type VoucherType,
 } from "@repo/core";
 import {
@@ -24,7 +28,9 @@ import {
 } from "@/components";
 import { voucherTypeLabel } from "@/data/labels";
 import {
+  useBranding,
   useInvoiceSettings,
+  useSaveBranding,
   useLedgers,
   useUpdateInvoiceSettings,
 } from "@/data/queries";
@@ -46,6 +52,7 @@ const TYPES: VoucherType[] = [
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -70,6 +77,27 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
   const [showBank, setShowBank] = useState(initial.showBankDetails);
   const [bankId, setBankId] = useState(initial.bankLedgerId);
   const [prefixes, setPrefixes] = useState(initial.prefixes);
+  // Kept as text while typing; checked and converted on save.
+  const [numbering, setNumbering] = useState(
+    () =>
+      Object.fromEntries(
+        TYPES.map((t) => {
+          const rule = { ...DEFAULT_NUMBERING, ...initial.numbering?.[t] };
+          return [
+            t,
+            {
+              start: String(rule.start),
+              digits: String(rule.digits),
+              showYear: rule.showYear,
+            },
+          ];
+        }),
+      ) as Record<
+        VoucherType,
+        { start: string; digits: string; showYear: boolean }
+      >,
+  );
+  const [openType, setOpenType] = useState<VoucherType | null>(null);
   const [pickBank, setPickBank] = useState(false);
   const [account, setAccount] = useState({
     accountName: initial.bankAccount?.accountName ?? "",
@@ -96,9 +124,27 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
     ledgers.data?.find((l) => l.ledger.id === bankId)?.ledger.name ??
     initial.bankName;
   const badPrefix = TYPES.find((t) => !/^[A-Z0-9-]{1,5}$/.test(prefixes[t]));
+  const ruleOf = (t: VoucherType): NumberingRule | null => {
+    const n = numbering[t];
+    const start = Number(n.start);
+    const digits = Number(n.digits);
+    if (!/^\d{1,8}$/.test(n.start) || start < 1) return null;
+    if (!/^[1-8]$/.test(n.digits)) return null;
+    return { start, digits, showYear: n.showYear };
+  };
+  const badRule = TYPES.find((t) => !ruleOf(t));
+  const problem = badPrefix
+    ? `${voucherTypeLabel[badPrefix]} prefix: 1–5 capital letters or digits.`
+    : badRule
+      ? `${voucherTypeLabel[badRule]}: start from 1 or more, with 1 to 8 digits.`
+      : null;
+  const setRule = (
+    t: VoucherType,
+    patch: Partial<{ start: string; digits: string; showYear: boolean }>,
+  ) => setNumbering({ ...numbering, [t]: { ...numbering[t], ...patch } });
 
   const save = async () => {
-    if (badPrefix || !ifscOk) return;
+    if (problem || !ifscOk) return;
     try {
       await update.mutateAsync({
         template,
@@ -114,6 +160,9 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
             }
           : undefined,
         prefixes,
+        numbering: Object.fromEntries(
+          TYPES.map((t) => [t, ruleOf(t) ?? DEFAULT_NUMBERING]),
+        ),
       });
       backOrReplace(router, "/settings");
     } catch (e) {
@@ -134,19 +183,17 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
         <FooterBar>
           <Txt
             variant="caption"
-            tone={badPrefix ? "give" : "body"}
+            tone={problem ? "give" : "body"}
             style={{ flex: 1 }}
           >
-            {badPrefix
-              ? `${voucherTypeLabel[badPrefix]} prefix: 1–5 capital letters or digits.`
-              : "Old vouchers keep their numbers."}
+            {problem ?? "Old vouchers keep their numbers."}
           </Txt>
           <Button
             label="Save"
             variant="primary"
             onPress={save}
             loading={update.isPending}
-            disabled={!!badPrefix}
+            disabled={!!problem}
           />
         </FooterBar>
       }
@@ -253,6 +300,8 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
         ) : null}
       </Card>
 
+      <BrandingSection />
+
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Voucher numbering</Txt>
         <View
@@ -263,43 +312,120 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
             paddingHorizontal: 14,
           }}
         >
-          {TYPES.map((t, i) => (
-            <View
-              key={t}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: space.md,
-                paddingVertical: 8,
-                borderBottomWidth: i === TYPES.length - 1 ? 0 : 1,
-                borderBottomColor: colors.hairlineSoft,
-              }}
-            >
-              <View style={{ flex: 1 }}>
-                <Txt variant="bodyStrong">{voucherTypeLabel[t]}</Txt>
-                <Txt variant="caption" tone="body" num>
-                  {prefixes[t] || "?"}/{fy}/0001
-                </Txt>
+          {TYPES.map((t, i) => {
+            const rule = ruleOf(t);
+            const open = openType === t;
+            return (
+              <View
+                key={t}
+                style={{
+                  paddingVertical: 8,
+                  gap: space.sm,
+                  borderBottomWidth: i === TYPES.length - 1 ? 0 : 1,
+                  borderBottomColor: colors.hairlineSoft,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.md,
+                  }}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: open }}
+                    accessibilityLabel={`${voucherTypeLabel[t]} number format`}
+                    onPress={() => setOpenType(open ? null : t)}
+                    style={{ flex: 1 }}
+                  >
+                    <Txt variant="bodyStrong">{voucherTypeLabel[t]}</Txt>
+                    <Txt variant="caption" tone="body" num>
+                      {rule
+                        ? formatVoucherNumber(
+                            prefixes[t] || "?",
+                            fy,
+                            rule.start,
+                            rule,
+                          )
+                        : "Check the format"}
+                      {open ? "" : "  ·  Change format"}
+                    </Txt>
+                  </Pressable>
+                  <View style={{ width: 96, flexDirection: "row" }}>
+                    <TextField
+                      label={`${voucherTypeLabel[t]} prefix`}
+                      hideLabel
+                      value={prefixes[t]}
+                      onChangeText={(text) =>
+                        setPrefixes({
+                          ...prefixes,
+                          [t]: text.toUpperCase().replace(/\s/g, ""),
+                        })
+                      }
+                      mono
+                    />
+                  </View>
+                </View>
+                {open && (
+                  <View style={{ gap: space.sm }}>
+                    <View style={{ flexDirection: "row", gap: space.md }}>
+                      <View style={{ flex: 1 }}>
+                        <TextField
+                          label="Start from"
+                          value={numbering[t].start}
+                          keyboardType="number-pad"
+                          onChangeText={(text) =>
+                            setRule(t, {
+                              start: text.replace(/\D/g, "").slice(0, 8),
+                            })
+                          }
+                          mono
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <TextField
+                          label="Digits"
+                          value={numbering[t].digits}
+                          keyboardType="number-pad"
+                          onChangeText={(text) =>
+                            setRule(t, {
+                              digits: text.replace(/\D/g, "").slice(0, 1),
+                            })
+                          }
+                          mono
+                        />
+                      </View>
+                    </View>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: space.md,
+                      }}
+                    >
+                      <Txt style={{ flex: 1 }}>Show the year in the number</Txt>
+                      <Switch
+                        accessibilityLabel={`Show the year in ${voucherTypeLabel[t]} numbers`}
+                        value={numbering[t].showYear}
+                        onValueChange={(showYear) => setRule(t, { showYear })}
+                      />
+                    </View>
+                    <Txt variant="caption" tone="body">
+                      {numbering[t].showYear
+                        ? "Numbers restart every financial year."
+                        : "One running number across all years, so no number repeats."}{" "}
+                      A higher start skips ahead; numbers already used are never
+                      given again.
+                    </Txt>
+                  </View>
+                )}
               </View>
-              <View style={{ width: 96, flexDirection: "row" }}>
-                <TextField
-                  label={`${voucherTypeLabel[t]} prefix`}
-                  hideLabel
-                  value={prefixes[t]}
-                  onChangeText={(text) =>
-                    setPrefixes({
-                      ...prefixes,
-                      [t]: text.toUpperCase().replace(/\s/g, ""),
-                    })
-                  }
-                  mono
-                />
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
         <Txt variant="caption" tone="body">
-          Numbers restart at 0001 every financial year.
+          Tap a voucher type to change its starting number, digits or year.
         </Txt>
       </View>
 
@@ -367,6 +493,104 @@ function TemplatePreview({ kind }: { kind: InvoiceTemplate }) {
         </>
       )}
       {bar("40%", 5, true)}
+    </View>
+  );
+}
+
+/**
+ * Firm logo and the signatory's signature or stamp, printed on documents
+ * (doc 37, T16). Saved at once, apart from the rest of this screen.
+ */
+function BrandingSection() {
+  const branding = useBranding();
+  const save = useSaveBranding();
+  const [busy, setBusy] = useState<"logo" | "signature" | null>(null);
+  const current = branding.data;
+  const update = async (which: "logo" | "signature", pick: boolean) => {
+    if (!current) return;
+    setBusy(which);
+    try {
+      const image = pick
+        ? await pickBrandingImage(which === "logo" ? 600 : 400)
+        : null;
+      if (pick && !image) return;
+      await save.mutateAsync({
+        logo: which === "logo" ? image : current.logo,
+        signature: which === "signature" ? image : current.signature,
+        version: current.version,
+      });
+    } catch (e) {
+      showError("Couldn't save the image", e);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const row = (which: "logo" | "signature", title: string, note: string) => {
+    const uri = current?.[which];
+    return (
+      <View
+        style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
+      >
+        <View
+          style={{
+            width: 96,
+            height: 56,
+            borderWidth: 1,
+            borderColor: colors.hairline,
+            borderRadius: radius.card,
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+          }}
+        >
+          {uri ? (
+            <Image
+              source={{ uri }}
+              accessibilityLabel={title}
+              style={{ width: 92, height: 52 }}
+              resizeMode="contain"
+            />
+          ) : (
+            <Txt variant="caption" tone="body">
+              None
+            </Txt>
+          )}
+        </View>
+        <View style={{ flex: 1, gap: space.xs }}>
+          <Txt variant="bodyStrong">{title}</Txt>
+          <Txt variant="caption" tone="body">
+            {note}
+          </Txt>
+          <View style={{ flexDirection: "row", gap: space.sm }}>
+            <Button
+              label={uri ? "Change" : "Choose image"}
+              size="sm"
+              onPress={() => update(which, true)}
+              loading={busy === which}
+              disabled={!current || busy !== null}
+            />
+            {uri ? (
+              <Button
+                label="Remove"
+                size="sm"
+                onPress={() => update(which, false)}
+                disabled={busy !== null}
+              />
+            ) : null}
+          </View>
+        </View>
+      </View>
+    );
+  };
+  return (
+    <View style={{ gap: space.sm }}>
+      <Txt variant="heading">Logo and signature</Txt>
+      {row("logo", "Logo", "Printed at the top of every bill and order")}
+      {row(
+        "signature",
+        "Signature or stamp",
+        "Printed above Authorised signatory",
+      )}
     </View>
   );
 }

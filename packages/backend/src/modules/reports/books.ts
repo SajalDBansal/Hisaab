@@ -1,7 +1,11 @@
-import type { MockDb } from "@repo/core";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { addDays, type AuditEntry, type MockDb } from "@repo/core";
+import { and, asc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
+import { itemExtras } from "../items/itemExtras";
 import { listAccounts } from "../accounts/accountMasters";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 
@@ -16,7 +20,13 @@ const {
   items,
   vouchers,
   openingAccounts,
+  auditLog,
 } = schema;
+
+/** Days of the edit log to read with the books (Indian dates, inclusive). */
+export type AuditDays = { from: string; to: string };
+/** More rows than any report may hold (buildReport refuses above 20,000). */
+const AUDIT_ROW_CAP = 20_001;
 
 const undef = <T>(value: T | null | undefined): T | undefined =>
   value ?? undefined;
@@ -25,12 +35,96 @@ const undef = <T>(value: T | null | undefined): T | undefined =>
 export function loadReportSnapshot(
   db: Db,
   firmId: string,
-  options: { includeDeleted?: boolean } = {},
+  options: { includeDeleted?: boolean; audit?: AuditDays } = {},
 ) {
-  return db.transaction((tx) => loadReportBooks(tx, firmId, options), {
-    isolationLevel: "repeatable read",
-    accessMode: "read only",
-  });
+  return db.transaction(
+    async (tx) => {
+      const books = await loadReportBooks(tx, firmId, options);
+      if (!options.audit) return books;
+      return {
+        ...books,
+        auditLog: await loadAuditDays(tx, firmId, options.audit),
+      };
+    },
+    {
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    },
+  );
+}
+
+/**
+ * Edit-log entries made on these Indian days, with IP address and device.
+ * Callers decide who may see those two (the audit right).
+ */
+export async function loadAuditDays(
+  db: Pick<Db, "select">,
+  firmId: string,
+  days: AuditDays,
+): Promise<AuditEntry[]> {
+  const rows = await db
+    .select()
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.firmId, firmId),
+        gte(auditLog.at, new Date(`${days.from}T00:00:00+05:30`)),
+        lt(auditLog.at, new Date(`${addDays(days.to, 1)}T00:00:00+05:30`)),
+      ),
+    )
+    .orderBy(asc(auditLog.at), asc(auditLog.id))
+    .limit(AUDIT_ROW_CAP);
+  return rows.map((row) => ({
+    id: row.id,
+    voucherId: row.voucherId,
+    number: row.number,
+    voucherType: row.voucherType,
+    action: row.action,
+    at: row.at.toISOString(),
+    userId: row.userId,
+    userName: row.userName,
+    changes: (row.changes ?? []) as AuditEntry["changes"],
+    note: undef(row.note),
+    ipAddress: undef(row.ipAddress),
+    device: undef(row.device),
+  }));
+}
+
+/** Books already read during one batch of reads, by firm and deletion scope. */
+const sharedBooks = new AsyncLocalStorage<Map<string, Promise<MockDb>>>();
+
+/**
+ * Runs `work` so every report-books read inside it shares one load per firm.
+ * Used by batched reads: their answers then come from one consistent book.
+ * Callers must treat the books as read-only, as every report reader already does.
+ */
+export function withSharedReportBooks<T>(work: () => Promise<T>): Promise<T> {
+  return sharedBooks.run(new Map(), work);
+}
+
+/**
+ * Runs `work` with a given store of books, shared with other reads that use
+ * the same store. The API keeps one store per firm data version, so reads
+ * between two saves load the books once. Writes never run inside a store.
+ */
+export function withReportBooksStore<T>(
+  store: Map<string, Promise<MockDb>>,
+  work: () => T,
+): T {
+  return sharedBooks.run(store, work);
+}
+
+/** In tests, shared books are frozen so a reader that changes them fails loudly. */
+function frozenInTests(books: MockDb): MockDb {
+  if (process.env.NODE_ENV !== "test") return books;
+  const freeze = (value: unknown) => {
+    if (value && typeof value === "object" && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      for (const child of Object.values(value)) freeze(child);
+    }
+  };
+  freeze(books);
+  return books;
 }
 
 /** Reads a firm's full book into the same shape used by the shared core logic. */
@@ -39,6 +133,56 @@ export async function loadReportBooks(
   firmId: string,
   options: { includeDeleted?: boolean } = {},
 ): Promise<MockDb> {
+  const shared = sharedBooks.getStore();
+  if (!shared) return readReportBooks(db, firmId, options);
+  const key = `${firmId}:${options.includeDeleted ? "all" : "live"}`;
+  let books = shared.get(key);
+  if (!books) {
+    books = readReportBooks(db, firmId, options).then(frozenInTests);
+    shared.set(key, books);
+    // A failed read is not reused by later reads in the batch.
+    books.catch(() => shared.delete(key));
+  }
+  return books;
+}
+
+/**
+ * Part of a book: always the small tables (firm, settings, accounts, ledgers,
+ * units, openings); parties, items and vouchers only as listed. The replica
+ * the app keeps on the phone is built from these, with the same mapping as
+ * the server's own books.
+ */
+export type BookPart = {
+  parties?: string[] | "all";
+  items?: string[] | "all";
+  vouchers?: string[] | "all";
+};
+
+export function loadBookPart(
+  db: Pick<Db, "select">,
+  firmId: string,
+  part: BookPart,
+): Promise<MockDb> {
+  return readReportBooks(db, firmId, { part });
+}
+
+/** Rows of one table: every row, the listed ids, or none. */
+function partFilter(
+  column: AnyPgColumn,
+  want: string[] | "all" | undefined,
+  part: BookPart | undefined,
+) {
+  if (!part || want === "all") return undefined;
+  return inArray(column, want?.length ? want : [NO_ROW]);
+}
+const NO_ROW = "00000000-0000-0000-0000-000000000000";
+
+async function readReportBooks(
+  db: Pick<Db, "select">,
+  firmId: string,
+  options: { includeDeleted?: boolean; part?: BookPart },
+): Promise<MockDb> {
+  const { part } = options;
   // A transaction owns one PostgreSQL connection; query it sequentially.
   const [firmRow] = await db
     .select({ name: organization.name, profile: firmProfile })
@@ -60,6 +204,7 @@ export async function loadReportBooks(
       and(
         eq(parties.firmId, firmId),
         options.includeDeleted ? undefined : isNull(parties.deletedAt),
+        partFilter(parties.id, part?.parties, part),
       ),
     );
   const itemRows = await db
@@ -69,6 +214,7 @@ export async function loadReportBooks(
       and(
         eq(items.firmId, firmId),
         options.includeDeleted ? undefined : isNull(items.deletedAt),
+        partFilter(items.id, part?.items, part),
       ),
     );
   const ledgerRows = await db
@@ -87,7 +233,12 @@ export async function loadReportBooks(
   const voucherRows = await db
     .select()
     .from(vouchers)
-    .where(eq(vouchers.firmId, firmId))
+    .where(
+      and(
+        eq(vouchers.firmId, firmId),
+        partFilter(vouchers.id, part?.vouchers, part),
+      ),
+    )
     .orderBy(asc(vouchers.date), asc(vouchers.createdAt), asc(vouchers.id));
   const openingRows = await db
     .select()
@@ -97,7 +248,12 @@ export async function loadReportBooks(
     .select()
     .from(units)
     .where(eq(units.firmId, firmId));
-  const loadedVouchers = await hydrateVouchers(db, voucherRows);
+  // A part reads children by voucher id; the whole book reads them by firm.
+  const loadedVouchers = await hydrateVouchers(
+    db,
+    voucherRows,
+    part && part.vouchers !== "all" ? undefined : firmId,
+  );
   const partyOpeningBills = await loadOpeningBills(
     db,
     firmId,
@@ -121,6 +277,7 @@ export async function loadReportBooks(
       phone: undef(profile.phone),
       email: undef(profile.email),
       pan: undef(profile.pan),
+      ...firmStatutory(profile),
     },
     parties: partyRows.map((row) => ({
       id: row.id,
@@ -137,6 +294,8 @@ export async function loadReportBooks(
       openingGstBalance: row.deletedAt ? 0 : undef(row.openingGstBalance),
       openingDate: row.openingDate,
       openingBills: partyOpeningBills.get(row.id),
+      customFields: undef(row.customFields),
+      ...partyMsme(row),
     })),
     items: itemRows.map((row) => ({
       id: row.id,
@@ -163,6 +322,8 @@ export async function loadReportBooks(
         row.batchNumber && row.batchExpiry
           ? { number: row.batchNumber, expiry: row.batchExpiry }
           : undefined,
+      customFields: undef(row.customFields),
+      ...itemExtras(row),
     })),
     ledgers: ledgerRows.map((row) => ({
       id: row.id,
@@ -189,6 +350,9 @@ export async function loadReportBooks(
       ),
       prefixes: settings.prefixes as MockDb["invoiceSettings"]["prefixes"],
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
+      chargeHeads:
+        settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
     },
     team: [],
     currentUserId: "",

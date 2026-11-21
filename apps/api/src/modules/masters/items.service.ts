@@ -1,11 +1,25 @@
 import type { ItemInput, ItemRow } from "@repo/contracts";
-import { checkItem, cleanItem, gstModeOf, type Item } from "@repo/core";
+import {
+  canSeeCosts,
+  checkItem,
+  cleanItem,
+  gstModeOf,
+  storedCustomValues,
+  type CustomFieldValues,
+  type Item,
+  type Role,
+} from "@repo/core";
+import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
 import { eq, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { itemsRepo, type ItemDb, type ItemRecord } from "./items.repo";
+import {
+  itemExtraColumns,
+  itemExtras,
+} from "@repo/backend/modules/items/itemExtras";
 import { unitsRepo } from "./units.repo";
 import {
   editedElsewhere,
@@ -15,6 +29,41 @@ import {
 } from "@repo/backend/modules/masters/shared";
 
 type GstRate = ItemRow["gstRate"];
+
+/**
+ * A role that can't see purchase costs (sales staff) can't set or change them
+ * either: an edit keeps the item's costs and opening stock, and a new item starts
+ * without a purchase price or opening stock for the owner or accountant to add.
+ */
+function costsForRole(
+  role: Role,
+  input: ItemInput,
+  current?: ItemRecord,
+): ItemInput {
+  if (canSeeCosts(role)) return input;
+  if (!current) {
+    if (input.openingStock || input.openingLots?.length)
+      throw new AppError(
+        "FORBIDDEN",
+        "Opening stock and its cost are entered by the owner or accountant.",
+        403,
+      );
+    return {
+      ...input,
+      purchasePrice: 0,
+      openingCost: undefined,
+      openingLots: undefined,
+    };
+  }
+  return {
+    ...input,
+    purchasePrice: current.purchasePrice,
+    openingStock: current.openingStock,
+    openingCost: current.openingCost ?? undefined,
+    openingLots: current.openingLots ?? undefined,
+    openingBookScope: current.openingBookScope ?? undefined,
+  };
+}
 
 export const toItemRow = (r: ItemRecord): ItemRow => {
   const stock = Number(r.stock);
@@ -41,9 +90,12 @@ export const toItemRow = (r: ItemRecord): ItemRow => {
     ...(r.batchNumber && r.batchExpiry
       ? { batch: { number: r.batchNumber, expiry: r.batchExpiry } }
       : {}),
+    ...(r.customFields ? { customFields: r.customFields } : {}),
+    ...itemExtras(r),
     version: r.version,
     stock,
-    lowStock: stock < r.reorderLevel,
+    lowStock: r.kind !== "service" && stock < r.reorderLevel,
+    overStock: r.kind !== "service" && !!r.maxStock && stock > r.maxStock,
   };
 };
 
@@ -65,7 +117,12 @@ const columnsOf = (i: ItemInput) => ({
   openingLots: i.openingLots,
   batchNumber: i.batch?.number ?? null,
   batchExpiry: i.batch?.expiry ?? null,
+  ...itemExtraColumns(i),
 });
+
+/** undefined leaves stored values alone on update; null clears them. */
+const customColumn = (value: CustomFieldValues | null | undefined) =>
+  value === undefined ? {} : { customFields: value };
 
 const asCoreItem = (r: ItemRecord): Item => ({
   ...toItemRow(r),
@@ -109,9 +166,24 @@ async function validated(
   )
     problems.altUnit = `${item.altUnit.name} isn't a switched-on unit. Add it in Settings → Units.`;
 
+  // Custom values: checked against the firm's item fields (doc 37, T07).
+  // Not sent (older app) = keep what is stored.
+  let customFields: CustomFieldValues | null | undefined;
+  if (item.customFields !== undefined)
+    try {
+      customFields =
+        storedCustomValues(
+          await loadCustomFieldDefs(db, firmId),
+          "item",
+          item.customFields,
+        ) ?? null;
+    } catch (e) {
+      problems.customFields = (e as Error).message;
+    }
+
   const error = invalidFields(problems);
   if (error) throw error;
-  return item;
+  return { ...item, storedCustomFields: customFields };
 }
 
 const duplicate = () =>
@@ -122,9 +194,9 @@ const duplicate = () =>
   );
 
 export const itemsService = {
-  async create(db: Db, firmId: string, input: ItemInput) {
+  async create(db: Db, firmId: string, input: ItemInput, role: Role) {
     return withFirmWrite(db, firmId, async (tx) => {
-      const item = await validated(tx, firmId, input);
+      const item = await validated(tx, firmId, costsForRole(role, input));
       const id = uuidv7();
       try {
         const [profile] = await tx
@@ -135,6 +207,7 @@ export const itemsService = {
           id,
           firmId,
           ...columnsOf(item),
+          ...customColumn(item.storedCustomFields),
           openingCost: item.openingCost ?? item.purchasePrice,
           openingBookScope:
             item.openingBookScope ??
@@ -159,6 +232,7 @@ export const itemsService = {
     id: string,
     version: number,
     input: ItemInput,
+    role: Role,
   ) {
     // Share the voucher lock so opening stock cannot change during a sale.
     return db.transaction(async (db) => {
@@ -167,10 +241,17 @@ export const itemsService = {
       );
       const current = await itemsRepo.get(db, firmId, id);
       if (!current) throw notFound("item");
-      const item = await validated(db, firmId, input, current);
+      const item = await validated(
+        db,
+        firmId,
+        costsForRole(role, input, current),
+        current,
+      );
       if (
         item.openingStock !== current.openingStock ||
-        (item.openingLots !== undefined && JSON.stringify(item.openingLots) !== JSON.stringify(current.openingLots ?? [])) ||
+        (item.openingLots !== undefined &&
+          JSON.stringify(item.openingLots) !==
+            JSON.stringify(current.openingLots ?? [])) ||
         (item.openingCost !== undefined &&
           item.openingCost !== current.openingCost) ||
         (item.openingBookScope !== undefined &&
@@ -183,6 +264,16 @@ export const itemsService = {
             409,
           );
       }
+      // Stock lots follow from the kind, so it is fixed once the item is used (doc 37, T39).
+      if (
+        (item.kind ?? "goods") !== current.kind &&
+        (await itemsRepo.hasEntries(db, firmId, id))
+      )
+        throw new AppError(
+          "ITEM_IN_USE",
+          "This item already has entries, so it can't change between goods and service.",
+          409,
+        );
       // Stock is kept in the base unit, so it can't change under existing entries
       if (
         (item.unit !== current.unit ||
@@ -198,6 +289,7 @@ export const itemsService = {
       try {
         saved = await itemsRepo.update(db, firmId, id, version, {
           ...columnsOf(item),
+          ...customColumn(item.storedCustomFields),
           openingCost:
             item.openingCost ?? current.openingCost ?? current.purchasePrice,
           openingBookScope: item.openingBookScope ?? current.openingBookScope,

@@ -1,4 +1,14 @@
 import type { Transport } from "./client";
+import {
+  isDurableRequestId,
+  newRequestId,
+  RECOVERY_EPOCH_HEADER,
+} from "@repo/contracts";
+import {
+  serverRecovery,
+  assertRecoveryEpoch,
+  recoveryRequired,
+} from "./recoveryEpoch";
 
 export interface PendingWriteLifecycle {
   key: string;
@@ -6,6 +16,8 @@ export interface PendingWriteLifecycle {
   firmId: string;
   path: string;
   legacy?: boolean;
+  recoveryEpoch?: string;
+  previouslyAttempted?: boolean;
   assertActive(): void;
   beforeSend(): Promise<void>;
   afterValidatedResponse(response: unknown): Promise<void>;
@@ -55,6 +67,7 @@ export async function releasePendingWrite(
   if ((await storage.get(storageKey)) !== key) return;
   await storage.remove(storageKey);
   await storage.remove(`${storageKey}.protocol`);
+  await storage.remove(`${storageKey}.epoch`);
 }
 
 /** Keep the same key after a lost reply, even if the app restarts before retrying. */
@@ -106,15 +119,32 @@ export function withPendingWrites(
     if (existing) return existing;
     const send = async () => {
       const savedKey = await storage.get(storageKey);
-      const key = explicitKey ?? savedKey ?? newKey();
+      const epochKey = `${storageKey}.epoch`;
+      const savedEpoch = await storage.get(epochKey);
+      const recoveryEpoch =
+        headers[RECOVERY_EPOCH_HEADER] ??
+        lifecycle?.recoveryEpoch ??
+        (savedKey ? savedEpoch : undefined) ??
+        serverRecovery.current();
+      if (
+        (savedKey && !savedEpoch) ||
+        (lifecycle?.previouslyAttempted && !lifecycle.recoveryEpoch)
+      )
+        throw recoveryRequired();
+      assertRecoveryEpoch(recoveryEpoch);
+      if (savedKey && savedEpoch && savedEpoch !== recoveryEpoch)
+        throw recoveryRequired();
+      const key = explicitKey ?? savedKey ?? newRequestId(newKey());
       const marker = `${storageKey}.protocol`;
       const legacy =
         durableOperations &&
         (lifecycle?.legacy === true ||
           (!explicitKey &&
             !!savedKey &&
+            !isDurableRequestId(savedKey) &&
             (await storage.get(marker)) !== "operations-v1"));
       await storage.set(storageKey, key);
+      await storage.set(epochKey, recoveryEpoch!);
       if (durableOperations && !legacy)
         await storage.set(marker, "operations-v1");
       try {
@@ -125,6 +155,7 @@ export function withPendingWrites(
           headers: {
             ...headers,
             "idempotency-key": key,
+            [RECOVERY_EPOCH_HEADER]: recoveryEpoch!,
             ...(legacy ? { "x-hisaab-legacy-operation": "true" } : {}),
             ...(durableOperations && lifecycle
               ? { "x-hisaab-attachment-draft": "true" }
@@ -134,6 +165,7 @@ export function withPendingWrites(
               : {}),
           },
         });
+        assertRecoveryEpoch(recoveryEpoch);
         // An unreadable success response is still an uncertain save and must retain its key.
         const validated = options.validate ? options.validate(reply) : reply;
         try {
@@ -143,19 +175,21 @@ export function withPendingWrites(
         }
         // A local storage failure must not turn a confirmed save into an apparent failed save.
         await storage.remove(storageKey).catch(() => {});
+        await storage.remove(epochKey).catch(() => {});
         if (durableOperations) await storage.remove(marker).catch(() => {});
         return reply;
       } catch (error) {
         const status = (error as { status?: number }).status;
+        const code = (error as { code?: string }).code;
+        // Access and session failures do not prove that an earlier attempt failed.
         if (
           !lifecycle &&
-          status &&
-          status >= 400 &&
-          status < 500 &&
-          status !== 408 &&
-          status !== 429
+          code !== "RETRY_RESULT_UNKNOWN" &&
+          code !== "KEY_REUSED" &&
+          (status === 400 || status === 422)
         ) {
           await storage.remove(storageKey).catch(() => {});
+          await storage.remove(epochKey).catch(() => {});
         }
         throw error;
       }

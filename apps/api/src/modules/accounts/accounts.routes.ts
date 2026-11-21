@@ -5,6 +5,7 @@ import {
   ChartGroup,
   AccountInput,
   CustomAccount,
+  StatementQuery,
   StockSummaryQuery,
 } from "@repo/contracts";
 import type { FastifyInstance } from "fastify";
@@ -12,12 +13,18 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@repo/backend/db/client";
 import { accountsService } from "./accounts.service";
-import { createAccount, listAccounts } from "@repo/backend/modules/accounts/accountMasters";
+import {
+  createAccount,
+  listAccounts,
+} from "@repo/backend/modules/accounts/accountMasters";
 import { idemOf } from "@repo/backend/modules/vouchers/idempotency";
+import { createListCache, listKey, statementPage } from "../../lib/list-cache";
 
 export async function accountRoutes(app: FastifyInstance, options: { db: Db }) {
   const { db } = options;
   const typed = app.withTypeProvider<ZodTypeProvider>();
+  // Later pages of a statement reuse it instead of re-reading the books.
+  const statements = createListCache();
   const read = app.inFirm(["accounts", "reports"]);
 
   typed.get(
@@ -77,11 +84,23 @@ export async function accountRoutes(app: FastifyInstance, options: { db: Db }) {
       preHandler: read,
       schema: {
         params: AccountParams,
-        querystring: StockSummaryQuery,
+        querystring: StatementQuery,
         response: { 200: AccountStatement },
       },
     },
     async (req) =>
-      accountsService.statement(db, req.firm.id, req.params.key, req.query.tax),
+      statementPage(
+        await statements(
+          listKey(req, `account:${req.params.key}:${req.query.tax}`),
+          () =>
+            accountsService.statement(
+              db,
+              req.firm.id,
+              req.params.key,
+              req.query.tax,
+            ),
+        ),
+        req.query,
+      ),
   );
 }

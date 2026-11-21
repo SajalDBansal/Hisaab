@@ -1,7 +1,18 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import { formatDate, formatINR, type PartyDetail, count } from "@repo/core";
+import {
+  canSeeCosts,
+  MSME_LABELS,
+  MSME_MAX_DAYS,
+  msmeCovered,
+  formatDate,
+  formatINR,
+  type PartyDetail,
+  type Voucher,
+  type VoucherPageSummary,
+  count,
+} from "@repo/core";
 import { isOpeningBillId } from "@repo/core/src/accounting/openingImport";
 import {
   Avatar,
@@ -16,25 +27,33 @@ import {
   ListRow,
   Money,
   Notice,
+  PagedView,
   QueryView,
   Screen,
   Segmented,
   Txt,
   showError,
   type IconName,
+  CustomFieldValuesView,
 } from "@/components";
 import { voucherBadge, voucherTypeLabel, stateName } from "@/data/labels";
-import { useParty, useAllocatePayments } from "@/data/queries";
+import { useAllocatePayments, useCustomFields, useParty } from "@/data/queries";
 import { confirmAction } from "@/data/confirm";
 import { callPhone, openWhatsApp, useSendReminder } from "@/data/share";
 import { colors, radius, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
+import { useData } from "@/data/DataProvider";
+import { useVoucherPages } from "@/data/pagedQueries";
+import type { ServicePages } from "@/data/scopedHooks";
 
 export default function PartyScreen() {
   const sendReminder = useSendReminder();
   const { id } = useLocalSearchParams<{ id: string }>();
   const party = useParty(id);
   const isCustomer = party.data?.party.type === "customer";
+  const [tab, setTab] = useState<"bills" | "transactions">("bills");
+  // A party's entries, newest first, a page at a time.
+  const entries = useVoucherPages({ partyId: id }, tab === "transactions");
 
   return (
     <Screen
@@ -50,8 +69,12 @@ export default function PartyScreen() {
           }
         />
       }
-      onRefresh={() => party.refetch()}
+      onRefresh={() => {
+        party.refetch();
+        if (tab === "transactions") entries.query.refetch();
+      }}
       refreshing={party.isRefetching}
+      onEndReached={tab === "transactions" ? entries.loadMore : undefined}
       footer={
         party.data && isCustomer ? (
           <FooterBar>
@@ -100,17 +123,32 @@ export default function PartyScreen() {
         ) : null
       }
     >
-      <QueryView query={party}>{(d) => <PartyBody d={d} />}</QueryView>
+      <QueryView query={party}>
+        {(d) => <PartyBody d={d} tab={tab} setTab={setTab} entries={entries} />}
+      </QueryView>
     </Screen>
   );
 }
 
-function PartyBody({ d }: { d: PartyDetail }) {
+function PartyBody({
+  d,
+  tab,
+  setTab,
+  entries,
+}: {
+  d: PartyDetail;
+  tab: "bills" | "transactions";
+  setTab: (tab: "bills" | "transactions") => void;
+  entries: ServicePages<Voucher, VoucherPageSummary>;
+}) {
   const sendReminder = useSendReminder();
   const allocate = useAllocatePayments();
+  const customDefs = useCustomFields().data;
   const gst = useGstMode();
-  const [tab, setTab] = useState<"bills" | "transactions">("bills");
+  const { role } = useData();
   const p = d.party;
+  // A supplier's rates are purchase costs, hidden from sales staff.
+  const showProducts = p.type === "customer" || canSeeCosts(role);
   const balanceTone = d.balance > 0 ? "get" : d.balance < 0 ? "give" : "body";
   const usedPct =
     p.creditLimit > 0 ? Math.min(d.balance / p.creditLimit, 1) : 0;
@@ -129,6 +167,15 @@ function PartyBody({ d }: { d: PartyDetail }) {
           {gst.on && p.gstin ? (
             <Txt variant="mono" tone="charcoal">
               GSTIN {p.gstin}
+            </Txt>
+          ) : null}
+          {p.type === "supplier" && p.msmeType ? (
+            <Txt variant="small" tone="charcoal">
+              {MSME_LABELS[p.msmeType]} enterprise (MSME)
+              {p.udyamNumber ? ` · ${p.udyamNumber}` : ""}
+              {msmeCovered(p.msmeType)
+                ? ` · pay within ${MSME_MAX_DAYS} days`
+                : ""}
             </Txt>
           ) : null}
         </View>
@@ -171,6 +218,11 @@ function PartyBody({ d }: { d: PartyDetail }) {
             </Txt>
           </View>
         </View>
+        <CustomFieldValuesView
+          defs={customDefs}
+          entity="party"
+          values={p.customFields}
+        />
         {p.creditLimit > 0 ? (
           <View
             style={{
@@ -199,6 +251,18 @@ function PartyBody({ d }: { d: PartyDetail }) {
           />
         ) : null}
       </Card>
+
+      {showProducts ? (
+        <Button
+          label={
+            p.type === "customer"
+              ? "Products they buy and our rates"
+              : "Products they supply, rates and stock"
+          }
+          icon="package"
+          onPress={() => router.push(`/party/products/${p.id}`)}
+        />
+      ) : null}
 
       {d.unallocated > 0 && d.openBills.length > 0 ? (
         <View style={{ gap: space.sm }}>
@@ -296,7 +360,11 @@ function PartyBody({ d }: { d: PartyDetail }) {
         ]}
       />
 
-      {tab === "bills" ? <Outstanding d={d} /> : <Transactions d={d} />}
+      {tab === "bills" ? (
+        <Outstanding d={d} />
+      ) : (
+        <Transactions entries={entries} />
+      )}
 
       <View>
         <Txt variant="heading" style={{ marginBottom: space.xs }}>
@@ -381,16 +449,30 @@ function Outstanding({ d }: { d: PartyDetail }) {
   );
 }
 
-function Transactions({ d }: { d: PartyDetail }) {
-  if (d.transactions.length === 0)
-    return (
-      <Txt variant="small" tone="body">
-        No transactions yet.
-      </Txt>
-    );
+function Transactions({
+  entries,
+}: {
+  entries: ServicePages<Voucher, VoucherPageSummary>;
+}) {
+  return (
+    <PagedView list={entries} noun="transactions">
+      {({ items }) =>
+        items.length === 0 ? (
+          <Txt variant="small" tone="body">
+            No transactions yet.
+          </Txt>
+        ) : (
+          <TransactionRows rows={items} />
+        )
+      }
+    </PagedView>
+  );
+}
+
+function TransactionRows({ rows }: { rows: Voucher[] }) {
   return (
     <View>
-      {d.transactions.map((v, i) => {
+      {rows.map((v, i) => {
         const badge = voucherBadge(v);
         return (
           <ListRow
@@ -410,7 +492,7 @@ function Transactions({ d }: { d: PartyDetail }) {
                 {badge ? <Badge label={badge.label} tone={badge.tone} /> : null}
               </View>
             }
-            last={i === d.transactions.length - 1}
+            last={i === rows.length - 1}
           />
         );
       })}

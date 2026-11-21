@@ -5,7 +5,7 @@
  * for signed-in users; only explicit demo mode uses the in-memory books.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import type { BookControlChange } from "@repo/contracts";
+import type { BookControlChange, RoleInput } from "@repo/contracts";
 import {
   useServiceQuery as useQuery,
   useServiceMutation as useMutation,
@@ -26,6 +26,7 @@ import {
   type ItemInput,
   type PartyInput,
   type NewDocumentInput,
+  type CustomFieldInput,
   type NewInvoiceInput,
   type PeriodKey,
   type ReportRequest,
@@ -40,6 +41,11 @@ import {
   type PartyType,
   type VoucherFilters,
   type VoucherType,
+  registerRoles,
+  type RoleDefinition,
+  type OverdueSalesPolicy,
+  type SaleMarginInput,
+  type StockPolicy,
 } from "@repo/core";
 import { useData } from "./DataProvider";
 import { useReportScope } from "./reportScope";
@@ -154,6 +160,20 @@ export const useParty = (id: string) =>
     queryFn: (services) => services.partyService.get(id),
     enabled: !!id,
   });
+/** Products a party supplies or buys, with the latest rates. */
+export const usePartyItems = (id: string, enabled = true) =>
+  useQuery({
+    queryKey: ["partyItems", id],
+    queryFn: (services) => services.partyService.items(id),
+    enabled: !!id && enabled,
+  });
+/** Every bill behind one party's rate for one product, newest first. */
+export const usePartyItemRates = (id: string, itemId: string) =>
+  useQuery({
+    queryKey: ["partyItemRates", id, itemId],
+    queryFn: (services) => services.partyService.itemRates(id, itemId),
+    enabled: !!id && !!itemId,
+  });
 export const useItems = () =>
   useQuery({
     queryKey: keys.items,
@@ -163,6 +183,13 @@ export const useItem = (id: string) =>
   useQuery({
     queryKey: keys.item(id),
     queryFn: (services) => services.itemService.get(id),
+    enabled: !!id,
+  });
+/** Who supplies a product (rate, stock left) and who buys it. */
+export const useItemParties = (id: string) =>
+  useQuery({
+    queryKey: ["itemParties", id],
+    queryFn: (services) => services.itemService.parties(id),
     enabled: !!id,
   });
 export const useLedgers = () =>
@@ -262,6 +289,11 @@ export const useGstr1 = (month: string) =>
     queryFn: (services) => services.gstService.gstr1(month),
     enabled: !!month,
   });
+/** The GSTR-1 upload file for a month, made when asked for. */
+export const useGstr1Json = () =>
+  useMutation({
+    mutationFn: (s, month: string) => s.gstService.gstr1Json(month),
+  });
 export const useGstr3b = (month: string) =>
   useQuery({
     queryKey: keys.gstr3b(month),
@@ -315,6 +347,14 @@ export const useTeam = () =>
   useQuery({
     queryKey: keys.team,
     queryFn: (services) => services.settingsService.team(),
+  });
+/** Live notices refresh this at once; the interval covers a closed connection. */
+export const usePresence = (enabled: boolean) =>
+  useQuery({
+    queryKey: ["presence"],
+    queryFn: (services) => services.settingsService.presence(),
+    enabled,
+    refetchInterval: 60_000,
   });
 
 export const useBookControls = () =>
@@ -430,6 +470,18 @@ export function useCreateSales() {
     onSuccess: refreshAll,
   });
 }
+/**
+ * Profit margin of the sale being made (doc 37, T12). Pass null to ask for
+ * nothing (no right to see margins, incomplete lines, offline).
+ */
+export const useSaleMargin = (input: SaleMarginInput | null) =>
+  useQuery({
+    queryKey: ["sale-margin", input],
+    queryFn: (services) => services.voucherService.saleMargin(input!),
+    enabled: !!input,
+    staleTime: 15_000,
+  });
+
 export const useStockLots = (date?: string) =>
   useQuery({
     queryKey: ["stockLots", date],
@@ -510,6 +562,27 @@ export function useUpdateMember() {
       },
     ) => services.settingsService.updateMember(args.id, args.patch),
     onSuccess: refreshAll,
+  });
+}
+
+/** Hands the firm to another member; the caller's own role changes too. */
+export function useTransferOwnership() {
+  const client = useQueryClient();
+  const { userId } = useData();
+  return useMutation({
+    mutationFn: (
+      services,
+      input: {
+        memberId: string;
+        previousOwnerRole: Exclude<TeamMember["role"], "owner">;
+        confirmName: string;
+      },
+    ) => services.settingsService.transferOwnership(input),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ["firm-selection", userId] }),
+        client.invalidateQueries({ queryKey: ["books", userId] }),
+      ]),
   });
 }
 
@@ -596,6 +669,138 @@ export function useCancelVoucher() {
       services,
       args: { id: string; reason: string; version?: number },
     ) => services.voucherService.cancel(args.id, args.reason, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Built-in and custom roles of the firm (doc 37, T57). */
+export function useRoles() {
+  return useQuery({
+    queryKey: ["roles"],
+    queryFn: async (services) => {
+      const view = await services.roleService.list();
+      // So member lists show each custom role's name.
+      registerRoles(
+        view.custom.map((role) => ({
+          id: role.id,
+          name: role.name,
+          description: role.description,
+          version: role.version,
+          ...(role.rights as Omit<
+            RoleDefinition,
+            "id" | "name" | "description" | "version"
+          >),
+        })),
+      );
+      return view;
+    },
+  });
+}
+
+export function useSaveRole() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { input: RoleInput; id?: string; version?: number },
+    ) => services.roleService.save(args.input, args.id, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+export function useDeleteRole() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (services, id: string) => services.roleService.remove(id),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Firm logo and signature printed on documents (doc 37, T16). */
+export function useBranding() {
+  return useQuery({
+    queryKey: ["branding"],
+    queryFn: (services) => services.settingsService.branding(),
+  });
+}
+
+export function useSaveBranding() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { logo: string | null; signature: string | null; version: number },
+    ) =>
+      services.settingsService.updateBranding(
+        { logo: args.logo, signature: args.signature },
+        args.version,
+      ),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Credit control: what overdue bills do to a new sale (doc 37, T11). */
+export function useSalesControls() {
+  return useQuery({
+    queryKey: ["sales-controls"],
+    queryFn: (services) => services.settingsService.salesControls(),
+  });
+}
+
+export function useSaveSalesControls() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: {
+        overdueSales: OverdueSalesPolicy;
+        stockPolicy?: StockPolicy;
+        version: number;
+      },
+    ) =>
+      services.settingsService.updateSalesControls(
+        {
+          overdueSales: args.overdueSales,
+          ...(args.stockPolicy ? { stockPolicy: args.stockPolicy } : {}),
+        },
+        args.version,
+      ),
+    onSuccess: refreshAll,
+  });
+}
+
+/** The firm's custom fields for parties, items and voucher headers (doc 37, T07). */
+export function useCustomFields() {
+  return useQuery({
+    queryKey: ["custom-fields"],
+    queryFn: (services) => services.customFieldService.list(),
+  });
+}
+
+export function useSaveCustomField() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: { input: CustomFieldInput; id?: string; version?: number },
+    ) => services.customFieldService.save(args.input, args.id, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Owner: cancelled entries with why each can't be restored (doc 37, T47). */
+export function useCancelledVouchers() {
+  return useQuery({
+    queryKey: ["vouchers", "cancelled"],
+    queryFn: (services) => services.voucherService.cancelled(200),
+  });
+}
+
+export function useRestoreVoucher() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (services, args: { id: string; version?: number }) =>
+      services.voucherService.restore(args.id, args.version),
     onSuccess: refreshAll,
   });
 }

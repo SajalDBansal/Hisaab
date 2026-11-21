@@ -1,3 +1,4 @@
+import { firmStatutory } from "@repo/backend/lib/business-profile";
 import {
   FirmDetail,
   FirmListRow,
@@ -8,15 +9,29 @@ import {
   Member,
   MemberParams,
   MemberRoleInput,
+  TransferOwnershipInput,
   MyInvitation,
   NewFirmInput,
   IdParams,
 } from "@repo/contracts";
-import { blankBooks, checkNewFirm, ROLES, type Role } from "@repo/core";
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import {
+  blankBooks,
+  checkFirmStatutory,
+  checkNewFirm,
+  cleanStatutory,
+  STATUTORY_KEYS,
+  isCustomRoleId,
+  rightsOf,
+  ROLES,
+  type Role,
+} from "@repo/core";
+import { withFirmWrite } from "@repo/backend/lib/firm-write";
+import { roleIdOf } from "@repo/backend/modules/roles/roles.repo";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 import type { Auth } from "../../auth/auth";
 import { insertFirm } from "../../db/seedFirm";
@@ -40,10 +55,13 @@ const toFirm = (name: string, p: Profile) => ({
   ...(p.phone ? { phone: p.phone } : {}),
   ...(p.email ? { email: p.email } : {}),
   ...(p.pan ? { pan: p.pan } : {}),
+  ...firmStatutory(p),
 });
 
 const toRole = (value: string | null): Role =>
-  ROLES.some((r) => r.role === value) ? (value as Role) : "viewer";
+  ROLES.some((r) => r.role === value) || isCustomRoleId(value ?? "")
+    ? (value as Role)
+    : "viewer";
 
 /** Firms, the people in them, and invitations. */
 export async function firmRoutes(
@@ -84,11 +102,16 @@ export async function firmRoutes(
           profile: schema.firmProfile,
           parties: sql<number>`(select count(*)::int from ${schema.parties} where ${schema.parties.firmId} = ${schema.organization.id} and ${schema.parties.deletedAt} is null)`,
           vouchers: sql<number>`(select count(*)::int from ${schema.vouchers} where ${schema.vouchers.firmId} = ${schema.organization.id})`,
+          requireTwoFactor: schema.firmSecurity.requireTwoFactor,
         })
         .from(schema.member)
         .innerJoin(
           schema.organization,
           eq(schema.organization.id, schema.member.organizationId),
+        )
+        .leftJoin(
+          schema.firmSecurity,
+          eq(schema.firmSecurity.firmId, schema.organization.id),
         )
         .innerJoin(
           schema.firmProfile,
@@ -96,12 +119,40 @@ export async function firmRoutes(
         )
         .where(eq(schema.member.userId, req.user.id))
         .orderBy(asc(schema.organization.createdAt));
-      return rows.map((r) => ({
-        ...toFirm(r.name, r.profile),
-        parties: r.parties,
-        vouchers: r.vouchers,
-        role: toRole(r.role),
-      }));
+      // The caller's custom roles, so the app knows their rights (doc 37, T57).
+      const customIds = rows
+        .map((r) => r.role)
+        .filter((role) => isCustomRoleId(role))
+        .map((role) => role.slice(2));
+      const custom = customIds.length
+        ? await db
+            .select()
+            .from(schema.customRoles)
+            .where(inArray(schema.customRoles.id, customIds))
+        : [];
+      return rows.map((r) => {
+        const own = custom.find(
+          (c) => `r_${c.id}` === r.role && c.firmId === r.profile.firmId,
+        );
+        return {
+          ...toFirm(r.name, r.profile),
+          parties: r.parties,
+          vouchers: r.vouchers,
+          role: toRole(r.role),
+          twoFactorRequired: r.requireTwoFactor ?? false,
+          ...(own
+            ? {
+                customRole: {
+                  id: roleIdOf(own),
+                  name: own.name,
+                  description: own.description,
+                  version: own.version,
+                  rights: own.rights,
+                },
+              }
+            : {}),
+        };
+      });
     },
   );
 
@@ -156,7 +207,7 @@ export async function firmRoutes(
       return {
         ...toFirm(name, profile),
         role: req.firm.role,
-        permissions: ROLES.find((r) => r.role === req.firm.role)?.can ?? [],
+        permissions: rightsOf(req.firm.role).permissions,
       };
     },
   );
@@ -178,6 +229,19 @@ export async function firmRoutes(
         gstin: patch.gstin ?? profile.gstin,
         gstRegistration: patch.gstRegistration ?? profile.gstRegistration,
       });
+      // Statutory details (doc 37, T61): check the profile as it will be saved.
+      const statutory = cleanStatutory(
+        Object.fromEntries(
+          STATUTORY_KEYS.filter((k) => patch[k] !== undefined).map((k) => [
+            k,
+            patch[k],
+          ]),
+        ) as Record<string, string>,
+      );
+      const merged: Record<string, string | undefined> = {};
+      for (const k of STATUTORY_KEYS) merged[k] = profile[k] ?? undefined;
+      Object.assign(merged, statutory);
+      Object.assign(problems, checkFirmStatutory(merged));
       if (Object.keys(problems).length > 0)
         throw new AppError(
           "INVALID_INPUT",
@@ -185,6 +249,10 @@ export async function firmRoutes(
           400,
           problems as Record<string, string>,
         );
+      // "" clears a detail.
+      const statutoryColumns = Object.fromEntries(
+        Object.entries(statutory).map(([k, v]) => [k, v || null]),
+      ) as Partial<typeof schema.firmProfile.$inferInsert>;
 
       await db.transaction(async (tx) => {
         if (patch.name !== undefined)
@@ -192,11 +260,17 @@ export async function firmRoutes(
             .update(schema.organization)
             .set({ name: patch.name.trim() })
             .where(eq(schema.organization.id, req.firm.id));
-        const { name: _name, ...rest } = patch;
+        const { name: _name, ...all } = patch;
+        const rest = Object.fromEntries(
+          Object.entries(all).filter(
+            ([k]) => !(STATUTORY_KEYS as readonly string[]).includes(k),
+          ),
+        ) as Omit<typeof all, (typeof STATUTORY_KEYS)[number]>;
         await tx
           .update(schema.firmProfile)
           .set({
             ...rest,
+            ...statutoryColumns,
             ...(patch.gstRegistration === "composition"
               ? {}
               : patch.gstRegistration
@@ -210,7 +284,7 @@ export async function firmRoutes(
       return {
         ...toFirm(fresh.name, fresh.profile),
         role: req.firm.role,
-        permissions: ROLES.find((r) => r.role === req.firm.role)?.can ?? [],
+        permissions: rightsOf(req.firm.role).permissions,
       };
     },
   );
@@ -278,16 +352,20 @@ export async function firmRoutes(
     },
     async (req) => {
       await loadTarget(req.firm.id, req.params.memberId);
-      await viaAuth(() =>
-        auth.api.updateMemberRole({
-          body: {
-            memberId: req.params.memberId,
-            role: req.body.role,
-            organizationId: req.firm.id,
-          },
-          headers: asCaller(req),
-        }),
-      );
+      // Written directly (as the ownership hand-over does): Better Auth only knows
+      // the built-in roles. The member trigger still sends the live access notice.
+      await withFirmWrite(db, req.firm.id, async (tx) => {
+        await assertRoleInFirm(tx, req.firm.id, req.body.role);
+        await tx
+          .update(schema.member)
+          .set({ role: req.body.role })
+          .where(
+            and(
+              eq(schema.member.id, req.params.memberId),
+              eq(schema.member.organizationId, req.firm.id),
+            ),
+          );
+      });
       return { ok: true as const };
     },
   );
@@ -312,6 +390,103 @@ export async function firmRoutes(
           headers: asCaller(req),
         }),
       );
+      return { ok: true as const };
+    },
+  );
+
+  // ---- Handing the firm to another member -----------------------------------
+
+  /**
+   * The owner makes another member the owner and takes the chosen role, in one
+   * transaction under the firm's write lock, so the firm always has exactly one
+   * owner. Saves still in flight under the old roles are refused afterwards,
+   * because every save rechecks its role. The change is kept in the firm's
+   * control history.
+   */
+  typed.post(
+    "/firms/current/transfer-ownership",
+    {
+      preHandler: app.inFirm("team"),
+      schema: {
+        body: TransferOwnershipInput,
+        response: { 200: z.object({ ok: z.literal(true) }) },
+      },
+    },
+    async (req) => {
+      const firmId = req.firm.id;
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${firmId}, 0))`,
+        );
+        const [firm] = await tx
+          .select({ name: schema.organization.name })
+          .from(schema.organization)
+          .where(eq(schema.organization.id, firmId));
+        const members = await tx
+          .select({
+            id: schema.member.id,
+            userId: schema.member.userId,
+            role: schema.member.role,
+          })
+          .from(schema.member)
+          .where(eq(schema.member.organizationId, firmId))
+          .for("update");
+        const caller = members.find((m) => m.userId === req.user.id);
+        if (caller?.role !== "owner")
+          throw new AppError(
+            "OWNER_ONLY",
+            "Only the owner can hand over the firm.",
+            403,
+          );
+        const target = members.find((m) => m.id === req.body.memberId);
+        if (!target)
+          throw new AppError(
+            "NOT_FOUND",
+            "That team member was not found.",
+            404,
+          );
+        if (target.id === caller.id)
+          throw new AppError(
+            "INVALID_INPUT",
+            "Pick another team member to hand the firm to.",
+            400,
+            { memberId: "Pick another team member." },
+          );
+        const typed = req.body.confirmName.trim().toLowerCase();
+        if (!firm || typed !== firm.name.trim().toLowerCase())
+          throw new AppError(
+            "INVALID_INPUT",
+            "Type the firm name exactly to confirm.",
+            400,
+            { confirmName: "Type the firm name exactly to confirm." },
+          );
+        const [newOwner] = await tx
+          .select({ name: schema.user.name })
+          .from(schema.user)
+          .where(eq(schema.user.id, target.userId));
+        await tx
+          .update(schema.member)
+          .set({ role: "owner" })
+          .where(eq(schema.member.id, target.id));
+        await assertRoleInFirm(tx, req.firm.id, req.body.previousOwnerRole);
+        await tx
+          .update(schema.member)
+          .set({ role: req.body.previousOwnerRole })
+          .where(eq(schema.member.id, caller.id));
+        await tx.insert(schema.bookControlEvents).values({
+          id: uuidv7(),
+          firmId,
+          action: "transfer-ownership",
+          reason: `Ownership handed to ${newOwner?.name ?? "another member"}`,
+          userId: req.user.id,
+          userName: req.user.name,
+          before: { owner: caller.userId, newOwnerRole: target.role },
+          after: {
+            owner: target.userId,
+            previousOwnerRole: req.body.previousOwnerRole,
+          },
+        });
+      });
       return { ok: true as const };
     },
   );
@@ -487,4 +662,28 @@ export async function firmRoutes(
       return { ok: true as const };
     },
   );
+}
+
+/** A custom role must belong to this firm before anyone is given it (doc 37, T57). */
+async function assertRoleInFirm(
+  tx: Pick<Db, "select">,
+  firmId: string,
+  role: string,
+) {
+  if (!isCustomRoleId(role)) return;
+  const [row] = await tx
+    .select({ id: schema.customRoles.id })
+    .from(schema.customRoles)
+    .where(
+      and(
+        eq(schema.customRoles.firmId, firmId),
+        eq(schema.customRoles.id, role.slice(2)),
+      ),
+    );
+  if (!row)
+    throw new AppError(
+      "INVALID_ROLE",
+      "That role doesn't exist in this firm.",
+      400,
+    );
 }

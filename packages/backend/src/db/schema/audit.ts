@@ -9,6 +9,7 @@ export const auditAction = pgEnum("audit_action", [
   "cancelled",
   "converted",
   "reopened",
+  "restored",
   "bank-date",
 ]);
 
@@ -37,6 +38,10 @@ export const auditLog = pgTable(
     // [{ field, before, after }]
     changes: jsonb("changes").notNull().default([]),
     note: text("note"),
+    // Where the change came from (doc 37, T55); null for older rows, seeds and jobs.
+    // Shown only to the owner.
+    ipAddress: text("ip_address"),
+    device: text("device"),
   },
   (t) => [
     index("audit_log_voucher_idx").on(t.firmId, t.voucherId, t.at),

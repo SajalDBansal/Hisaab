@@ -4,7 +4,7 @@ import {
   LedgerListParams,
   LedgerRow,
   LedgerStatement,
-  StockSummaryQuery,
+  StatementQuery,
   AsOfQuery,
   ReconciliationView,
 } from "@repo/contracts";
@@ -15,15 +15,21 @@ import type { Db } from "@repo/backend/db/client";
 import { ledgerForRead } from "../../lib/read-permissions";
 import { ledgersRepo } from "./ledgers.repo";
 import { ledgersService, toLedgerRow } from "./ledgers.service";
-import { expectedVersion, notFound } from "@repo/backend/modules/masters/shared";
+import {
+  expectedVersion,
+  notFound,
+} from "@repo/backend/modules/masters/shared";
 import { readLedgerStatement } from "./views.service";
 import { bankReconciliation, today } from "@repo/core";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
+import { createListCache, listKey, statementPage } from "../../lib/list-cache";
 
 /** Receipt selectors remain available; statements and balances require access to books. */
 export async function ledgerRoutes(app: FastifyInstance, options: { db: Db }) {
   const { db } = options;
   const typed = app.withTypeProvider<ZodTypeProvider>();
+  // Later pages of a statement reuse it instead of re-reading the books.
+  const statements = createListCache();
   const write = app.inFirm("payments");
   typed.get(
     "/ledgers/:id/reconciliation",
@@ -59,12 +65,19 @@ export async function ledgerRoutes(app: FastifyInstance, options: { db: Db }) {
       preHandler: app.inFirm(["payments", "reports"]),
       schema: {
         params: IdParams,
-        querystring: StockSummaryQuery,
+        querystring: StatementQuery,
         response: { 200: LedgerStatement },
       },
     },
     async (req) =>
-      readLedgerStatement(db, req.firm.id, req.params.id, req.query.tax),
+      statementPage(
+        await statements(
+          listKey(req, `ledger:${req.params.id}:${req.query.tax}`),
+          () =>
+            readLedgerStatement(db, req.firm.id, req.params.id, req.query.tax),
+        ),
+        req.query,
+      ),
   );
 
   typed.get(

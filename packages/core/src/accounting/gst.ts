@@ -5,7 +5,7 @@
  * Every bill line is sorted by its tax type (see taxType.ts):
  *   taxable → B2B / B2CL / B2CS and the tax tables
  *   nil, exempt, non-GST → GSTR-1 table 8, GSTR-3B 3.1(c) / 3.1(e) and table 5
- * Freight and other charges are always taxable.
+ * Free-typed charges (freight) are taxable; charges from a charge head follow its tax type.
  */
 import { addDays, monthLabel, yearMonth } from "../dates";
 import type {
@@ -61,8 +61,9 @@ export function monthTitle(month: string): string {
 }
 
 /** In the month's GST returns: posted, and saved while the firm was regular (composition and no-GST bills never count). */
-const inMonth = (v: Voucher, month: string) =>
+export const inGstMonth = (v: Voucher, month: string) =>
   isPosted(v) && voucherMode(v) === "regular" && yearMonth(v.date) === month;
+const inMonth = inGstMonth;
 
 /** GST rates that actually carry tax. */
 type TaxedRate = 5 | 18 | 40;
@@ -98,8 +99,11 @@ export function billTaxSplit(v: Voucher) {
     if (type === "taxable") addTaxed(t, line.gstRate);
     else free[NO_TAX_KEY[type]] += t.taxable;
   }
-  for (const c of v.charges ?? [])
-    addTaxed(calcCharge(c, interState), c.gstRate);
+  for (const c of v.charges ?? []) {
+    const t = calcCharge(c, interState);
+    if (!c.taxType || c.taxType === "taxable") addTaxed(t, c.gstRate);
+    else free[NO_TAX_KEY[c.taxType]] += t.taxable;
+  }
   return {
     taxed,
     byRate: [...byRate.values()] as {
@@ -116,10 +120,12 @@ export function billTaxSplit(v: Voucher) {
 // ---------------------------------------------------------------------------
 
 /**
- * Uses input credit against output tax:
- *   IGST credit → IGST, then CGST, then SGST
+ * Uses input credit against output tax (Rule 88A):
+ *   IGST credit → IGST, then CGST and SGST in any proportion, covering first the
+ *     part of each head its own credit can't pay, so no avoidable cash is shown
  *   CGST credit → CGST, then IGST
  *   SGST credit → SGST, then IGST
+ * CGST and SGST credit are never used against each other.
  * Returns cash to pay per head and credit left over.
  */
 export function setOff(
@@ -136,13 +142,21 @@ export function setOff(
     sgst: input.sgst,
     igst: input.igst,
   };
-  const use = (from: keyof TaxHeads, to: keyof TaxHeads) => {
+  const use = (from: keyof TaxHeads, to: keyof TaxHeads, limit = Infinity) => {
     // A return adjustment is not transferable credit or a negative payment.
-    const x = Math.max(0, Math.min(credit[from], due[to]));
+    const x = Math.max(0, Math.min(credit[from], due[to], limit));
     credit[from] -= x;
     due[to] -= x;
   };
+  /** Output tax in this head that its own credit can't cover. */
+  const gap = (head: "cgst" | "sgst") =>
+    Math.max(0, due[head] - Math.max(0, credit[head]));
   use("igst", "igst");
+  const cgstGap = gap("cgst");
+  const sgstGap = gap("sgst");
+  use("igst", "cgst", cgstGap);
+  use("igst", "sgst", sgstGap);
+  // IGST credit must be used up before CGST/SGST credit (any proportion is allowed).
   use("igst", "cgst");
   use("igst", "sgst");
   use("cgst", "cgst");
@@ -162,7 +176,9 @@ export interface GstMonth {
   /** `taxable` is the value GST was charged on; nil/exempt/non-GST are kept separately. */
   output: TaxHeads & { taxable: Paise; total: Paise } & NoTaxValues;
   input: TaxHeads & { taxable: Paise; total: Paise } & NoTaxValues;
-  /** Cash to pay after using input credit. */
+  /** Unused input credit carried in from earlier months. */
+  broughtForward: TaxHeads & { total: Paise };
+  /** Cash to pay after using this month's and brought-forward input credit. */
   payable: TaxHeads & { total: Paise };
   /** Input credit carried to next month. */
   creditLeft: TaxHeads & { total: Paise };
@@ -176,21 +192,30 @@ export interface GstMonth {
   dueDates: { gstr1: ISODate; gstr3b: ISODate };
 }
 
-export function gstMonth(vouchers: Voucher[], month: string): GstMonth {
+/** Tax on one month's posted regular-GST bills and returns, before set-off. */
+function monthTax(vouchers: Voucher[], month: string) {
   const output = { ...zero(), taxable: 0, ...noTax() };
   const input = { ...zero(), taxable: 0, ...noTax() };
-  let salesCount = 0;
-  let purchaseCount = 0;
-  let billsOfSupply = 0;
-  let creditNotes = 0;
-  let debitNotes = 0;
+  const counts = {
+    salesCount: 0,
+    purchaseCount: 0,
+    billsOfSupply: 0,
+    creditNotes: 0,
+    debitNotes: 0,
+  };
   for (const v of vouchers) {
     if (!inMonth(v, month)) continue;
     // Returns reduce the tax of the month they are made in:
     // credit notes cut output tax, debit notes cut input credit.
     const isSaleSide = v.type === "sale" || v.type === "credit-note";
     const sign = v.type === "credit-note" || v.type === "debit-note" ? -1 : 1;
-    if (!isSaleSide && v.type !== "purchase" && v.type !== "debit-note")
+    // Expenses carry GST only as a taxed charge (input credit).
+    if (
+      !isSaleSide &&
+      v.type !== "purchase" &&
+      v.type !== "debit-note" &&
+      v.type !== "expense"
+    )
       continue;
     const { taxed, noTax: free } = billTaxSplit(v);
     const side = isSaleSide ? output : input;
@@ -201,27 +226,72 @@ export function gstMonth(vouchers: Voucher[], month: string): GstMonth {
     side.nil += sign * free.nil;
     side.exempt += sign * free.exempt;
     side.nonGst += sign * free.nonGst;
-    if (v.type === "credit-note") creditNotes++;
-    else if (v.type === "debit-note") debitNotes++;
+    if (v.type === "credit-note") counts.creditNotes++;
+    else if (v.type === "debit-note") counts.debitNotes++;
     else if (v.type === "sale") {
-      salesCount++;
+      counts.salesCount++;
       if ((v.docType ?? saleDocType(v.lines ?? [])) === "bill-of-supply")
-        billsOfSupply++;
-    } else purchaseCount++;
+        counts.billsOfSupply++;
+    } else if (v.type === "purchase") counts.purchaseCount++;
   }
-  const { payable, creditLeft } = setOff(output, input);
+  return { output, input, counts };
+}
+
+/** Set off this month's output against its input plus credit brought forward. */
+function monthSetOff(
+  tax: ReturnType<typeof monthTax>,
+  broughtForward: TaxHeads,
+) {
+  return setOff(tax.output, {
+    cgst: tax.input.cgst + broughtForward.cgst,
+    sgst: tax.input.sgst + broughtForward.sgst,
+    igst: tax.input.igst + broughtForward.igst,
+  });
+}
+
+/**
+ * Unused input credit carried into `month` from every earlier regular-GST month.
+ * Only a positive leftover carries; a month whose returns exceed its credit
+ * keeps that negative adjustment in its own head and month.
+ */
+export function creditBroughtForward(
+  vouchers: Voucher[],
+  month: string,
+): TaxHeads {
+  const earlier = new Map<string, Voucher[]>();
+  for (const v of vouchers) {
+    if (!isPosted(v) || voucherMode(v) !== "regular") continue;
+    const m = yearMonth(v.date);
+    if (m >= month) continue;
+    const list = earlier.get(m);
+    if (list) list.push(v);
+    else earlier.set(m, [v]);
+  }
+  let carried = zero();
+  for (const m of [...earlier.keys()].sort()) {
+    const { creditLeft } = monthSetOff(monthTax(earlier.get(m)!, m), carried);
+    carried = {
+      cgst: Math.max(0, creditLeft.cgst),
+      sgst: Math.max(0, creditLeft.sgst),
+      igst: Math.max(0, creditLeft.igst),
+    };
+  }
+  return carried;
+}
+
+export function gstMonth(vouchers: Voucher[], month: string): GstMonth {
+  const tax = monthTax(vouchers, month);
+  const broughtForward = creditBroughtForward(vouchers, month);
+  const { payable, creditLeft } = monthSetOff(tax, broughtForward);
   return {
     month,
     title: monthTitle(month),
-    output: { ...output, total: total(output) },
-    input: { ...input, total: total(input) },
+    output: { ...tax.output, total: total(tax.output) },
+    input: { ...tax.input, total: total(tax.input) },
+    broughtForward: { ...broughtForward, total: total(broughtForward) },
     payable: { ...payable, total: total(payable) },
     creditLeft: { ...creditLeft, total: total(creditLeft) },
-    salesCount,
-    purchaseCount,
-    billsOfSupply,
-    creditNotes,
-    debitNotes,
+    ...tax.counts,
     dueDates: gstDueDates(month),
   };
 }
@@ -246,6 +316,23 @@ export const TABLE8_LABELS: Record<Table8Row, string> = {
   "inter-unregistered": "Interstate · unregistered",
   "intra-unregistered": "Within state · unregistered",
 };
+
+/** The buyer as on the bill: the frozen snapshot, else today's party. */
+export const billParty = (v: Voucher, parties: Party[]): Party | undefined =>
+  v.snapshot ? v.snapshot.party : parties.find((p) => p.id === v.partyId);
+
+/**
+ * Which GSTR-1 table the GST-charged part of a sale goes in: registered buyers
+ * B2B, large interstate bills to unregistered buyers B2C Large, the rest B2C Small.
+ */
+export function gstr1Table(
+  v: Voucher,
+  party: Party | undefined,
+): "b2b" | "b2cl" | "b2cs" {
+  if (party?.gstin) return "b2b";
+  if (v.interState && v.amount > B2CL_LIMIT) return "b2cl";
+  return "b2cs";
+}
 
 export interface Gstr1 {
   month: string;
@@ -355,14 +442,16 @@ function addHsn(
       calcLine(line, !!v.interState),
     );
   }
-  for (const charge of v.charges ?? [])
+  for (const charge of v.charges ?? []) {
+    if (charge.taxType === "nongst") continue;
     add(
-      "9965",
-      "Freight and transport",
+      charge.sac ?? "9965",
+      charge.headId ? charge.name : "Freight and transport",
       "OTH",
       0,
       calcCharge(charge, !!v.interState),
     );
+  }
 }
 
 export function gstr1(
@@ -396,8 +485,9 @@ export function gstr1(
     totals.nonGst += free.nonGst;
 
     // Taxable part
+    const table = gstr1Table(v, party);
     if (taxed.taxable > 0) {
-      if (party?.gstin) {
+      if (table === "b2b" && party?.gstin) {
         const key = `${party.id}|${party.gstin}`;
         const row = b2b.get(key) ?? {
           partyId: party.id,
@@ -413,7 +503,7 @@ export function gstr1(
         row.taxable += taxed.taxable;
         row.tax += tax;
         b2b.set(key, row);
-      } else if (v.interState && v.amount > B2CL_LIMIT) {
+      } else if (table === "b2cl") {
         b2cl.push({
           voucherId: v.id,
           number: v.number,
@@ -553,6 +643,8 @@ export interface Gstr3b {
     nilExempt: { inter: Paise; intra: Paise };
     nonGst: { inter: Paise; intra: Paise };
   };
+  /** Unused input credit carried in from earlier months. */
+  broughtForward: TaxHeads & { total: Paise };
   /** 6.1 Tax paid in cash after using credit. */
   payable: TaxHeads & { total: Paise };
   creditLeft: TaxHeads & { total: Paise };
@@ -584,6 +676,7 @@ export function gstr3b(vouchers: Voucher[], month: string): Gstr3b {
       igst: summary.input.igst,
     },
     inwardNoTax: inward,
+    broughtForward: summary.broughtForward,
     payable: summary.payable,
     creditLeft: summary.creditLeft,
   };

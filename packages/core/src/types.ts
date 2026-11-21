@@ -1,3 +1,4 @@
+import type { CustomFieldValues } from "./customFields";
 /**
  * Shared data types for Hisaab.
  *
@@ -37,7 +38,56 @@ export type GstMode = "regular" | "composition" | "off";
 /** Composition rate depends on the business: traders/manufacturers 1%, restaurants 5%, other services 6%. */
 export type CompositionType = "trader" | "restaurant" | "services";
 
-export interface Firm {
+/** MSME enterprise class on the Udyam registration (MSMED Act 2006, s.7). */
+export type MsmeType = "micro" | "small" | "medium";
+
+/** How the business is owned (doc 37, T61). */
+export type OwnershipType =
+  | "proprietorship"
+  | "partnership"
+  | "llp"
+  | "private-limited"
+  | "public-limited"
+  | "one-person-company"
+  | "huf"
+  | "trust-society"
+  | "other";
+
+/** What the business mainly does (doc 37, T61). */
+export type BusinessType =
+  | "retail"
+  | "wholesale"
+  | "distribution"
+  | "manufacturing"
+  | "services"
+  | "other";
+
+/**
+ * Optional statutory details of the firm (doc 37, T61). Empty fields are left
+ * out. Some are printed on bills (FSSAI, drug licence, CIN, Udyam).
+ */
+export interface FirmStatutory {
+  ownershipType?: OwnershipType;
+  businessType?: BusinessType;
+  /** Free text, e.g. "Pharmacy" or "Building material". */
+  industry?: string;
+  /** Company CIN (21 characters) or LLPIN (AAA-0000). */
+  cin?: string;
+  /** TDS/TCS account number, e.g. DELA12345B. */
+  tan?: string;
+  /** Udyam registration number, e.g. UDYAM-UP-09-0012345. */
+  udyamNumber?: string;
+  msmeType?: MsmeType;
+  /** Importer-exporter code (10 characters). */
+  iec?: string;
+  /** FSSAI licence or registration number (14 digits). */
+  fssai?: string;
+  /** Drug licence number(s), free text, e.g. "20B/UP/123, 21B/UP/124". */
+  drugLicence?: string;
+  website?: string;
+}
+
+export interface Firm extends FirmStatutory {
   id: ID;
   name: string;
   city: string;
@@ -71,7 +121,10 @@ export type FirmUpdate = Partial<
     | "gstRegistration"
     | "compositionType"
   >
->;
+> & {
+  /** Statutory details: "" clears a field. */
+  [K in keyof FirmStatutory]?: FirmStatutory[K] | "";
+};
 
 // ---------------------------------------------------------------------------
 // Parties (customers and suppliers)
@@ -81,6 +134,8 @@ export type PartyType = "customer" | "supplier";
 
 export interface Party {
   version?: number;
+  /** Custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   id: ID;
   name: string;
   type: PartyType;
@@ -103,13 +158,31 @@ export interface Party {
   openingDate: ISODate;
   /** Immutable bill-wise partition of the net opening; never an additional balance. */
   openingBills?: OpeningBill[];
+  /**
+   * Suppliers only (doc 37, T30): the supplier's MSME class from its Udyam
+   * registration. Missing = not an MSME. Micro and small suppliers must be paid
+   * within 45 days (MSMED Act s.15).
+   */
+  msmeType?: MsmeType;
+  /** The supplier's Udyam registration number, when known. */
+  udyamNumber?: string;
 }
 
 /** What the party form sends when adding or editing a party. */
 export type PartyInput = Omit<
   Party,
-  "id" | "version" | "openingDate" | "openingGstBalance" | "openingBills"
->;
+  | "id"
+  | "version"
+  | "openingDate"
+  | "openingGstBalance"
+  | "openingBills"
+  | "msmeType"
+  | "udyamNumber"
+> & {
+  /** Left out = keep what is stored (older apps); null = not an MSME. */
+  msmeType?: MsmeType | null;
+  udyamNumber?: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Items
@@ -143,8 +216,24 @@ export interface AltUnit {
   factor: number;
 }
 
+/** Goods carry stock; services (SAC code in `hsn`) never do (doc 37, T39). */
+export type ItemKind = "goods" | "service";
+
 export interface Item {
   version?: number;
+  /** Missing on older items = goods. */
+  kind?: ItemKind;
+  /** Hidden from the sale item picker; can still be bought (doc 37, T39). */
+  notForSale?: boolean;
+  /** Free-form labels for filtering the items list (doc 37, T39). */
+  tags?: string[];
+  /**
+   * Maximum stock (doc 37, T37); above it the item shows as over-stocked.
+   * `reorderLevel` is the minimum stock level. Missing or 0 = no maximum.
+   */
+  maxStock?: number;
+  /** Custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   id: ID;
   name: string;
   code: string;
@@ -160,6 +249,7 @@ export interface Item {
   purchasePrice: Paise;
   salePrice: Paise;
   mrp: Paise;
+  /** Minimum stock level: below it the item is low on stock. */
   reorderLevel: number;
   openingStock: number;
   /** Opening valuation is independent of the editable default buying price. */
@@ -238,6 +328,8 @@ export type VoucherType =
   // Documents that don't touch the books until they become a bill:
   /** Quotation for a customer. */
   | "estimate"
+  /** Priced invoice sent before the sale, for an advance or approval. Not a tax invoice. */
+  | "proforma"
   /** Customer's confirmed order. */
   | "sales-order"
   /** Goods sent before the invoice (delivery challan). Moves stock until it is billed. */
@@ -247,14 +339,26 @@ export type VoucherType =
 
 /** Estimates and orders: they turn into a bill (or another document) later. */
 export type OrderType =
-  "estimate" | "sales-order" | "delivery-note" | "purchase-order";
+  "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
 
 export type VoucherStatus = "draft" | "posted" | "cancelled";
 
 export type PaymentMode = "cash" | "upi" | "bank" | "cheque" | "card";
 
+/** Monetary components frozen when a goods return is issued. */
+export interface ReturnAmounts {
+  taxable: Paise;
+  discount: Paise;
+  cgst: Paise;
+  sgst: Paise;
+  igst: Paise;
+  roundOff: Paise;
+}
+
 /** One item row on a sale or purchase invoice. */
 export interface InvoiceLine {
+  /** Issued return components; absent on historical notes that used invoice maths. */
+  returnAmounts?: ReturnAmounts;
   orderLineId?: ID;
   orderSourceLineId?: ID;
   stockFulfilledById?: ID;
@@ -262,6 +366,9 @@ export interface InvoiceLine {
   stockLotId?: string;
   stockCost?: Paise;
   bookScope?: BookScope;
+  /** Purchases: the batch bought and when it expires (doc 37, T38); carried by its stock lot. */
+  batchNumber?: string;
+  expiryDate?: ISODate;
   itemId: ID;
   /** Quantity as entered: in the item's base unit, or in `per.unit` when set (e.g. 2 Box). */
   qty: number;
@@ -277,11 +384,21 @@ export interface InvoiceLine {
   discountPercent?: number;
   /** Flat discount for the whole line. */
   discountAmount?: Paise;
+  /**
+   * This line's share of the bill-level (subtotal) discount, worked out when the
+   * bill is saved (doc 37, T09). GST is charged on the value after it.
+   */
+  billDiscountShare?: Paise;
   gstRate: GstRate;
   /** Copied from the item when the bill is saved. Missing on old data = taxable (or nil at 0%). */
   taxType?: TaxType;
   /** Credit/debit notes only: index of the line on the original bill being returned. */
   sourceLine?: number;
+  /**
+   * Saved with exact whole-number maths for qty × rate and percentage discounts.
+   * Missing on older lines, which keep the floating-point totals they were issued with.
+   */
+  exactMath?: boolean;
 }
 
 /** Freight, packing etc. added on top of the items. */
@@ -289,6 +406,41 @@ export interface ExtraCharge {
   name: string;
   amount: Paise;
   gstRate: GstRate;
+  /** The firm's charge head this came from (doc 37, T09); absent on free-typed charges like Freight. */
+  headId?: string;
+  /** GST treatment frozen from the head; absent = taxed at `gstRate` (older charges). */
+  taxType?: TaxType;
+  /** SAC printed in the HSN summary; absent = 9965 (freight). */
+  sac?: string;
+  /** Account key the charge posts to, frozen when saved, e.g. "income:Packing Charged". */
+  account?: string;
+}
+
+/** A charge the firm sets up once and picks on bills: packing, insurance, loading (doc 37, T09). */
+export interface ChargeHead {
+  id: string;
+  name: string;
+  /** Taxable at `gstRate`, exempt, or outside GST. */
+  taxType: "taxable" | "exempt" | "nongst";
+  gstRate: GstRate;
+  sac?: string;
+  /** Income ledger on sales; default "<name> Charged". */
+  salesLedger?: string;
+  /** Expense ledger on purchases; default the head's name. */
+  purchaseLedger?: string;
+  active: boolean;
+}
+
+/** Bill-level discount as entered: a percentage of the items' value or a flat amount. */
+export interface BillDiscountInput {
+  percent?: number;
+  amount?: Paise;
+}
+
+/** Bill-level discount as saved: `amount` is what was given, spread over the lines. */
+export interface BillDiscount {
+  percent?: number;
+  amount: Paise;
 }
 
 /** Part of a receipt/payment that settles a specific bill. */
@@ -299,6 +451,10 @@ export interface Allocation {
 }
 
 export interface Voucher {
+  /** The user who made it (for roles limited to their own records, doc 37). */
+  createdBy?: string;
+  /** Header custom field values by field key (doc 37, T07). */
+  customFields?: CustomFieldValues;
   inventoryAdjustment?: InventoryAdjustment;
   delivery?: DeliverySnapshot;
   commission?: CommissionSnapshot;
@@ -323,6 +479,8 @@ export interface Voucher {
   // Sale / purchase
   lines?: InvoiceLine[];
   charges?: ExtraCharge[];
+  /** Subtotal discount (doc 37, T09); each line carries its share in `billDiscountShare`. */
+  billDiscount?: BillDiscount;
   /** True when the party is in another state (IGST instead of CGST + SGST). */
   interState?: boolean;
   dueDate?: ISODate;
@@ -387,7 +545,9 @@ export interface VoucherSnapshot {
   party?: Party;
   items: Item[];
   units: UnitDef[];
-  settings: InvoiceSettings;
+  /** Snapshots frozen before numbering rules (migration 0031) have no `numbering`. */
+  settings: Omit<InvoiceSettings, "numbering"> &
+    Partial<Pick<InvoiceSettings, "numbering">>;
   bankName?: string;
 }
 
@@ -416,6 +576,7 @@ export interface TdsDeduction {
 
 /** A new sale or purchase invoice. */
 export interface NewInvoiceInput {
+  customFields?: CustomFieldValues;
   creditOverrideId?: ID;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;
@@ -424,6 +585,8 @@ export interface NewInvoiceInput {
   date: ISODate;
   lines: InvoiceLine[];
   charges: ExtraCharge[];
+  /** Subtotal discount, spread over the lines when saved (doc 37, T09). */
+  billDiscount?: BillDiscountInput;
   /** Purchases only: the supplier's own bill number. */
   supplierInvoiceNo?: string;
   /** Money received (sale) or paid (purchase) at the same time. Saved as a linked receipt/payment. */
@@ -455,7 +618,13 @@ export interface NewExpenseInput {
   bookScope?: BookScope;
   date: ISODate;
   expenseHead: string;
+  /** Total paid. With `gst`, the server works it out from the taxable value. */
   amount: Paise;
+  /**
+   * GST shown on the supplier's bill, claimed as input credit (regular firms only).
+   * Leave it out when the GST can't be claimed and enter the full amount instead.
+   */
+  gst?: { partyId: ID; rate: GstRate; taxable: Paise };
   mode: PaymentMode;
   ledgerId: ID;
   narration?: string;
@@ -488,9 +657,27 @@ export interface InvoiceSettings {
   prefixes: Record<VoucherType, string>;
   /** Sales with no GST (only nil, exempt or non-GST goods) get their own series, e.g. "BS/26-27/0001". */
   billOfSupplyPrefix: string;
+  /** Number format per voucher type; a missing type uses DEFAULT_NUMBERING. */
+  numbering: Partial<Record<VoucherType, NumberingRule>>;
+  /** Charge heads picked on bills (doc 37, T09); missing = none set up. */
+  chargeHeads?: ChargeHead[];
 }
 
-export type Role = "owner" | "accountant" | "sales" | "viewer";
+/**
+ * How a voucher type is numbered. With the year shown, numbers restart every
+ * financial year (SI/26-27/0001). Without it there is one running sequence
+ * (SI/0001), because numbers must stay unique and a yearly restart would repeat them.
+ */
+export interface NumberingRule {
+  /** The lowest number to use; raising it skips ahead, it never goes back. */
+  start: number;
+  /** Minimum digits, padded with zeros (1-8). */
+  digits: number;
+  showYear: boolean;
+}
+
+/** A built-in role, or a custom role's id ("r_<uuid>", doc 37, T57). */
+export type Role = "owner" | "accountant" | "sales" | "viewer" | `r_${string}`;
 
 export interface TeamMember {
   id: ID;
@@ -590,12 +777,15 @@ export interface NewContraInput {
 
 /** Estimate, sales order, delivery note or purchase order. */
 export interface NewOrderInput {
+  customFields?: CustomFieldValues;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;
   partyId: ID;
   date: ISODate;
   lines: InvoiceLine[];
   charges: ExtraCharge[];
+  /** Subtotal discount, spread over the lines when saved (doc 37, T09). */
+  billDiscount?: BillDiscountInput;
   /** Estimates only. Defaults to 15 days after the date. */
   validUntil?: ISODate;
   /** Made from another document, e.g. a sales order from an estimate. */
@@ -635,7 +825,13 @@ export interface NewFirmInput {
 // ---------------------------------------------------------------------------
 
 export type AuditAction =
-  "created" | "edited" | "cancelled" | "converted" | "reopened" | "bank-date";
+  | "created"
+  | "edited"
+  | "cancelled"
+  | "converted"
+  | "reopened"
+  | "restored"
+  | "bank-date";
 
 /** One field that changed, in words: { field: "Amount", before: "₹1,000.00", after: "₹1,200.00" }. */
 export interface AuditChange {
@@ -658,4 +854,7 @@ export interface AuditEntry {
   userName: string;
   changes: AuditChange[];
   note?: string;
+  /** Where the change came from; the API sends these only to the owner (doc 37, T55). */
+  ipAddress?: string;
+  device?: string;
 }

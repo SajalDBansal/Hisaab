@@ -1,59 +1,59 @@
-# 17. Offline Books and Pending Saves
+# 17. Offline Books (View-Only)
 
-[Documentation index](README.md)
+[Documentation index](README.md) | [Offline, RBAC and real-time design](33-offline-rbac-realtime.md)
 
-Offline books uses encrypted read caches, a durable
-ordered financial/master outbox, explicit conflict review, stage-before-save
-attachment recovery and original-operation receipts independent of shared-key TTL.
-Check behavior on the intended devices and deployment before relying on offline
-work for business use.
+Offline mode is **view-only**. With no connection the app shows downloaded books
+from an encrypted cache; creating or changing an entry needs a connection, so
+nothing is saved on the device to be sent later and there is nothing to sync or
+merge. Check behavior on the intended devices before relying on it for business use.
 
 ## Workflow
 
 - `/settings/offline-books` is available to an authenticated, unlocked user with
-  an active firm. `OfflineBooksStatus` provides a pending/offline link in the book
-  layout. Viewer roles can read authorized cached books but cannot queue writes.
-- Download books fetches actual API answers: firm/invoice settings, units,
-  authorized party lists/details, items/details where permitted, today's stock
-  lots, cash/bank selectors, accounts, inventory adjustments, vouchers/details,
-  invoice/order selectors and permitted standard reports in all/GST/non-GST scopes.
-- Successful normal GETs in the supported book namespaces are cached too. Reads
-  are keyed by their exact path and sorted query parameters. Unvisited date ranges
-  and filters without an exact cached answer fail visibly, not with empty or
-  invented records. Number previews are not locally allocated financial numbers.
-- Existing downloaded masters can be selected in the ordinary financial forms.
-  A supported save first persists the original request and key. Offline saves
-  report **pending, not posted**; no synthetic voucher ID, balance, stock movement
-  or successful server answer is produced. Pending changes appear in Offline books.
-- Reconnection, app activation and a foreground 30-second timer try ordered sync
-  after fresh membership verification. A conflict or blocked operation stops later
-  pending entries. The app must be running; this is not a background OS job.
-- A failed or unknown operation offers read-only answer lookup and explicit atomic
-  cancellation. Cancellation cannot remove an already committed financial entry.
-  Confirmed results open their original voucher, party, item, ledger or account.
-- A definitive server rejection exposes the submitted JSON, server comparison
-  record and field errors. The user can discard that rejected request or confirm
-  edited JSON and an explicitly reviewed version as a new replacement. No automatic
-  version refresh, merging or overwrite occurs. Attachment copies keep the original
-  confirmed binding plan, including both invoices for mixed sales.
+  an active firm. While the API can't be reached the book layout shows
+  **Offline - view only**.
+- **Download books** fetches real API answers for every book screen the role may
+  see: firm and invoice settings, units, parties and their details, items and
+  their details where permitted, stock lots (today's and undated), cash/bank,
+  accounts, inventory adjustments, vouchers with details and returnable lines,
+  invoice/order lists, banking entries, standard reports in all/GST/non-GST scopes
+  (P&L for This month, Last month, Last 3 months and This FY), GST months with
+  GSTR-1/3B, composition quarters, notifications, audit log, team, reminders, book
+  controls, opening allocations, last year's year-end review, loans, settlements
+  and associates. Reads a role may not see are skipped.
+- The download sends reads issued together to `POST /v1/reads/batch` in groups of
+  up to 200. Each path runs through its normal route on the server (same
+  authentication, role checks, validation and response) and the firm's books are
+  read once per batch; a batch counts once against the rate limit. A firm with
+  hundreds of records downloads in a handful of requests, and the encrypted cache
+  is written once at the end. A server without batches is read one path at a time.
+- Successful normal GETs in the offline-readable paths are cached too
+  (`OFFLINE_READABLE_PATH` in `packages/contracts/src/reads.ts`, shared with the
+  batch endpoint). Reads are keyed by exact path and sorted query parameters; an
+  unvisited filter or date range shows **You're offline** rather than invented data.
+- Documents, account sessions/invitations and backup need a connection and say so.
+- **Saving:** every save first reaches the server (an original-key lookup). Offline,
+  it is refused before anything is kept: *"You're offline. You need to be online to
+  create or update an entry."* The form stays filled in to save again later.
+- Online, a save is sent at once. If the connection drops after the server received
+  it, the entry is kept under its key and the form asks you to check it in Offline
+  books. Background sync (reconnect, app activation, a 30-second timer) only asks
+  the server for the original answer and **never posts**; **Check and save now** or
+  saving the same form again sends it explicitly under the same key, so it can't be
+  duplicated.
+- A definitive server rejection shows the submitted values, the server's record and
+  field errors. Discard it, or save an edited replacement (sent at once, online).
+- Reads the server rate-limits (429) wait for its `Retry-After` (at most 30 s) and
+  retry up to three times; writes are never repeated automatically.
 
-## Supported Writes
+## Saving Needs a Connection
 
-POST: sales/split sales, purchases, receipts, payments, expenses, journals,
-contras, credit/debit notes, estimates, sales/purchase orders, delivery notes,
-custom accounts, cash/bank ledgers, parties, items and inventory adjustments.
-
-PUT: invoice, party, item and ledger updates with the original `if-match` version.
-The server applies the existing domain services and input contracts, not a second
-financial engine. Inputs are normalized and immutable after enqueue. Identical
-pending values under another key are refused rather than silently merged into an
-attachment draft with a different identity.
-
-Other actions remain their existing online APIs, including auth/team changes,
-file transfers, imports, exports, financial cancellation and specialized operations
-not in `offlineDefinition`. They are not reported as queued or successful offline.
-New masters are not fabricated as server masters before commit; dependent entries
-can use existing downloaded masters, then use new masters after synchronization.
+Every create and update, including sales, purchases, receipts, payments, expenses,
+journals, contras, returns, orders, delivery notes, masters and inventory
+adjustments, is posted by the server's normal domain services the moment it is
+saved. There is no offline outbox of new work. The retained-entry machinery below
+exists only for saves whose reply was lost, for entries kept by earlier app
+versions, and for review after a server restore.
 
 ## Persistence And Access
 
@@ -61,7 +61,7 @@ can use existing downloaded masters, then use new masters after synchronization.
   also includes membership scope, session revision and lock/auth state. Queued
   writes never transfer to another account, firm or role.
 - Offline restoration requires the existing authenticated identity plus an
-  encrypted membership grant verified online within 24 hours. A backwards clock
+  encrypted membership grant verified online within 7 days (owner decision, 13 Nov 2026; was 24 hours). A backwards clock
   or expired grant fails closed. No offline password, OTP or role elevation exists.
   Server revocation while truly disconnected cannot be discovered until reconnect;
   the short grant bounds that limitation. Every sync/reconciliation rechecks access.
@@ -86,6 +86,60 @@ can use existing downloaded masters, then use new masters after synchronization.
   Download completion is recorded only after all requested reads/cache writes
   succeed online. These are timestamped authoritative answers, not a globally
   atomic database snapshot. Clearing downloaded books leaves the outbox and copies.
+
+## Recovery After a Database Restore
+
+The server publishes `X-Recovery-Epoch`, a UUID configured outside PostgreSQL.
+The operator must change it during a restore or account/host cutover as described
+in [guide 30](30-postgres-r2-backup-and-ec2-migration.md). Ordinary deployments
+keep it unchanged. Deploy the matching server and client together: older servers
+without this header cannot safely serve this client.
+
+Outboxes, read caches, membership grants, pending retry keys and financial
+attachment drafts retain their generation. Learning a new server generation
+invalidates previous cached books and refreshes firm selection. Old in-flight
+responses cannot move the observed generation backwards. A 30-second request
+deadline covers both headers and body consumption; a lost or timed-out write
+remains uncertain under its original key.
+
+A changed generation, or a legacy journal whose generation cannot be established,
+quarantines retained work before lookup/execution. Fresh login as the same user,
+firm and role does not remove that quarantine. Clearing downloaded books does
+not clear it either. Known-success operations are never automatically reposted.
+When the server generation changes during a request, its old-generation result
+cannot be reported as a current confirmed save.
+
+Use **Settings → Offline books** to reconcile:
+
+1. Keep the original device storage and attachment files. Review every retained
+   request, including completed history, against the restored books with the
+   owner/accountant.
+2. Select **Check restored answer**. This performs only original-key lookup.
+   A committed receipt must still have its matching business record; a missing
+   record blocks automatic resolution. An absent receipt does not authorize replay.
+3. Record what was compared and how missing or different entries will be resolved,
+   then choose **Record review and keep original**. This changes only local review
+   metadata. It posts/deletes no financial record and preserves request IDs,
+   original responses and attachment references.
+4. After every retained request has a review for this generation, choose
+   **Resume new work after review**. Old pending requests become retained history
+   and are never resent automatically. New work may resume and read caches are
+   rebuilt. Any needed manual re-entry remains a deliberate accounting decision;
+   do not reuse an old request key as a fresh transaction.
+5. Reconcile retained uploads separately in **Pending uploads**. Resuming new
+   books does not silently approve old upload tickets or erase image copies.
+
+This is an explicit device-side review workflow, not proof that the accountant's
+manual reconciliation is correct. Unknown historical direct retry keys that
+predate outbox metadata remain blocked and preserved; do not erase storage or
+invent a replacement key to bypass that uncertainty. Corrupt storage, missing
+receipts and missing business rows still need operator investigation.
+
+The native privacy cover also keeps open forms mounted while the application is
+inactive or PIN-locked. A short camera/gallery handoff preserves the draft; an
+expired timeout still requires the PIN. Uploading requires unlock, while a picker
+callback may retain local files behind the cover. Verify camera, app-switcher
+concealment and expired locks on the intended physical phone.
 
 ## Web Cold Starts
 
@@ -163,14 +217,24 @@ original receipt or attempted version. Responses are private/no-store.
 
 `operation_receipts` is keyed by user/key; current receipts also bind firm, role,
 method/path, normalized body and expected version. It is not subject to seven-day
-shared-idempotency cleanup. `0022_operation_receipts.sql` also archives identifiable legacy
-financial/master and document-upload answers, including still-retained answers
-at migration time. Fingerprints establish the original firm for legacy rows.
+shared-idempotency cleanup. `0025_durable_retry_answers.sql` extends the archive
+introduced in 0022 to every remaining saved answer, including settlements and
+legacy sync envelopes. Shared writers consult permanent receipts and create them
+in the same transaction as the business change. Cleanup only removes cache rows
+with matching committed permanent receipts. Fingerprints establish the original
+firm for legacy rows.
 
 Pending key provenance survives upgrade. A legacy answer already purged before
 migration is **unknown**, never assumed absent. It cannot be safely reposted,
 cancelled as never executed or replaced automatically. No system can reconstruct
 an erased answer by inventing another operation key.
+
+New direct requests use UUIDv7; existing pending UUIDv4 keys remain unchanged.
+An unknown old direct/sync key returns `RETRY_RESULT_UNKNOWN`. Session/access
+failures and unknown/key-reuse errors retain the pending key. Modern `/operations`
+requests still use their existing durable protocol, including UUIDv4 keys. Update
+the server and apply migration 0025 before sending requests from the new client;
+see the F01 rollout steps in [the audit](27-private-readiness-audit.md).
 
 Confirmed background synchronization releases the matching ordinary pending-write
 key only after attachment receipt/binding work succeeds. It never removes a newer
@@ -188,7 +252,7 @@ and tombstones. Unknown/deleted results never create a replacement document.
    after the auth and firm plugins.
 2. `operationReceipts` is exported through the shared schema barrel from
    `packages/backend/src/db/schema/operations.ts`. Apply pending migrations from
-   `apps/api/src/db/migrations`, including `0022_operation_receipts.sql`, after
+   `apps/api/src/db/migrations`, including `0025_durable_retry_answers.sql`, after
    a verified backup and a pause in writes.
 3. Keep DataProvider's transport order: raw authenticated API -> offline books ->
    `withPendingWrites(..., durableOperations=true)` -> existing remote services.
@@ -196,8 +260,12 @@ and tombstones. Unknown/deleted results never create a replacement document.
    attachment callback. Shared Services/remoteServices interfaces need no new
    outbox service. Inventory remains the existing optional inventory service.
 4. `/settings/offline-books` is available to all authenticated active-firm members.
-   `OfflineBooksStatus` from `apps/native/src/offline` appears in the book layout.
-   `/settings/pending-uploads` is the attachment management route.
+   That screen shows connection, cached-answer, pending-save and recovery-review
+   status. Shared screens show a persistent link when saves or recovery need
+   attention; the short save notification also works on web. A form that queued a
+   save stays tied to that request, even after background sync finishes. Review
+   the original result in Offline books and close the form before starting a new
+   entry. `/settings/pending-uploads` is the attachment management route.
 5. Body objects bound by `useFinancialAttachments.save` must reach the client
    unchanged. Validate without replacing the object so attachment bindings remain intact.
 6. Keep local protocol hints inside the offline adapter. `x-hisaab-pending-key`,
@@ -205,6 +273,9 @@ and tombstones. Unknown/deleted results never create a replacement document.
    online-only passthrough routes, including backup inspection and report exports.
    Do not add them to API CORS allowances. Genuine version/firm/idempotency headers
    and the original body identity remain unchanged.
+7. Forward and expose `X-Recovery-Epoch` through API CORS/proxies. Preserve each
+   operation's original epoch; never substitute the current server value to make
+   an old retry pass. Generation reset and operator cutover belong to guide 30.
 
 ## Manual Checks
 
@@ -219,7 +290,9 @@ Check user/firm switching, sign-out, access revocation and expired grants. Confi
 unavailable cached views report that state and corrupt storage is retained for
 reconciliation. Check process restart and low-storage behavior on Android/iOS.
 
-Keep devices with unresolved saves disconnected during independent database
-recovery; follow [manual reconnection responsibilities](20-manual-recovery.md#pending-saves-before-reconnection)
-before allowing replay. No automated quarantine is supplied. Attachment recovery has separate
+During a controlled restore, keep devices paused until the new server epoch and
+restore checks are accepted. Test automatic quarantine, fresh login, an uncertain
+save, known-success history, interrupted responses and the explicit review flow.
+Follow [manual reconnection responsibilities](20-manual-recovery.md#pending-saves-before-reconnection)
+before resuming new work. Attachment recovery has separate
 [binding and retention limits](18-attachment-recovery.md).

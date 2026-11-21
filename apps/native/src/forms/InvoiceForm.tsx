@@ -39,6 +39,20 @@ import {
   saleDocFor,
   voucherMode,
   count,
+  UNREGISTERED_SUPPLIER_GST_MESSAGE,
+  allocateStock,
+  serviceBooks,
+  stockShortfallText,
+  type BookScope,
+  financialYear,
+  canSeeCosts,
+  roleFlag,
+  type CustomFieldValues,
+  type SaleMargin,
+  type SaleMarginInput,
+  exclusiveRate,
+  inclusiveRate,
+  type BillDiscountInput,
 } from "@repo/core";
 import {
   AmountField,
@@ -61,9 +75,11 @@ import {
   TextField,
   Txt,
   showError,
+  CustomFieldInputs,
 } from "@/components";
 import {
   useCreatePurchase,
+  useCustomFields,
   useCreateSales,
   useStockLots,
   useCreateOrder,
@@ -74,7 +90,13 @@ import {
   useNextNumber,
   useParties,
   useParty,
+  useSalesControls,
+  usePartyItems,
+  useSaleMargin,
+  useInvoiceSettings,
 } from "@/data/queries";
+import { useDebounced } from "@/data/useDebounced";
+import { useOfflineBooks } from "@/data/useOfflineBooks";
 import { takePicked } from "@/data/picked";
 import { colors, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
@@ -83,6 +105,19 @@ import { InvoiceAssociates } from "@/components/associates/InvoiceAssociates";
 import type { InvoiceAssociatesInput } from "@repo/contracts/src/associates";
 import { useApproveSaleCredit } from "@/data/settlementHooks";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
+import {
+  invoiceDrafts,
+  invoiceDraftItem,
+  invoiceDraftUnit,
+  invoiceDraftLine,
+  lotsWithoutBill,
+  stockPartsByLine,
+  invoiceDraftCharges,
+  headCharges,
+  withBillDiscount,
+  type LineDraft,
+} from "./invoiceDraft";
+import { InvoiceExtras } from "./InvoiceExtras";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -121,6 +156,17 @@ const TEXT = {
     saveLabel: "Save estimate",
     priceKey: "salePrice",
   },
+  proforma: {
+    title: "New Proforma Invoice",
+    numberLabel: "Proforma no.",
+    partyLabel: "Bill to",
+    partyWord: "customer",
+    paidHeading: "",
+    paidAmountLabel: "",
+    ledgerLabel: "",
+    saveLabel: "Save proforma",
+    priceKey: "salePrice",
+  },
   "sales-order": {
     title: "New Sales Order",
     numberLabel: "Order no.",
@@ -156,32 +202,9 @@ const TEXT = {
   },
 } as const;
 
-/** One item row as typed by the user (text), converted to numbers for maths. */
-interface LineDraft {
-  stockLotId?: string;
-  key: number;
-  itemId: string;
-  qty: string;
-  rate: string;
-  discountPercent: string;
-  /** Quantity and rate are entered in the item's second unit (e.g. Box). */
-  inAlt: boolean;
-}
-
 type Paid = "none" | "partial" | "full";
-
-/** Line drafts from a saved bill, for editing it. */
-function draftsFrom(v: Voucher): LineDraft[] {
-  return (v.lines ?? []).map((l, i) => ({
-    key: i + 1,
-    stockLotId: l.stockLotId,
-    itemId: l.itemId,
-    qty: String(l.qty),
-    rate: (l.rate / 100).toFixed(2),
-    discountPercent: l.discountPercent ? String(l.discountPercent) : "",
-    inAlt: !!l.per,
-  }));
-}
+/** Picker choice that clears a line's lot so stock is taken oldest first. */
+const AUTO_LOT = "__auto__";
 
 export function InvoiceForm({
   kind,
@@ -198,6 +221,11 @@ export function InvoiceForm({
 }) {
   const text = TEXT[kind];
   const attachments = useFinancialAttachments(editing?.id);
+  const customDefs = useCustomFields().data;
+  // Header custom fields (doc 37, T07): the bill's own values when editing.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>(
+    editing?.customFields ?? {},
+  );
   const isOrder = isOrderType(kind);
   /** Sale side (customer, sale price) or purchase side (supplier, purchase price). */
   const side: "sale" | "purchase" =
@@ -210,6 +238,12 @@ export function InvoiceForm({
   const [associates, setAssociates] = useState<InvoiceAssociatesInput>({});
   const [creditReason, setCreditReason] = useState("");
   const approveCredit = useApproveSaleCredit();
+  const salesControls = useSalesControls();
+  const overduePolicy = salesControls.data?.overdueSales ?? "warn";
+  const stockPolicy =
+    kind === "sale" && !editing
+      ? (salesControls.data?.stockPolicy ?? "warn")
+      : "warn";
   const updateInvoice = useUpdateInvoice(editing?.id ?? "", version);
 
   // ---- Data -------------------------------------------------------------------
@@ -226,6 +260,8 @@ export function InvoiceForm({
   const items = useItems();
   const ledgers = useLedgers();
   const { role } = useData();
+  // Sales staff bill at sale prices; purchase costs stay hidden from them.
+  const showCosts = canSeeCosts(role);
   // Selected stock determines the book category and whether two invoices are needed.
   const createSale = useCreateSales();
   const createPurchase = useCreatePurchase();
@@ -240,20 +276,80 @@ export function InvoiceForm({
   const [partyId, setPartyId] = useState<string | undefined>(
     prefill?.partyId ?? initialPartyId,
   );
+  // The rate on this party's latest bill for each item (doc 37, T11). Supplier
+  // rates are costs, so they are asked for only by roles that may see costs.
+  const partyItems = usePartyItems(partyId ?? "", side === "sale" || showCosts);
+  const lastRate = (itemId: string) =>
+    partyItems.data?.rows.find((row) => row.itemId === itemId);
   const [date, setDate] = useState(editing?.date ?? today());
+  // A saved bill may move only within its own financial year (its number carries it).
+  const dateRange = editing
+    ? (() => {
+        const year = financialYear(editing.date);
+        const open = allowedDates();
+        return {
+          min: year.start > open.min ? year.start : open.min,
+          max: year.end < open.max ? year.end : open.max,
+        };
+      })()
+    : allowedDates();
   const stock = useStockLots(date);
+  // An edit may reuse the stock this bill already took.
+  const lotPool = lotsWithoutBill(stock.data ?? [], editing);
   const lotsFor = (itemId: string) =>
-    (stock.data ?? []).filter((lot) => lot.itemId === itemId);
+    lotPool.filter((lot) => lot.itemId === itemId);
+  /** Books (GST / non-GST) that still hold this item on the bill date. */
+  const booksFor = (itemId: string) => [
+    ...new Set(
+      lotsFor(itemId)
+        .filter((lot) => lot.qty > 0)
+        .map((lot) => lot.bookScope),
+    ),
+  ];
+  const [sellFrom, setSellFrom] = useState<BookScope | undefined>(
+    editing ? bookScopeOf(editing) : undefined,
+  );
   const [supplierInvoiceNo, setSupplierInvoiceNo] = useState(
     editing?.supplierInvoiceNo ?? "",
   );
   const [lines, setLines] = useState<LineDraft[]>(
-    prefill ? draftsFrom(prefill) : [],
+    prefill ? invoiceDrafts(prefill, !!editing) : [],
   );
   const editFreight = prefill?.charges?.find((c) => c.name === "Freight");
   const [freight, setFreight] = useState(
     editFreight ? String(editFreight.amount / 100) : "",
   );
+  // Discounts and charges (doc 37, T09)
+  const chargeHeads = useInvoiceSettings().data?.chargeHeads;
+  const [headAmounts, setHeadAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (prefill?.charges ?? [])
+        .filter((c) => c.headId)
+        .map((c) => [c.headId!, String(c.amount / 100)]),
+    ),
+  );
+  const [discountIn, setDiscountIn] = useState<"percent" | "amount">(
+    prefill?.billDiscount && !prefill.billDiscount.percent
+      ? "amount"
+      : "percent",
+  );
+  const [discountText, setDiscountText] = useState(
+    prefill?.billDiscount?.percent
+      ? String(prefill.billDiscount.percent)
+      : prefill?.billDiscount
+        ? String(prefill.billDiscount.amount / 100)
+        : "",
+  );
+  const billDiscount: BillDiscountInput | undefined =
+    discountIn === "percent"
+      ? Number(discountText) > 0
+        ? { percent: Math.min(Number(discountText), 100) }
+        : undefined
+      : (parseRupees(discountText) ?? 0) > 0
+        ? { amount: parseRupees(discountText)! }
+        : undefined;
+  // Rates typed with GST included; lines save the rate before GST.
+  const [ratesWithGst, setRatesWithGst] = useState(false);
   const [paid, setPaid] = useState<Paid>("none");
   const [paidText, setPaidText] = useState("");
   const [mode, setMode] = useState<PaymentMode>("cash");
@@ -265,54 +361,99 @@ export function InvoiceForm({
   const partyDetail = useParty(partyId ?? "");
   const itemById = (id: string) =>
     items.data?.find((r) => r.item.id === id)?.item;
+  const itemFor = (line: LineDraft) =>
+    invoiceDraftItem(line.itemId, itemById(line.itemId), editing);
+  const savedParty = editing?.snapshot?.party;
+  const issuedParty =
+    savedParty && savedParty.id === partyId ? savedParty : party?.party;
+  const issuedFirm = editing?.snapshot?.firm ?? firm.data;
   const interState =
-    !!party && !!firm.data && party.party.stateCode !== firm.data.stateCode;
+    !!issuedParty &&
+    !!issuedFirm &&
+    issuedParty.stateCode !== issuedFirm.stateCode;
 
   // ---- Maths (pure functions from @repo/core) -----------------------------------
+  const usesStock = kind === "sale" || kind === "delivery-note";
+  // Rows without a chosen lot take stock oldest first; an item in both books needs the user's choice.
+  const needsBook =
+    usesStock &&
+    lines.some((l) => !l.stockLotId && booksFor(l.itemId).length > 1);
   const rawLines: InvoiceLine[] = lines.map((l) => {
-    const alt = itemById(l.itemId)?.altUnit;
-    const item = itemById(l.itemId);
     const lot = lotsFor(l.itemId).find((row) => row.id === l.stockLotId);
     const bookScope =
-      side === "purchase" ? (withoutGst ? "nongst" : "gst") : lot?.bookScope;
-    const taxType =
-      bookScope === "nongst" ? "nongst" : item ? itemTaxType(item) : "taxable";
-    return {
-      stockLotId: l.stockLotId,
-      bookScope,
-      itemId: l.itemId,
-      qty: Number(l.qty) || 0,
-      rate: parseRupees(l.rate) ?? 0,
-      discountPercent: Number(l.discountPercent) || undefined,
-      gstRate: taxType === "taxable" ? (item?.gstRate ?? 0) : 0,
-      taxType,
-      per: l.inAlt && alt ? { unit: alt.name, factor: alt.factor } : undefined,
-    };
+      side === "purchase"
+        ? withoutGst
+          ? "nongst"
+          : "gst"
+        : (lot?.bookScope ??
+          (booksFor(l.itemId).length > 1 ? sellFrom : undefined));
+    return invoiceDraftLine(l, itemFor(l), bookScope);
   });
   // Composition sales and firms without GST: no GST on the bill
-  const invoiceLines = applyGstMode(rawLines, taxMode, side);
+  const invoiceLines = applyGstMode(rawLines, taxMode, side).map((l) =>
+    ratesWithGst && l.gstRate
+      ? { ...l, rate: exclusiveRate(l.rate, l.gstRate) }
+      : l,
+  );
+  // The rows the server will save: each lot a line draws on, as in allocateStock.
+  let stockError: string | undefined;
+  let stockLines = invoiceLines;
+  if (usesStock && stock.data && !(needsBook && !sellFrom))
+    try {
+      stockLines = allocateStock(
+        lotPool,
+        invoiceLines,
+        // Services take no stock (doc 37, T39).
+        serviceBooks(
+          (items.data ?? []).map((r) => r.item),
+          taxMode === "off" ? "nongst" : "gst",
+        ),
+      ).map((l) =>
+        l.bookScope === "nongst"
+          ? { ...l, gstRate: 0 as const, taxType: "nongst" as const }
+          : l,
+      );
+    } catch (err) {
+      stockError = err instanceof Error ? err.message : String(err);
+    }
+  stockLines = withBillDiscount(stockLines, billDiscount, kind === "sale");
+  const linesByEntry = stockPartsByLine(invoiceLines, stockLines);
   const carriesGst =
     billsCarryGst(taxMode, side) &&
     (side === "purchase"
       ? !withoutGst
-      : invoiceLines.some((l) => l.bookScope !== "nongst"));
+      : stockLines.some((l) => l.bookScope !== "nongst"));
   const freightPaise = parseRupees(freight) ?? 0;
   const charges: ExtraCharge[] = applyGstMode(
-    freightPaise > 0
-      ? [{ name: "Freight", amount: freightPaise, gstRate: 18 as const }]
-      : [],
+    [
+      ...invoiceDraftCharges(
+        freightPaise,
+        prefill?.charges?.filter((c) => !c.headId),
+      ),
+      ...headCharges(
+        Object.fromEntries(
+          Object.entries(headAmounts).map(([id, t]) => [
+            id,
+            parseRupees(t) ?? 0,
+          ]),
+        ),
+        chargeHeads,
+        side,
+        prefill?.charges,
+      ),
+    ],
     carriesGst ? taxMode : "off",
     side,
   );
-  let totals = calcInvoice({ lines: invoiceLines, charges, interState });
+  let totals = calcInvoice({ lines: stockLines, charges, interState });
   // Estimates and orders may hold any goods; only bills split non-GST goods off
   const mixed =
     kind === "sale" &&
-    invoiceLines.some((l) => l.bookScope === "gst") &&
-    invoiceLines.some((l) => l.bookScope === "nongst");
+    stockLines.some((l) => l.bookScope === "gst") &&
+    stockLines.some((l) => l.bookScope === "nongst");
   const splitTotals = (["gst", "nongst"] as const).map((scope, index) =>
     calcInvoice({
-      lines: invoiceLines.filter((l) => l.bookScope === scope),
+      lines: stockLines.filter((l) => l.bookScope === scope),
       charges: index === 0 ? charges : [],
       interState,
     }),
@@ -326,13 +467,13 @@ export function InvoiceForm({
   const noGstBill =
     side === "purchase"
       ? withoutGst
-      : invoiceLines.length > 0 &&
-        invoiceLines.every((l) => l.bookScope === "nongst");
+      : stockLines.length > 0 &&
+        stockLines.every((l) => l.bookScope === "nongst");
   const docType =
     kind === "sale" && !mixed
       ? noGstBill
         ? "invoice"
-        : saleDocFor(taxMode, invoiceLines)
+        : saleDocFor(taxMode, stockLines)
       : undefined;
   const nextNumber = useNextNumber(
     kind,
@@ -351,16 +492,26 @@ export function InvoiceForm({
         ? totals.grandTotal
         : (parseRupees(paidText) ?? 0);
   const stockProblem =
-    (kind === "sale" || kind === "delivery-note") &&
+    usesStock &&
     (stock.isError
       ? "Could not load stock. Try again."
       : stock.isPending
         ? "Loading stock..."
-        : lines.some((l) => !l.stockLotId)
-          ? "Choose stock for each item."
-          : undefined);
+        : needsBook && !sellFrom
+          ? "Choose whether to sell from GST or non-GST stock."
+          : stockError);
+  // New purchases only, matching the server; existing bills keep what they saved.
+  const supplierProblem =
+    kind === "purchase" &&
+    !editing &&
+    party &&
+    !party.party.gstin?.trim() &&
+    totals.tax > 0
+      ? UNREGISTERED_SUPPLIER_GST_MESSAGE
+      : undefined;
   const problem =
     stockProblem ||
+    supplierProblem ||
     checkInvoice({
       kind: side,
       partyId,
@@ -378,7 +529,7 @@ export function InvoiceForm({
       date,
       status: "draft",
       taxMode,
-      lines: invoiceLines,
+      lines: stockLines,
       charges,
       interState,
       amount: totals.grandTotal,
@@ -389,6 +540,47 @@ export function InvoiceForm({
     },
   );
 
+  // Profit margin (doc 37, T12): on sales only, for roles with the "see profit
+  // margin" right (never sales staff), worked out by the server from the stock
+  // the sale would take. Asked for once typing pauses; hidden while it loads,
+  // while lines are incomplete and offline.
+  const showMargin = kind === "sale" && roleFlag(role, "viewProfitMargin");
+  const { online } = useOfflineBooks();
+  const marginDraft: SaleMarginInput | null =
+    showMargin &&
+    online &&
+    invoiceLines.length > 0 &&
+    invoiceLines.every((l) => l.qty > 0 && l.rate > 0)
+      ? {
+          date,
+          lines: invoiceLines,
+          sourceId: source?.id,
+          editingId: editing?.id,
+          billDiscount,
+        }
+      : null;
+  const marginWanted = marginDraft ? JSON.stringify(marginDraft) : "";
+  const marginAsked = useDebounced(marginWanted, 500);
+  const marginQuery = useSaleMargin(
+    marginAsked ? (JSON.parse(marginAsked) as SaleMarginInput) : null,
+  );
+  const margin: SaleMargin | undefined =
+    marginWanted &&
+    marginAsked === marginWanted &&
+    marginQuery.isSuccess &&
+    !marginQuery.isFetching
+      ? marginQuery.data
+      : undefined;
+  const marginText = (row: {
+    margin: number | null;
+    marginPercent: number | null;
+  }) =>
+    `${formatINR(row.margin ?? 0)}${
+      row.marginPercent === null
+        ? ""
+        : ` · ${row.marginPercent < 0 ? "−" : ""}${Math.abs(row.marginPercent)}%`
+    }`;
+
   // ---- Actions ------------------------------------------------------------------
   const addItem = (item: Item) =>
     setLines((prev) => [
@@ -396,12 +588,12 @@ export function InvoiceForm({
       {
         key: Date.now(),
         itemId: item.id,
-        stockLotId:
-          lotsFor(item.id).filter((l) => l.qty > 0).length === 1
-            ? lotsFor(item.id).find((l) => l.qty > 0)?.id
-            : undefined,
         qty: "1",
-        rate: (item[text.priceKey] / 100).toFixed(2),
+        rate: (
+          (ratesWithGst && carriesGst && item.gstRate
+            ? inclusiveRate(item[text.priceKey], item.gstRate)
+            : item[text.priceKey]) / 100
+        ).toFixed(2),
         discountPercent: "",
         inAlt: false,
       },
@@ -435,7 +627,7 @@ export function InvoiceForm({
    * The rate is converted so the line total stays the same: 12 Pcs × ₹195 ↔ 1 Box × ₹2,340.
    */
   const toggleAlt = (l: LineDraft, item: Item, inAlt: boolean) => {
-    const factor = item.altUnit?.factor ?? 1;
+    const factor = invoiceDraftUnit(l, item)?.factor ?? 1;
     const qty = Number(l.qty) || 0;
     const rate = parseRupees(l.rate) ?? 0;
     if (inAlt) {
@@ -488,6 +680,7 @@ export function InvoiceForm({
           : undefined,
       supplierInvoiceNo:
         kind === "purchase" ? supplierInvoiceNo || undefined : undefined,
+      customFields: customValues,
     };
     try {
       if (editing) {
@@ -497,9 +690,10 @@ export function InvoiceForm({
         }
         const sale = {
           ...base,
-          date: editing.date,
+          date,
           lines: invoiceLines,
           charges,
+          billDiscount,
         };
         const approval =
           kind === "sale" && needsCreditApproval && creditReason.trim()
@@ -526,8 +720,10 @@ export function InvoiceForm({
             date,
             lines: invoiceLines,
             charges,
+            billDiscount,
             sourceId: source?.id,
             ...associates,
+            customFields: customValues,
           },
           createOrder.mutateAsync,
         );
@@ -540,6 +736,7 @@ export function InvoiceForm({
           sourceId: source?.id,
           lines: invoiceLines,
           charges,
+          billDiscount,
           paidNow:
             paidNow > 0 ? { amount: paidNow, mode, ledgerId } : undefined,
         };
@@ -572,6 +769,7 @@ export function InvoiceForm({
             sourceId: source?.id,
             lines: invoiceLines,
             charges,
+            billDiscount,
             paidNow:
               paidNow > 0 ? { amount: paidNow, mode, ledgerId } : undefined,
           },
@@ -593,14 +791,21 @@ export function InvoiceForm({
     (party?.balance ?? 0) +
     totals.grandTotal -
     (editing ? replacedAmount : paidNow);
-  const needsCreditApproval =
+  const overLimit =
     kind === "sale" &&
     (party?.party.creditLimit ?? 0) > 0 &&
     projectedBalance > (party?.party.creditLimit ?? 0);
+  // Under the firm's "block" policy a new sale to a customer with overdue
+  // bills needs the owner's approval too (doc 37, T11); edits are not blocked.
+  const showOverdue =
+    overduePolicy !== "off" && (detail?.overdueAmount ?? 0) > 0;
+  const overdueBlocks =
+    kind === "sale" && !editing && overduePolicy === "block" && showOverdue;
+  const needsCreditApproval = overLimit || overdueBlocks;
   const showCreditWarning =
     kind === "sale" &&
     !!detail &&
-    (needsCreditApproval || detail.overLimitBy > 0 || detail.overdueAmount > 0);
+    (needsCreditApproval || detail.overLimitBy > 0 || showOverdue);
 
   return (
     <Screen
@@ -660,22 +865,21 @@ export function InvoiceForm({
           editable={false}
           mono
         />
-        {editing ? (
-          <TextField
-            label="Date"
-            value={formatDate(editing.date)}
-            editable={false}
-          />
-        ) : (
-          <DateField
-            value={date}
-            onChange={setDate}
-            min={allowedDates().min}
-            max={allowedDates().max}
-          />
-        )}
+        <DateField
+          value={date}
+          onChange={setDate}
+          min={dateRange.min}
+          max={dateRange.max}
+        />
       </View>
 
+      <CustomFieldInputs
+        defs={customDefs}
+        entity="voucher"
+        voucherType={kind}
+        values={customValues}
+        onChange={setCustomValues}
+      />
       <AttachmentPicker {...attachments} />
       {side === "sale" ? (
         <InvoiceAssociates
@@ -712,15 +916,19 @@ export function InvoiceForm({
         {showCreditWarning && detail ? (
           <Notice
             text={`${detail.overLimitBy > 0 ? `Over credit limit by ${formatINR(detail.overLimitBy)}. ` : ""}${
-              detail.overdueAmount > 0
+              showOverdue
                 ? `${formatINR(detail.overdueAmount)} overdue (oldest ${count(detail.maxOverdueDays, "day")}). `
                 : ""
-            }Sales above the credit limit need owner approval.`}
+            }${
+              overdueBlocks
+                ? "New sales to customers with overdue bills need the owner's approval."
+                : "Sales above the credit limit need owner approval."
+            }`}
           />
         ) : null}
         {needsCreditApproval && role === "owner" ? (
           <TextField
-            label="Credit-limit approval reason"
+            label="Owner approval reason"
             value={creditReason}
             onChangeText={setCreditReason}
             maxLength={500}
@@ -745,7 +953,7 @@ export function InvoiceForm({
                 alignItems: "center",
               }}
             >
-              <Txt variant="small">State {party.party.stateCode}</Txt>
+              <Txt variant="small">State {issuedParty?.stateCode}</Txt>
               <Badge label={interState ? "IGST" : "CGST + SGST"} />
             </View>
           </View>
@@ -766,9 +974,59 @@ export function InvoiceForm({
       {/* Items */}
       <View style={{ gap: space.sm }}>
         <Txt variant="heading">Items · {lines.length}</Txt>
+        {carriesGst ? (
+          <Checkbox
+            label="Rates include GST"
+            note="Type the rate with GST; the bill saves the rate before GST, to the paisa."
+            checked={ratesWithGst}
+            onChange={(on) => {
+              // Keep each line total: show the same rate with or without GST.
+              setLines((prev) =>
+                prev.map((l, i) => {
+                  const gstRate = invoiceLines[i]?.gstRate ?? 0;
+                  const rate = parseRupees(l.rate) ?? 0;
+                  if (!gstRate) return l;
+                  const next = on
+                    ? inclusiveRate(rate, gstRate)
+                    : exclusiveRate(rate, gstRate);
+                  return { ...l, rate: (next / 100).toFixed(2) };
+                }),
+              );
+              setRatesWithGst(on);
+            }}
+          />
+        ) : null}
+        {needsBook && !editing ? (
+          <View style={{ gap: space.xs }}>
+            <Txt variant="small" tone="body">
+              Some items are in both GST and non-GST stock. Sell from:
+            </Txt>
+            <Segmented
+              value={sellFrom ?? ""}
+              onChange={(value) => setSellFrom(value || undefined)}
+              options={[
+                { value: "gst", label: "GST stock" },
+                { value: "nongst", label: "Non-GST stock" },
+              ]}
+            />
+          </View>
+        ) : null}
         {lines.map((l, i) => {
-          const item = itemById(l.itemId);
-          const t = calcLine(invoiceLines[i], interState);
+          const item = itemFor(l);
+          const alt = invoiceDraftUnit(l, item);
+          // A line drawing on several lots is several saved rows; show their sum.
+          const parts = linesByEntry[i]?.length
+            ? linesByEntry[i]
+            : [invoiceLines[i]];
+          const shown = parts[0];
+          const t = parts
+            .map((part) => calcLine(part, interState))
+            .reduce((sum, row) => ({
+              ...sum,
+              taxable: sum.taxable + row.taxable,
+              tax: sum.tax + row.tax,
+              total: sum.total + row.total,
+            }));
           return (
             <Card key={l.key} style={{ gap: space.sm }}>
               <View
@@ -787,32 +1045,41 @@ export function InvoiceForm({
                   onPress={() => removeLine(l.key)}
                 />
               </View>
-              {item?.altUnit ? (
+              {item && alt ? (
                 <Checkbox
-                  label={`Enter quantity in ${item.altUnit.name}`}
-                  note={`1 ${item.altUnit.name} = ${item.altUnit.factor} ${item.unit}`}
+                  label={`Enter quantity in ${alt.unit}`}
+                  note={`1 ${alt.unit} = ${alt.factor} ${item.unit}`}
                   checked={l.inAlt}
                   onChange={(on) => toggleAlt(l, item, on)}
                 />
               ) : null}
-              {kind === "sale" || kind === "delivery-note" ? (
+              {(kind === "sale" || kind === "delivery-note") &&
+              item?.kind !== "service" ? (
                 <SelectField
                   label="Stock lot"
                   value={(() => {
                     const lot = lotsFor(l.itemId).find(
                       (row) => row.id === l.stockLotId,
                     );
-                    return lot
-                      ? `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""} | Cost ${formatINR(Math.round(lot.unitCost))}`
+                    if (lot)
+                      return `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number} | ${lot.qty} ${item?.unit ?? ""}${showCosts ? ` | Cost ${formatINR(Math.round(lot.unitCost))}` : ""}`;
+                    const used = parts.flatMap((part) => {
+                      const from = lotsFor(l.itemId).find(
+                        (row) => row.id === part.stockLotId,
+                      );
+                      return from ? [`${from.number} × ${part.qty}`] : [];
+                    });
+                    return used.length
+                      ? `Oldest first: ${used.join(", ")}`
                       : undefined;
                   })()}
-                  placeholder="Choose purchase stock"
+                  placeholder="Oldest first (automatic)"
                   onPress={() => setLotLine(l.key)}
                 />
               ) : null}
               <View style={{ flexDirection: "row", gap: space.sm }}>
                 <TextField
-                  label={`Qty (${l.inAlt && item?.altUnit ? item.altUnit.name : (item?.unit ?? "")})`}
+                  label={`Qty (${l.inAlt && alt ? alt.unit : (item?.unit ?? "")})`}
                   value={l.qty}
                   keyboardType="decimal-pad"
                   onChangeText={(qty) =>
@@ -820,33 +1087,122 @@ export function InvoiceForm({
                   }
                 />
                 <AmountField
-                  label={
-                    l.inAlt && item?.altUnit
-                      ? `Rate ₹ / ${item.altUnit.name}`
-                      : "Rate ₹"
-                  }
+                  label={`${l.inAlt && alt ? `Rate ₹ / ${alt.unit}` : "Rate ₹"}${ratesWithGst && shown?.gstRate ? " incl. GST" : ""}`}
                   value={l.rate}
                   onChangeText={(rate) => updateLine(l.key, { rate })}
                 />
-                <TextField
-                  label="Disc %"
-                  value={l.discountPercent}
-                  keyboardType="decimal-pad"
-                  onChangeText={(d) =>
-                    updateLine(l.key, {
-                      discountPercent: d.replace(/[^0-9.]/g, ""),
-                    })
-                  }
-                />
+                {l.discountAmount !== undefined ? (
+                  <AmountField
+                    label="Discount ₹"
+                    value={l.discountAmount}
+                    onChangeText={(discountAmount) =>
+                      updateLine(l.key, { discountAmount })
+                    }
+                  />
+                ) : (
+                  <TextField
+                    label="Disc %"
+                    value={l.discountPercent}
+                    keyboardType="decimal-pad"
+                    onChangeText={(d) =>
+                      updateLine(l.key, {
+                        discountPercent: d.replace(/[^0-9.]/g, ""),
+                      })
+                    }
+                  />
+                )}
               </View>
-              {l.inAlt && item?.altUnit ? (
+              {kind === "purchase" && item && item.kind !== "service" ? (
+                <View style={{ flexDirection: "row", gap: space.sm }}>
+                  <TextField
+                    label="Batch (optional)"
+                    value={l.batchNumber ?? ""}
+                    onChangeText={(batchNumber) =>
+                      updateLine(l.key, {
+                        batchNumber: batchNumber.slice(0, 40),
+                      })
+                    }
+                    placeholder="e.g. AG2608"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <DateField
+                      label="Expiry (optional)"
+                      value={l.expiryDate ?? ""}
+                      onChange={(expiryDate) =>
+                        updateLine(l.key, { expiryDate })
+                      }
+                    />
+                    {l.expiryDate ? (
+                      <Txt
+                        variant="caption"
+                        tone="body"
+                        accessibilityRole="button"
+                        onPress={() =>
+                          updateLine(l.key, { expiryDate: undefined })
+                        }
+                      >
+                        Clear expiry
+                      </Txt>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+              {usesStock && item && item.kind !== "service" && stock.data
+                ? (() => {
+                    // Stock control (doc 37, T37): warn before the server refuses.
+                    const warning = stockShortfallText(
+                      item,
+                      lotsFor(l.itemId),
+                      invoiceLines[i],
+                      stockPolicy,
+                    );
+                    return warning ? <Notice text={warning} /> : null;
+                  })()
+                : null}
+              {(() => {
+                const last = lastRate(l.itemId);
+                if (!last) return null;
+                // With "Rates include GST" on, Use fills the rate with GST.
+                const lastTyped =
+                  ratesWithGst && shown?.gstRate
+                    ? inclusiveRate(last.typedRate, shown.gstRate)
+                    : last.typedRate;
+                const typed = (lastTyped / 100).toFixed(2);
+                const canUse = !l.inAlt && parseRupees(l.rate) !== lastTyped;
+                return (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: space.sm,
+                    }}
+                  >
+                    <Txt variant="caption" tone="body" num style={{ flex: 1 }}>
+                      Last {side === "sale" ? "sold" : "bought"} at{" "}
+                      {formatINR(last.typedRate)} / {last.unit} on{" "}
+                      {formatDate(last.lastDate)} · {last.lastNumber}
+                    </Txt>
+                    {canUse ? (
+                      <Button
+                        label="Use"
+                        size="sm"
+                        onPress={() => updateLine(l.key, { rate: typed })}
+                      />
+                    ) : null}
+                  </View>
+                );
+              })()}
+              {ratesWithGst && shown?.gstRate ? (
+                <Txt variant="caption" tone="body" num>
+                  Rate before GST {formatINR(invoiceLines[i].rate)}
+                </Txt>
+              ) : null}
+              {l.inAlt && item && alt ? (
                 <Txt variant="caption" tone="body" num>
                   {lineQtyText(invoiceLines[i], item.unit).main} ={" "}
                   {lineQtyText(invoiceLines[i], item.unit).base} ·{" "}
                   {formatINR(
-                    Math.round(
-                      (parseRupees(l.rate) ?? 0) / item.altUnit.factor,
-                    ),
+                    Math.round((parseRupees(l.rate) ?? 0) / alt.factor),
                   )}{" "}
                   per {item.unit}
                 </Txt>
@@ -863,9 +1219,9 @@ export function InvoiceForm({
                 <Txt variant="caption" tone="body" num>
                   {!carriesGst
                     ? `${formatINR(t.taxable)}`
-                    : invoiceLines[i].taxType === "taxable"
-                      ? `Taxable ${formatINR(t.taxable)} · GST ${item?.gstRate}% ${formatINR(t.tax)}`
-                      : `${taxTypeLabel(invoiceLines[i].taxType!)} · no GST`}
+                    : shown.taxType === "taxable"
+                      ? `Taxable ${formatINR(t.taxable)} · GST ${shown.gstRate}% ${formatINR(t.tax)}`
+                      : `${taxTypeLabel(shown.taxType!)} · no GST`}
                 </Txt>
                 <Money
                   value={t.total}
@@ -873,6 +1229,16 @@ export function InvoiceForm({
                   style={{ fontWeight: "600" }}
                 />
               </View>
+              {(() => {
+                const row = margin?.lines[i];
+                if (!row || row.margin === null) return null;
+                return (
+                  <Badge
+                    label={`Margin ${marginText(row)}`}
+                    tone={row.margin < 0 ? "bad" : "ok"}
+                  />
+                );
+              })()}
             </Card>
           );
         })}
@@ -895,10 +1261,39 @@ export function InvoiceForm({
           onChangeText={setFreight}
         />
       </View>
+      <InvoiceExtras
+        heads={chargeHeads ?? []}
+        saved={prefill?.charges ?? []}
+        amounts={headAmounts}
+        onAmounts={setHeadAmounts}
+        carriesGst={carriesGst}
+        discountIn={discountIn}
+        onDiscountIn={setDiscountIn}
+        discountText={discountText}
+        onDiscountText={setDiscountText}
+      />
 
       <Card style={{ gap: 0 }}>
+        {totals.billDiscount ? (
+          <>
+            <KeyValue
+              label="Sub total"
+              value={formatINR(totals.taxable + totals.billDiscount)}
+            />
+            <KeyValue
+              label={`Discount${billDiscount?.percent ? ` (${billDiscount.percent}%)` : ""}`}
+              value={`−${formatINR(totals.billDiscount)}`}
+            />
+          </>
+        ) : null}
         <KeyValue
-          label={carriesGst ? "Taxable value" : "Sub total"}
+          label={
+            carriesGst
+              ? "Taxable value"
+              : totals.billDiscount
+                ? "After discount"
+                : "Sub total"
+          }
           value={formatINR(totals.taxable)}
         />
         {!carriesGst ? null : interState ? (
@@ -920,6 +1315,39 @@ export function InvoiceForm({
         <Txt variant="caption" tone="body" style={{ paddingTop: space.sm }}>
           {amountInWords(totals.grandTotal)}
         </Txt>
+        {margin && margin.total.margin !== null ? (
+          <View
+            style={{
+              marginTop: space.sm,
+              paddingTop: space.xs,
+              borderTopWidth: 1,
+              borderTopColor: colors.hairlineSoft,
+            }}
+          >
+            <KeyValue
+              label="Profit margin"
+              value={
+                <Txt
+                  variant="small"
+                  num
+                  style={{
+                    fontWeight: "600",
+                    color: margin.total.margin < 0 ? colors.give : colors.get,
+                  }}
+                >
+                  {marginText(margin.total)}
+                </Txt>
+              }
+            />
+            <Txt variant="caption" tone="body">
+              On the taxable value of the items, less their stock cost (oldest
+              stock first). Not printed.
+              {margin.missing > 0
+                ? ` Leaves out ${count(margin.missing, "line")} without stock.`
+                : ""}
+            </Txt>
+          </View>
+        ) : null}
       </Card>
 
       {/* Money received or paid now (not when editing: record payments separately) */}
@@ -1022,21 +1450,33 @@ export function InvoiceForm({
         title="Choose stock lot"
         onClose={() => setLotLine(null)}
         onSelect={(id) => {
-          if (lotLine !== null) updateLine(lotLine, { stockLotId: id });
+          if (lotLine !== null)
+            updateLine(lotLine, {
+              stockLotId: id === AUTO_LOT ? undefined : id,
+            });
           setLotLine(null);
         }}
-        options={lotsFor(lines.find((l) => l.key === lotLine)?.itemId ?? "")
-          .filter(
-            (lot) =>
-              lot.qty > 0 ||
-              editing?.lines?.some((l) => l.stockLotId === lot.id),
-          )
-          .map((lot) => ({
-            id: lot.id,
-            title: `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`,
-            subtitle: `${lot.date === "0001-01-01" ? "Opening" : formatDate(lot.date)} | ${lot.qty} ${itemById(lot.itemId)?.unit ?? ""} available`,
-            right: <Money value={Math.round(lot.unitCost)} variant="small" />,
-          }))}
+        options={[
+          {
+            id: AUTO_LOT,
+            title: "Oldest first (automatic)",
+            subtitle: "Uses the oldest stock first, across batches if needed",
+          },
+          ...lotsFor(lines.find((l) => l.key === lotLine)?.itemId ?? "")
+            .filter(
+              (lot) =>
+                lot.qty > 0 ||
+                editing?.lines?.some((l) => l.stockLotId === lot.id),
+            )
+            .map((lot) => ({
+              id: lot.id,
+              title: `${lot.bookScope === "gst" ? "GST" : "Non-GST"} | ${lot.number}`,
+              subtitle: `${lot.date === "0001-01-01" ? "Opening" : formatDate(lot.date)} | ${lot.qty} ${itemById(lot.itemId)?.unit ?? ""} available`,
+              right: showCosts ? (
+                <Money value={Math.round(lot.unitCost)} variant="small" />
+              ) : undefined,
+            })),
+        ]}
       />
       <PickerSheet
         visible={picker === "party"}
@@ -1082,18 +1522,21 @@ export function InvoiceForm({
           setPicker(null);
           router.push("/item/new?pick=1");
         }}
-        options={(items.data ?? []).map((r) => ({
-          id: r.item.id,
-          title: r.item.name,
-          subtitle: `${formatQty(r.item, r.qty)} in stock${
-            !carriesGst
-              ? ""
-              : itemTaxType(r.item) === "taxable"
-                ? ` · GST ${r.item.gstRate}%`
-                : ` · ${taxTypeLabel(itemTaxType(r.item))}`
-          }`,
-          right: <Money value={r.item[text.priceKey]} variant="small" />,
-        }))}
+        options={(items.data ?? [])
+          // Not-for-sale items are bought, never sold (doc 37, T39).
+          .filter((r) => side === "purchase" || !r.item.notForSale)
+          .map((r) => ({
+            id: r.item.id,
+            title: r.item.name,
+            subtitle: `${r.item.kind === "service" ? "Service" : `${formatQty(r.item, r.qty)} in stock`}${
+              !carriesGst
+                ? ""
+                : itemTaxType(r.item) === "taxable"
+                  ? ` · GST ${r.item.gstRate}%`
+                  : ` · ${taxTypeLabel(itemTaxType(r.item))}`
+            }`,
+            right: <Money value={r.item[text.priceKey]} variant="small" />,
+          }))}
       />
       <PickerSheet
         visible={picker === "bank"}

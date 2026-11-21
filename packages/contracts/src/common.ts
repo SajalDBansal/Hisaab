@@ -1,5 +1,5 @@
 import {
-  GSTIN_PATTERN,
+  gstinProblem,
   PAN_PATTERN,
   hasStoredPrecision,
   MAX_QUANTITY,
@@ -39,9 +39,11 @@ export const StateCode = z
   .string("Pick the state.")
   .regex(/^\d{2}$/, "Pick the state (needed for CGST/SGST or IGST).");
 
-export const Gstin = z
-  .string()
-  .regex(GSTIN_PATTERN, "GSTIN should be 15 characters, like 09AAAAA0000A1Z5.");
+// Input only: backups and stored rows are not re-checked, so older data still restores.
+export const Gstin = z.string().superRefine((gstin, ctx) => {
+  const problem = gstinProblem(gstin);
+  if (problem) ctx.addIssue({ code: "custom", message: problem });
+});
 export const Pan = z
   .string()
   .regex(PAN_PATTERN, "PAN should be 10 characters, like AAAAA0000A.");
@@ -87,6 +89,28 @@ export const PageQuery = z.object({
 /** `{ items, nextCursor }`: nextCursor is null on the last page. */
 export const pageOf = <T extends z.ZodType>(item: T) =>
   z.object({ items: z.array(item), nextCursor: z.string().nullable() });
+
+/** `?limit=30&cursor=60` on lists the app pages through as the user scrolls. */
+export const ListPageQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(30),
+  // The offset of the page's first row.
+  cursor: z
+    .string()
+    .regex(/^\d{1,9}$/)
+    .optional(),
+});
+
+/** One page, the number of matching rows and totals over all of them. */
+export const listPage = <T extends z.ZodType, S extends z.ZodType>(
+  item: T,
+  summary: S,
+) =>
+  z.object({
+    items: z.array(item),
+    nextCursor: z.string().nullable(),
+    total: z.number().int(),
+    summary,
+  });
 
 /** Every firm-level request carries this header. */
 export const FirmHeaders = z.object({ "x-firm-id": Id });

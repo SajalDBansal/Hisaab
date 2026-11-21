@@ -28,11 +28,17 @@ export async function reportRoutes(app: FastifyInstance, options: { db: Db }) {
     "/reports/export",
     {
       preHandler: read,
+      config: { readOnly: true },
       schema: { body: ReportRequest, response: { 200: ReportDocument } },
     },
     async (req, reply) => {
       reply.header("Cache-Control", "no-store");
-      return reportsService.exportReport(db, req.firm.id, req.body);
+      return reportsService.exportReport(
+        db,
+        req.firm.id,
+        req.body,
+        req.firm.role,
+      );
     },
   );
 
@@ -45,7 +51,8 @@ export async function reportRoutes(app: FastifyInstance, options: { db: Db }) {
         response: { 200: DashboardData },
       },
     },
-    async (req) => reportsService.dashboard(db, req.firm.id, req.query.tax),
+    async (req) =>
+      reportsService.dashboard(db, req.firm.id, req.query.tax, req.firm.role),
   );
 
   typed.get(

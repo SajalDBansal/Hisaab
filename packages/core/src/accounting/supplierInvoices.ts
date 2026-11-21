@@ -7,7 +7,7 @@ const normalized = (value?: string) =>
 // A supplier can reuse a number in another financial year, but not on two active bills.
 export function checkSupplierInvoice(
   vouchers: Voucher[],
-  input: NewInvoiceInput,
+  input: Pick<NewInvoiceInput, "partyId" | "supplierInvoiceNo" | "date">,
   exceptId?: string,
 ) {
   const number = normalized(input.supplierInvoiceNo);

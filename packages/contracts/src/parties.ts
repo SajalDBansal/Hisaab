@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { ImportedOpeningBill, MAX_IMPORT_ROWS } from "./imports";
+import { CustomFieldValues } from "./customFields";
+import { MsmeType } from "./firms";
 import {
   Gstin,
   Id,
@@ -29,10 +31,16 @@ export const PartyInput = z.object({
   creditLimit: NonNegativePaise.describe("0 means no limit"),
   // Positive = they owe us, negative = we owe them
   openingBalance: Paise,
+  customFields: CustomFieldValues.optional(),
+  // Suppliers (doc 37, T30). Left out = keep the stored ones; null = not an MSME.
+  msmeType: MsmeType.nullable().optional(),
+  udyamNumber: z.string().max(30).nullable().optional(),
 });
 
 export const Party = PartyInput.extend({
   id: Id,
+  msmeType: MsmeType.optional(),
+  udyamNumber: z.string().optional(),
   openingGstBalance: Paise.nullable()
     .transform((value) => value ?? undefined)
     .optional(),

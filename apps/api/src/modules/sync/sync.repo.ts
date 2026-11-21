@@ -1,13 +1,24 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import type { VoucherType } from "@repo/core";
 import { schema, type Db } from "@repo/backend/db/client";
 import { loadOpeningBills } from "@repo/backend/modules/imports/imports.opening-bills";
+import {
+  rememberAnswer,
+  replayOf,
+} from "@repo/backend/modules/vouchers/idempotency";
 
 const { changeLog } = schema;
 
 export type ChangeRow = typeof changeLog.$inferSelect;
 
 export const syncRepo = {
+  async latestCursor(db: Db, firmId: string) {
+    const [row] = await db
+      .select({ seq: sql<number>`coalesce(max(${changeLog.seq}), 0)` })
+      .from(changeLog)
+      .where(eq(changeLog.firmId, firmId));
+    return Number(row?.seq ?? 0);
+  },
   async voucherType(
     db: Db,
     firmId: string,
@@ -98,21 +109,8 @@ export const syncRepo = {
     return row ?? null;
   },
 
-  async replayMutation(
-    db: Db,
-    userId: string,
-    key: string,
-  ): Promise<typeof schema.idempotencyKeys.$inferSelect | undefined> {
-    const [row] = await db
-      .select()
-      .from(schema.idempotencyKeys)
-      .where(
-        and(
-          eq(schema.idempotencyKeys.userId, userId),
-          eq(schema.idempotencyKeys.key, key),
-        ),
-      );
-    return row ?? null;
+  async replayMutation(db: Db, userId: string, key: string, hash: string) {
+    return replayOf(db, userId, { key, hash });
   },
 
   async rememberMutation(
@@ -122,12 +120,7 @@ export const syncRepo = {
     requestHash: string,
     response: unknown,
   ) {
-    await db.insert(schema.idempotencyKeys).values({
-      userId,
-      key,
-      requestHash,
-      statusCode: 200,
-      response,
-    });
+    // pushOne passes its transaction connection, so the mutation and answer commit together.
+    await rememberAnswer(db, userId, { key, hash: requestHash }, 200, response);
   },
 };

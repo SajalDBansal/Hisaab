@@ -1,7 +1,7 @@
 import * as c from "@repo/contracts";
 import type { InventoryAdjustmentInput } from "@repo/contracts/src/inventory";
 import { z } from "zod";
-import { type Client, queryString } from "./client";
+import { type Client, pageQuery, queryString } from "./client";
 import { matchVersion } from "./masterServices";
 import type { Services } from "./services";
 import { pendingWriteHeaders } from "./pendingWrites";
@@ -25,6 +25,18 @@ export function voucherServices({ request, pages }: Client) {
         },
         filters.limit,
       ),
+    page: (query) =>
+      request(`/vouchers/page${pageQuery(query)}`, c.VoucherPage),
+    invoicePage: (type, query) =>
+      request(
+        `/vouchers/invoices/page${pageQuery({ ...query, type })}`,
+        c.InvoicePage,
+      ),
+    orderPage: (type, query) =>
+      request(
+        `/vouchers/orders/page${pageQuery({ ...query, type })}`,
+        c.OrderPage,
+      ),
     get: (id) => request(`/vouchers/${id}`, c.VoucherDetail),
     listInvoices: (type) =>
       request(
@@ -45,6 +57,9 @@ export function voucherServices({ request, pages }: Client) {
         body: input,
         headers: pendingWriteHeaders(input, "/sales/split"),
       }),
+    // A read: nothing is saved, so no request key and never queued offline.
+    saleMargin: (input) =>
+      request("/sales/margin", c.SaleMargin, { method: "POST", body: input }),
     createPurchase: (input) => create("/purchases", input),
     createReceipt: (input) => create("/receipts", input),
     createPayment: (input) => create("/payments", input),
@@ -63,6 +78,13 @@ export function voucherServices({ request, pages }: Client) {
     cancel: (id, reason, version?: number) =>
       request(`/vouchers/${id}/cancel`, c.Voucher, {
         body: { reason },
+        headers: matchVersion(version),
+      }),
+    cancelled: (limit = 200) =>
+      request(`/vouchers/cancelled?limit=${limit}`, c.pageOf(c.CancelledEntry)),
+    restore: (id: string, version?: number) =>
+      request(`/vouchers/${id}/restore`, c.Voucher, {
+        method: "POST",
         headers: matchVersion(version),
       }),
   } satisfies Services["voucherService"];
@@ -114,6 +136,8 @@ export function sendAttachmentDraft(
       return service.createDebitNote(body as c.NewNoteInput);
     case "/orders/estimate":
       return service.createOrder("estimate", body as c.NewOrderInput);
+    case "/orders/proforma":
+      return service.createOrder("proforma", body as c.NewOrderInput);
     case "/orders/sales-order":
       return service.createOrder("sales-order", body as c.NewOrderInput);
     case "/orders/purchase-order":

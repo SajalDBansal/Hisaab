@@ -1,4 +1,13 @@
-import { IdParams, Me, MeUpdate, SessionInfo } from "@repo/contracts";
+import {
+  IdParams,
+  Me,
+  MeUpdate,
+  SessionInfo,
+  TwoFactorStatus,
+} from "@repo/contracts";
+import { fromNodeHeaders } from "better-auth/node";
+import type { Auth } from "../../auth/auth";
+import { viaAuth } from "../../lib/auth-call";
 import { and, desc, eq, gt } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -7,8 +16,11 @@ import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 
 /** The logged-in person: their details and the devices they are logged in on. */
-export async function meRoutes(app: FastifyInstance, options: { db: Db }) {
-  const { db } = options;
+export async function meRoutes(
+  app: FastifyInstance,
+  options: { db: Db; auth: Auth },
+) {
+  const { db, auth: betterAuth } = options;
   const typed = app.withTypeProvider<ZodTypeProvider>();
   const auth = { preHandler: app.authenticate };
 
@@ -19,6 +31,7 @@ export async function meRoutes(app: FastifyInstance, options: { db: Db }) {
     emailVerified: u.emailVerified,
     phoneNumber: u.phoneNumber,
     phoneVerified: u.phoneNumberVerified,
+    twoFactorEnabled: u.twoFactorEnabled,
     createdAt: u.createdAt.toISOString(),
   });
 
@@ -56,6 +69,58 @@ export async function meRoutes(app: FastifyInstance, options: { db: Db }) {
           401,
         );
       return toMe(row);
+    },
+  );
+
+  // ---- Two-factor sign-in (doc 37, T58) ---------------------------------
+  // Turning it on/off and new recovery codes go through Better Auth's own
+  // routes (/api/auth/two-factor/*); these two only read.
+
+  const recoveryCodes = async (userId: string) => {
+    const found = await viaAuth(() =>
+      betterAuth.api.viewBackupCodes({ body: { userId } }),
+    );
+    return found.backupCodes;
+  };
+
+  typed.get(
+    "/me/two-factor",
+    { ...auth, schema: { response: { 200: TwoFactorStatus } } },
+    async (req) => {
+      const enabled = req.user.twoFactorEnabled === true;
+      return {
+        enabled,
+        recoveryCodesLeft: enabled
+          ? (await recoveryCodes(req.user.id)).length
+          : 0,
+      };
+    },
+  );
+
+  // Shows the unused recovery codes again; the password is asked first.
+  typed.post(
+    "/me/two-factor/recovery-codes",
+    {
+      ...auth,
+      schema: {
+        body: z.object({ password: z.string().min(1).max(128) }),
+        response: { 200: z.object({ codes: z.array(z.string()) }) },
+      },
+    },
+    async (req) => {
+      if (req.user.twoFactorEnabled !== true)
+        throw new AppError(
+          "TWO_FACTOR_NOT_ENABLED",
+          "Two-factor sign-in is not on for this account.",
+          400,
+        );
+      await viaAuth(() =>
+        betterAuth.api.verifyPassword({
+          headers: fromNodeHeaders(req.headers),
+          body: { password: req.body.password },
+        }),
+      );
+      return { codes: await recoveryCodes(req.user.id) };
     },
   );
 

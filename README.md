@@ -19,10 +19,14 @@ engine. It is an accounting tool, not an automated tax-filing service.
 
 ## Start Locally
 
-Install Node 24 (see `.nvmrc`) and Bun 1.4.0, and provide development PostgreSQL
-and Redis services. Run commands from this folder.
+Install Node 24 (see `.nvmrc`), Bun 1.4.0 and Docker. Run commands from this folder.
+On Windows, enable long paths first (`LongPathsEnabled=1` under
+`HKLMSYSTEMCurrentControlSetControlFileSystem`, admin PowerShell); otherwise
+`bun install` silently skips deep React Native and Expo files.
+Development Compose starts only PostgreSQL and Redis; the apps run on your computer.
 
 ```sh
+docker compose -f deployment/compose.dev.yml up -d --wait
 bun install --frozen-lockfile
 ```
 
@@ -56,8 +60,10 @@ bun run --cwd apps/native export:web
 ```
 
 The workspace build compiles the API, worker and public website. The native
-README covers manual Expo builds. Hosting, publication and full backups are
-manual responsibilities; this repository supplies no deployment automation.
+README covers manual Expo builds. The app is not deployed for now: the GitHub
+workflow only runs type checks, lint and the builds, and the
+[deployment folder](deployment/README.md) holds just the development PostgreSQL
+and Redis containers.
 
 New browser builds need network access to open or reload. Cached books and queued
 writes remain available within an already loaded app; native offline behavior
@@ -65,6 +71,17 @@ remains available subject to its access and storage limits.
 
 ## Guides
 
+Start remaining implementation with the [current system audit](docs/29-system-audit-and-work-plan.md)
+and [daily PostgreSQL backup / EC2 migration plan](docs/30-postgres-r2-backup-and-ec2-migration.md).
+Track fixes and acceptance in [implementation and verification](docs/31-implementation-and-verification.md).
+Automatic backups require a separate private bucket, host enrollment and explicit
+enablement; they remain disabled until the owner completes that setup and verification.
+
 Start with the [documentation index](docs/README.md). Guides are numbered in reading
 order: product and architecture, daily bookkeeping, storage and recovery, then
 runtime and release checks. App READMEs remain the source for local run commands.
+
+The [phased completion plan](docs/24-completion-plan.md) and the
+[readiness audit](docs/27-private-readiness-audit.md) record completed local
+checks and remaining device acceptance. Normal registration supports
+multiple accounts and firms; there is no installation-wide owner email allowlist.

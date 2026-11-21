@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { ReportRequest as RequestSchema } from "@repo/contracts";
 import {
+  DEFAULT_INTEREST_RATE,
+  DEFAULT_MSME_INTEREST_RATE,
   REPORT_IDS,
   REPORTS,
   addDays,
@@ -26,9 +29,39 @@ import {
   TaxScopeFilter,
   Segmented,
   SelectField,
+  TextField,
   Txt,
+  Chip,
+  ChipRow,
   type PickerOption,
 } from "@/components";
+
+/** Reports that take a yearly interest rate, with the rate they start at. */
+const RATE_DEFAULTS: Partial<Record<ReportId, number>> = {
+  "interest-calculator": DEFAULT_INTEREST_RATE,
+  "msme-payables": DEFAULT_MSME_INTEREST_RATE,
+};
+
+/** Reports whose party filter lists only customers, or only suppliers. */
+const CUSTOMER_REPORTS: ReportId[] = [
+  "receivables",
+  "interest-calculator",
+  "customer-tracking",
+  "sales-by-party",
+  "sales-by-item",
+  "estimates-register",
+  "proformas-register",
+  "sales-orders-register",
+  "delivery-notes-register",
+];
+const SUPPLIER_REPORTS: ReportId[] = [
+  "payables",
+  "itc-at-risk",
+  "msme-payables",
+  "purchases-by-party",
+  "purchases-by-item",
+  "purchase-orders-register",
+];
 import { useChart, useExportReport, useFirm, useParties } from "@/data/queries";
 import { saveReportFile, type ReportFormat } from "@/data/reportFile";
 import { ReportPreferencesControls } from "@/data/reportPreferencesControls";
@@ -75,7 +108,12 @@ export default function DownloadReportsScreen() {
   );
 }
 
+const isReportId = (id: string | undefined): id is ReportId =>
+  !!id && (REPORT_IDS as readonly string[]).includes(id);
+
 function ReportForm({ firm }: { firm: Firm }) {
+  // Opened from a Home card with ?report=… (doc 37, T63)
+  const params = useLocalSearchParams<{ report?: string }>();
   const chart = useChart();
   const parties = useParties();
   const exporter = useExportReport();
@@ -83,7 +121,7 @@ function ReportForm({ firm }: { firm: Firm }) {
   const initial = periods.find((p) => p.id === "fy")!;
   const [request, setRequest] = useState<ReportRequest>({
     tax: "all",
-    report: "trial-balance",
+    report: isReportId(params.report) ? params.report : "trial-balance",
     from: initial.from,
     to: initial.to,
     includeNarration: true,
@@ -91,6 +129,7 @@ function ReportForm({ firm }: { firm: Firm }) {
   });
   const [period, setPeriod] = useState("fy");
   const [format, setFormat] = useState<ReportFormat>("pdf");
+  const [rateText, setRateText] = useState("18");
   const [picker, setPicker] = useState<
     "report" | "period" | "account" | "party" | null
   >(null);
@@ -115,9 +154,9 @@ function ReportForm({ firm }: { firm: Firm }) {
   const partyOptions = (parties.data ?? [])
     .map((p) => p.party)
     .filter((p) =>
-      request.report === "receivables"
+      CUSTOMER_REPORTS.includes(request.report)
         ? p.type === "customer"
-        : request.report === "payables"
+        : SUPPLIER_REPORTS.includes(request.report)
           ? p.type === "supplier"
           : true,
     )
@@ -141,7 +180,14 @@ function ReportForm({ firm }: { firm: Firm }) {
         report: id as ReportId,
         accountKey: undefined,
         partyId: undefined,
+        // Only these reports take a rate; the server refuses it elsewhere.
+        interestRate: RATE_DEFAULTS[id as ReportId],
+        // Likewise only the expiring items report takes days ahead.
+        expiryDays:
+          id === "expiring-items" ? (request.expiryDays ?? 30) : undefined,
       });
+    if (picker === "report" && RATE_DEFAULTS[id as ReportId] !== undefined)
+      setRateText(String(RATE_DEFAULTS[id as ReportId]));
     if (picker === "account") update({ accountKey: id || undefined });
     if (picker === "party") update({ partyId: id || undefined });
     if (picker === "period") {
@@ -195,6 +241,8 @@ function ReportForm({ firm }: { firm: Firm }) {
         onLoad={(filter) => {
           if (filter.kind !== "report") return;
           setRequest(filter.request);
+          if (filter.request.interestRate !== undefined)
+            setRateText(String(filter.request.interestRate));
           setFormat(filter.format);
           setPeriod("custom");
           setPreview(null);
@@ -257,6 +305,41 @@ function ReportForm({ firm }: { firm: Firm }) {
             onPress={() => setPicker("account")}
           />
         )}
+        {RATE_DEFAULTS[request.report] !== undefined && (
+          <TextField
+            label={
+              request.report === "msme-payables"
+                ? "Interest rate (% a year, 3 × RBI bank rate)"
+                : "Interest rate (% a year)"
+            }
+            value={rateText}
+            keyboardType="decimal-pad"
+            onChangeText={(text) => {
+              const clean = text.replace(/[^0-9.]/g, "").slice(0, 5);
+              setRateText(clean);
+              const rate = Number(clean);
+              if (clean && Number.isFinite(rate) && rate <= 60)
+                update({ interestRate: rate });
+            }}
+          />
+        )}
+        {request.report === "expiring-items" && (
+          <View style={{ gap: space.sm }}>
+            <Txt variant="label" tone="charcoal">
+              Expired, and expiring within
+            </Txt>
+            <ChipRow>
+              {[7, 30, 60, 90].map((days) => (
+                <Chip
+                  key={days}
+                  label={`${days} days`}
+                  selected={(request.expiryDays ?? 30) === days}
+                  onPress={() => update({ expiryDays: days })}
+                />
+              ))}
+            </ChipRow>
+          </View>
+        )}
         {definition.parties && (
           <SelectField
             label="Party"
@@ -283,7 +366,8 @@ function ReportForm({ firm }: { firm: Firm }) {
           <Segmented
             options={[
               { value: "pdf", label: "PDF" },
-              { value: "csv", label: "CSV (Excel)" },
+              { value: "xlsx", label: "Excel" },
+              { value: "csv", label: "CSV" },
             ]}
             value={format}
             onChange={setFormat}

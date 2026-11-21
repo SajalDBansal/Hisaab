@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CustomFieldValues } from "./customFields";
 import {
   GstRate,
   Id,
@@ -11,12 +12,24 @@ import {
 
 export const TaxType = z.enum(["taxable", "nil", "exempt", "nongst"]);
 export const BookScope = z.enum(["gst", "nongst"]);
+// Match the largest supported import while keeping previously imported lots readable.
+export const MAX_OPENING_STOCK_LOTS = 500;
 export const OpeningStockLot = z.object({
   id: z.string().min(1).max(160),
   qty: Quantity.positive(),
   unitCost: NonNegativePaise,
   bookScope: BookScope,
 });
+export const OpeningStockLots = z
+  .array(OpeningStockLot)
+  .max(
+    MAX_OPENING_STOCK_LOTS,
+    `An item supports up to ${MAX_OPENING_STOCK_LOTS} opening lots.`,
+  )
+  .refine(
+    (lots) => new Set(lots.map((lot) => lot.id)).size === lots.length,
+    "Opening lots must have unique IDs.",
+  );
 export const StockLot = z.object({
   id: z.string(),
   itemId: Id,
@@ -27,7 +40,12 @@ export const StockLot = z.object({
   value: z.number().int(),
   unitCost: z.number(),
   minimumQty: z.number(),
+  batchNumber: z.string().optional(),
+  expiryDate: IsoDate.optional(),
 });
+/** Goods carry stock; services (SAC code) never do (doc 37, T39). */
+export const ItemKind = z.enum(["goods", "service"]);
+const Tag = z.string().trim().min(1, "Tags can't be empty.").max(30);
 
 const hsn = z
   .string()
@@ -55,18 +73,36 @@ export const ItemInput = z
     purchasePrice: NonNegativePaise,
     salePrice: PositivePaise,
     mrp: NonNegativePaise,
+    /** Minimum stock level (doc 37, T37). */
     reorderLevel: Quantity.min(0, "Can't be negative."),
+    /** Maximum stock level; missing or 0 = none. */
+    maxStock: Quantity.min(0, "Can't be negative.").optional(),
+    // Optional so older apps and frozen snapshots stay valid; missing = goods.
+    kind: ItemKind.optional(),
+    notForSale: z.boolean().optional(),
+    tags: z.array(Tag).max(10, "Use up to 10 tags.").optional(),
     openingStock: Quantity.min(0, "Can't be negative."),
     openingCost: NonNegativePaise.optional(),
     openingBookScope: BookScope.optional(),
-    openingLots: z.array(OpeningStockLot).max(200).optional(),
+    openingLots: OpeningStockLots.optional(),
     batch: z.object({ number: z.string().max(40), expiry: IsoDate }).optional(),
+    customFields: CustomFieldValues.optional(),
   })
   .superRefine((item, ctx) => {
-    if (item.openingLots && (
-      Math.round(item.openingLots.reduce((sum, lot) => sum + lot.qty, 0) * 1000) !== Math.round(item.openingStock * 1000) ||
-      new Set(item.openingLots.map((lot) => lot.id)).size !== item.openingLots.length
-    )) ctx.addIssue({ code: "custom", path: ["openingLots"], message: "Opening lots must have unique IDs and add up to opening stock." });
+    if (
+      item.openingLots &&
+      (Math.round(
+        item.openingLots.reduce((sum, lot) => sum + lot.qty, 0) * 1000,
+      ) !== Math.round(item.openingStock * 1000) ||
+        new Set(item.openingLots.map((lot) => lot.id)).size !==
+          item.openingLots.length)
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["openingLots"],
+        message:
+          "Opening lots must have unique IDs and add up to opening stock.",
+      });
     if (item.mrp > 0 && item.salePrice > item.mrp)
       ctx.addIssue({
         code: "custom",
@@ -91,6 +127,8 @@ export const ItemInput = z
   });
 
 export const Item = ItemInput.safeExtend({ id: Id });
+
+export type ItemKind = z.infer<typeof ItemKind>;
 
 export const ItemListQuery = z.object({
   search: z.string().max(100).optional(),
@@ -120,6 +158,8 @@ export const ItemRow = Item.safeExtend({
   version: z.number().int(),
   stock: z.number(),
   lowStock: z.boolean(),
+  /** Above the maximum stock level. */
+  overStock: z.boolean().optional(),
 });
 
 export const ItemListParams = ItemListQuery.extend({

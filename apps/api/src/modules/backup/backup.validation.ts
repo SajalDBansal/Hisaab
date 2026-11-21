@@ -5,6 +5,7 @@ import {
   FIRM_EXPORT_VERSION,
   LegacyFirmExportFileV2,
   LegacyFirmExportFileV3,
+  LegacyFirmExportFileV4,
   MAX_FIRM_EXPORT_BYTES,
   MAX_FIRM_EXPORT_ROWS,
   type FirmExportData,
@@ -38,6 +39,52 @@ function checkJsonDepth(value: unknown) {
   }
 }
 
+// Pre-F04 exports omit this nullable column. Verify their original checksum and exact
+// schema before filling it; historical notes keep their issued calculations.
+function upgradeReturnAmounts(input: unknown): unknown {
+  const lines = (
+    input as { payload?: { data?: { voucherLines?: unknown } } } | null
+  )?.payload?.data?.voucherLines;
+  if (
+    !Array.isArray(lines) ||
+    !lines.some(
+      (line) => line && typeof line === "object" && !("returnAmounts" in line),
+    )
+  )
+    return input;
+  for (const schema of [
+    FirmExportFile,
+    LegacyFirmExportFileV4,
+    LegacyFirmExportFileV3,
+    LegacyFirmExportFileV2,
+  ]) {
+    const result = schema.safeParse(input);
+    if (!result.success) continue;
+    const original = input as typeof result.data;
+    const payload = {
+      ...original.payload,
+      data: {
+        ...original.payload.data,
+        voucherLines: original.payload.data.voucherLines.map((line) => ({
+          ...line,
+          returnAmounts: line.returnAmounts ?? null,
+        })),
+      },
+    };
+    if (
+      !isDeepStrictEqual({ ...original, payload }, result.data) ||
+      exportDigest(original.payload) !== result.data.integrity.digest
+    )
+      throw invalid("The legacy export checksum or schema does not match.");
+    return {
+      ...original,
+      payload,
+      integrity: { algorithm: "sha256", digest: exportDigest(payload) },
+    };
+  }
+  return input;
+}
+
 export function readExport(text: string) {
   if (Buffer.byteLength(text, "utf8") > MAX_FIRM_EXPORT_BYTES)
     throw new AppError(
@@ -52,7 +99,9 @@ export function readExport(text: string) {
     throw invalid("Choose a valid Hisaab JSON export.");
   }
   checkJsonDepth(input);
-  input = upgradeVersionThree(upgradeVersionTwo(input));
+  input = upgradeVersionFour(
+    upgradeVersionThree(upgradeVersionTwo(upgradeReturnAmounts(input))),
+  );
   const parsed = FirmExportFile.safeParse(input);
   if (!parsed.success || !isDeepStrictEqual(input, parsed.data))
     throw invalid();
@@ -112,7 +161,7 @@ function upgradeVersionThree(input: unknown): unknown {
   const data = result.data.payload.data;
   const payload = {
     ...result.data.payload,
-    version: FIRM_EXPORT_VERSION,
+    version: 4,
     data: {
       ...data,
       ...Object.fromEntries(
@@ -129,6 +178,46 @@ function upgradeVersionThree(input: unknown): unknown {
         ...row,
         openingBillId: null,
       })),
+    },
+  };
+  return {
+    payload,
+    integrity: { algorithm: "sha256", digest: exportDigest(payload) },
+  };
+}
+
+// Version 4 files predate numbering rules (every type used the default format)
+// the edit log's IP address and device (unknown for those changes) and custom fields.
+function upgradeVersionFour(input: unknown): unknown {
+  const result = LegacyFirmExportFileV4.safeParse(input);
+  if (!result.success) return input;
+  const original = input as typeof result.data;
+  // Files upgraded from v2/v3 above carry a fresh digest, so this check holds for them too.
+  if (
+    !isDeepStrictEqual(input, result.data) ||
+    exportDigest(original.payload) !== result.data.integrity.digest
+  )
+    throw invalid("The legacy export checksum or schema does not match.");
+  const data = result.data.payload.data;
+  const payload = {
+    ...result.data.payload,
+    version: FIRM_EXPORT_VERSION,
+    data: {
+      ...data,
+      invoiceSettings: { ...data.invoiceSettings, numbering: {} },
+      auditLog: data.auditLog.map((row) => ({
+        ...row,
+        ipAddress: null,
+        device: null,
+      })),
+      parties: data.parties.map((row) => ({ ...row, customFields: null })),
+      items: data.items.map((row) => ({ ...row, customFields: null })),
+      vouchers: data.vouchers.map((row) => ({ ...row, customFields: null })),
+      customFields: [],
+      firmBranding: null,
+      salesControls: null,
+      firmSecurity: null,
+      customRoles: [],
     },
   };
   return {

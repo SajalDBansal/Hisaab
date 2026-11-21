@@ -9,7 +9,7 @@ recorded activity; the application is not a GST filing product.
 
 1. Create one item master for a product. Its buying/selling rates are defaults, not historical valuation rates.
 2. On a purchase, tick **Purchase without GST** for a non-GST entry. Each purchase line creates a stock lot with its own date, cost, quantity and book category. A GST purchase and a non-GST purchase of the same product remain under the same item.
-3. On a sale, select **Stock lot** for each item row. The picker shows purchase number/date, category, remaining base-unit quantity and acquisition cost. Add another row to sell from another lot, even for the same item.
+3. On a sale, stock is taken **oldest first (FIFO)** automatically. A row larger than the oldest lot continues into the next lot and is saved as one row per lot, so returns and costs stay exact; the printed invoice merges those rows back into one. If an item has stock in both the GST and non-GST books, the sale asks which book to sell from. To use a particular purchase instead, pick it under **Stock lot**; the picker shows purchase number/date, category, remaining base-unit quantity and acquisition cost.
 4. A sale containing both categories asks **Create two invoices?**. Confirming saves both invoices in one database transaction. Neither bill, receipt, stock movement nor invoice number is left partially saved if the operation fails.
 5. The result links to the second invoice. Both invoices can be viewed, printed, shared, settled and returned independently. Selected attachments are associated with both invoices; attachment transfer retries remain separate from financial saves.
 
@@ -25,7 +25,7 @@ GST-category entries follow the firm's existing tax mode and the item's normal t
 
 ## Stock and Costing
 
-- New sales use selected-lot cost. The server checks ownership, purchase date, available quantity and repeated rows, and derives cost/category itself. Client-provided costs are not trusted.
+- New sales freeze the cost of the lots they use, whether chosen or taken FIFO, at save time; later backdated purchases do not move an issued sale to another lot. The server repeats the FIFO allocation, checks ownership, purchase date, available quantity and repeated rows, and derives cost/category itself. Client-provided costs are not trusted. A second-unit row (e.g. Box) that spans lots must split into whole thousandths, otherwise enter it in the base unit or choose a lot.
 - Firm-level write serialization prevents simultaneous sales consuming the same remaining units. Backdated entries are checked against later committed stock use too.
 - Sales returns restore the original lot and cost. Purchase returns remove their original lot; unavailable stock cannot be returned. Consumed purchases cannot be edited/cancelled until dependent entries are resolved.
 - Opening inventory supports multiple lots with distinct quantities, costs and categories under one item. Changing the default purchase price does not revalue historical stock. Opening stock/cost/category are locked once the item is used.
@@ -71,8 +71,22 @@ lost. Financial corrections retain the lot's GST/non-GST classification and
 balance purchase-cost adjustment against Stock Loss/Stock Surplus. Zero-value
 stock still accepts quantity corrections: its audited voucher has no invented
 financial lines. Landed cost increases only stock still on hand and credits an
-explicit cash/bank or expense source. Returns blend original frozen return cost
+explicit cash/bank or expense source. Sales returns blend original frozen return cost
 with the remaining lot's value, including later cost additions.
+
+New purchase returns remove the lot's current carrying cost independently of
+the supplier credit. Returning the final units removes the full remaining value;
+unrecovered freight remains a cost in the existing periodic accounts. A return
+cannot be backdated before later movements in that lot without reconciliation.
+Already-issued sales retain their frozen costs.
+
+Migration `0026_return_amounts.sql` stores each new return's original-bill money
+and tax components. Partial returns allocate those components cumulatively, so
+returning all goods leaves no rounding residue. Return notes may include paise;
+they are not each rounded to a whole rupee. Freight/other charges and their tax
+remain on the original bill. Historical notes are not rewritten; overcredited
+legacy notes require review before further returns. Conflicts with later bill
+allocations also require reconciliation instead of changing payment history.
 
 Reversal appends the original opposite quantity/value and financial lines; it does
 not erase history. Later movements on that lot must be resolved first. Direct

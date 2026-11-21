@@ -1,10 +1,15 @@
+import { can } from "@repo/core";
 import type {
   LoanInput,
   LoanUpdate,
   LoanReferenceInput,
 } from "@repo/contracts/src/loans";
 import { useData } from "./DataProvider";
-import { useServiceMutation, useServiceQuery } from "./scopedHooks";
+import {
+  useServiceMutation,
+  useServicePages,
+  useServiceQuery,
+} from "./scopedHooks";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Services } from "./services";
 import type { LoanService } from "./loanServices";
@@ -25,10 +30,19 @@ export function useLoanAccess() {
   const { role, services } = useData();
   const connected: Services & { loanService?: LoanService } = services;
   return {
-    read: role === "owner" || role === "accountant" || role === "viewer",
-    write: role === "owner" || role === "accountant",
+    read: !!role && can(role, "reports"),
+    write: !!role && can(role, "accounts"),
     connected: !!connected.loanService,
   };
+}
+/** The register screen, a page at a time as the user scrolls. */
+export function useLoanPages() {
+  const access = useLoanAccess();
+  return useServicePages({
+    queryKey: ["loanPages"],
+    queryFn: (s, cursor) => service(s).listPage(cursor),
+    enabled: access.read && access.connected,
+  });
 }
 export function useLoans() {
   const access = useLoanAccess();

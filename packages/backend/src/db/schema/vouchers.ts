@@ -1,8 +1,10 @@
 import { sql } from "drizzle-orm";
+import type { CustomFieldValues } from "@repo/core";
 import type {
   CommissionSnapshot,
   DeliverySnapshot,
   InventoryAdjustment,
+  ReturnAmounts,
   VoucherSnapshot,
 } from "@repo/core";
 import {
@@ -38,6 +40,7 @@ export const voucherType = pgEnum("voucher_type", [
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -109,6 +112,8 @@ export const vouchers = pgTable(
     ).$type<InventoryAdjustment>(),
     delivery: jsonb("delivery").$type<DeliverySnapshot>(),
     commission: jsonb("commission").$type<CommissionSnapshot>(),
+    // Custom field values by field key (doc 37, T07); null when none.
+    customFields: jsonb("custom_fields").$type<CustomFieldValues>(),
 
     // Sale / purchase
     interState: boolean("inter_state"),
@@ -158,6 +163,10 @@ export const vouchers = pgTable(
     tdsSection: text("tds_section"),
     tdsRate: percent("tds_rate"),
     tdsAmount: paise("tds_amount"),
+    // Subtotal discount (doc 37, T09): the percentage as entered and the amount given;
+    // each line holds its share in voucher_lines.bill_discount.
+    billDiscountPercent: percent("bill_discount_percent"),
+    billDiscountAmount: paise("bill_discount_amount"),
 
     createdBy: uuid("created_by"),
     ...stamps,
@@ -199,13 +208,21 @@ export const voucherLines = pgTable(
     perFactor: quantity("per_factor"),
     discountPercent: percent("discount_percent"),
     discountAmount: paise("discount_amount"),
+    // This line's share of the bill's subtotal discount (doc 37, T09)
+    billDiscount: paise("bill_discount"),
     gstRate: integer("gst_rate").notNull().default(0),
     taxType: taxType("tax_type"),
     // Credit/debit notes: index of the returned line on the original bill
     sourceLine: smallint("source_line"),
+    returnAmounts: jsonb("return_amounts").$type<ReturnAmounts>(),
     stockLotId: text("stock_lot_id"),
     stockCost: bigint("stock_cost", { mode: "number" }),
     bookScope: bookScope("book_scope"),
+    // Older lines keep the floating-point totals they were issued with.
+    exactMath: boolean("exact_math").notNull().default(false),
+    // Purchases: batch bought and its expiry, carried by the stock lot (doc 37, T38).
+    batchNumber: text("batch_number"),
+    expiryDate: date("expiry_date", { mode: "string" }),
   },
   (t) => [
     uniqueIndex("voucher_lines_position_idx").on(t.voucherId, t.position),
@@ -226,6 +243,11 @@ export const voucherCharges = pgTable(
     name: text("name").notNull(),
     amount: paise("amount"),
     gstRate: integer("gst_rate").notNull().default(0),
+    // Charge heads (doc 37, T09): frozen when saved; null on free-typed charges (Freight)
+    headId: text("head_id"),
+    taxType: taxType("tax_type"),
+    sac: text("sac"),
+    account: text("account"),
   },
   (t) => [
     uniqueIndex("voucher_charges_position_idx").on(t.voucherId, t.position),

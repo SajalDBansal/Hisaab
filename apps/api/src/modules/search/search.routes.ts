@@ -18,6 +18,12 @@ export async function searchRoutes(app: FastifyInstance, options: { db: Db }) {
       },
     },
     async (req) =>
-      searchService.search(db, req.firm.id, req.query.q, req.firm.role),
+      searchService.search(
+        db,
+        req.firm.id,
+        req.query.q,
+        req.firm.role,
+        req.user.id,
+      ),
   );
 }

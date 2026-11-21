@@ -1,6 +1,7 @@
 import type { BookScope, InvoiceLine, Item, TaxScope, Voucher } from "../types";
+import { mulDivRound, thousandths } from "../money";
 import { calcLine } from "./invoice";
-import { baseQty, stockVouchersAsOf } from "./stockInputs";
+import { baseQty, stockVouchersAsOf, tracksStock } from "./stockInputs";
 import { bookScopeOf } from "./bookScope";
 
 export interface StockLot {
@@ -13,6 +14,9 @@ export interface StockLot {
   value: number;
   unitCost: number;
   minimumQty: number;
+  /** Batch and expiry from the purchase line (or the item's opening batch), doc 37 T38. */
+  batchNumber?: string;
+  expiryDate?: string;
 }
 
 const quantity = (n: number) => Math.round(n * 1000) / 1000;
@@ -40,6 +44,7 @@ function consumeStock(
   line: InvoiceLine,
   scope: BookScope,
   lotId?: string,
+  purchaseReturn = false,
 ) {
   let left = baseQty(line);
   const used: StockAllocation[] = [];
@@ -55,12 +60,15 @@ function consumeStock(
   };
   for (const lot of candidates) {
     const qty = lotId ? left : Math.min(left, lot.qty);
+    // Depleting returns release all carrying cost; issued sale and partial-return costs stay frozen.
     const cost =
-      line.stockCost !== undefined && lotId
-        ? line.stockCost
-        : qty === lot.qty
-          ? lot.value
-          : Math.round(qty * lot.unitCost);
+      purchaseReturn && qty === lot.qty
+        ? lot.value
+        : line.stockCost !== undefined && lotId
+          ? line.stockCost
+          : qty === lot.qty
+            ? lot.value
+            : Math.round(qty * lot.unitCost);
     take(lot, qty, cost);
     if (left <= 0) break;
   }
@@ -97,7 +105,8 @@ function restoreStock(
   for (const allocation of restored) {
     allocation.lot.qty = quantity(allocation.lot.qty + allocation.qty);
     allocation.lot.value += allocation.cost;
-    if (allocation.lot.qty > 0) allocation.lot.unitCost = allocation.lot.value / allocation.lot.qty;
+    if (allocation.lot.qty > 0)
+      allocation.lot.unitCost = allocation.lot.value / allocation.lot.qty;
   }
   return restored.reduce((sum, allocation) => sum + allocation.cost, 0);
 }
@@ -109,29 +118,40 @@ export function stockLots(
   asOf?: string,
   costs?: Map<string, number>,
 ): StockLot[] {
+  if (!tracksStock(item)) return [];
+  const openingBatch = item.batch
+    ? {
+        ...(item.batch.number ? { batchNumber: item.batch.number } : {}),
+        ...(item.batch.expiry ? { expiryDate: item.batch.expiry } : {}),
+      }
+    : {};
   const openingScope =
     item.openingBookScope ?? (item.taxType === "nongst" ? "nongst" : "gst");
   const openingCost = item.openingCost ?? item.purchasePrice;
-  const lots: StockLot[] = item.openingLots?.length ? item.openingLots.map((lot) => ({
-    ...lot,
-    itemId: item.id,
-    number: "Opening stock",
-    date: "0001-01-01",
-    value: Math.round(lot.qty * lot.unitCost),
-    minimumQty: lot.qty,
-  })) : [
-    {
-      id: `opening:${item.id}`,
-      itemId: item.id,
-      number: "Opening stock",
-      date: "0001-01-01",
-      bookScope: openingScope,
-      qty: item.openingStock,
-      value: Math.round(item.openingStock * openingCost),
-      unitCost: openingCost,
-      minimumQty: item.openingStock,
-    },
-  ];
+  const lots: StockLot[] = item.openingLots?.length
+    ? item.openingLots.map((lot) => ({
+        ...lot,
+        itemId: item.id,
+        number: "Opening stock",
+        date: "0001-01-01",
+        value: Math.round(lot.qty * lot.unitCost),
+        minimumQty: lot.qty,
+        ...openingBatch,
+      }))
+    : [
+        {
+          id: `opening:${item.id}`,
+          itemId: item.id,
+          number: "Opening stock",
+          date: "0001-01-01",
+          bookScope: openingScope,
+          qty: item.openingStock,
+          value: Math.round(item.openingStock * openingCost),
+          unitCost: openingCost,
+          minimumQty: item.openingStock,
+          ...openingBatch,
+        },
+      ];
   const rows = (asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers)
     .filter((v) => v.status === "posted")
     .sort(
@@ -157,7 +177,8 @@ export function stockLots(
     const outward =
       v.type === "sale" ||
       v.type === "debit-note" ||
-      (v.type === "delivery-note" && (!v.convertedToId || v.fulfillmentManaged));
+      (v.type === "delivery-note" &&
+        (!v.convertedToId || v.fulfillmentManaged));
     if (!inward && !outward && v.type !== "credit-note") continue;
     for (const [index, line] of (v.lines ?? []).entries()) {
       if (line.itemId !== item.id) continue;
@@ -182,6 +203,8 @@ export function stockLots(
           value: cost,
           unitCost: qty ? cost / qty : 0,
           minimumQty: qty,
+          ...(line.batchNumber ? { batchNumber: line.batchNumber } : {}),
+          ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
         });
         continue;
       }
@@ -204,7 +227,13 @@ export function stockLots(
         costs?.set(`${v.id}:${index}`, cost);
         continue;
       }
-      const used = consumeStock(lots, line, scope, lotId);
+      const used = consumeStock(
+        lots,
+        line,
+        scope,
+        lotId,
+        v.type === "debit-note",
+      );
       consumed.set(`${v.id}:${index}`, used);
       costs?.set(
         `${v.id}:${index}`,
@@ -213,6 +242,40 @@ export function stockLots(
     }
   }
   return lots;
+}
+
+/**
+ * Each item's own vouchers, in book order. A return's source bill holds the same
+ * item, so replaying an item over its own vouchers gives the same lots as
+ * replaying it over the whole book, without rescanning the book per item.
+ */
+export function vouchersByItem(vouchers: Voucher[]): Map<string, Voucher[]> {
+  const byItem = new Map<string, Voucher[]>();
+  const add = (itemId: string, v: Voucher) => {
+    const list = byItem.get(itemId);
+    if (!list) byItem.set(itemId, [v]);
+    else if (list[list.length - 1] !== v) list.push(v);
+  };
+  for (const v of vouchers) {
+    if (v.inventoryAdjustment) add(v.inventoryAdjustment.itemId, v);
+    for (const line of v.lines ?? []) add(line.itemId, v);
+  }
+  return byItem;
+}
+
+/** Lots of many items, in `items` order: stockLots for each, in one pass over the book. */
+export function stockLotsFor(
+  items: Item[],
+  vouchers: Voucher[],
+  asOf?: string,
+  costs?: Map<string, number>,
+): StockLot[][] {
+  const byItem = vouchersByItem(
+    asOf ? stockVouchersAsOf(vouchers, asOf) : vouchers,
+  );
+  return items.map((item) =>
+    stockLots(item, byItem.get(item.id) ?? [], undefined, costs),
+  );
 }
 
 export function inventoryValue(
@@ -225,43 +288,217 @@ export function inventoryValue(
     .reduce((sum, l) => sum + l.value, 0);
 }
 
-/** Select a real lot and reserve quantities across repeated rows in the same bill. */
-export function selectStockLines(
-  items: Item[],
-  vouchers: Voucher[],
+/** Shown when an item has stock in both books and the sale didn't say which to use. */
+export const STOCK_BOOK_CHOICE_MESSAGE =
+  "This item has stock in both the GST and non-GST books. Choose which stock to sell from.";
+
+/**
+ * Give each sale line its stock. A chosen lot is used as is; otherwise stock comes
+ * oldest first (FIFO) from the line's book, or the only book holding the item.
+ * A line needing several lots becomes one line per lot, so returns, cancellations
+ * and costs keep working lot by lot; prints merge them back into one row.
+ * `available` is copied, so callers can pass cached lots.
+ * Lines of the `services` items (id -> default book) take no stock (doc 37, T39).
+ */
+export function allocateStock(
+  available: StockLot[],
   lines: InvoiceLine[],
-  date: string,
+  services: ReadonlyMap<string, BookScope> = new Map(),
 ): InvoiceLine[] {
-  const available = items.flatMap((i) => stockLots(i, vouchers, date));
-  return lines.map((line) => {
-    const choices = available.filter(
-      (l) => l.itemId === line.itemId && l.qty > 0,
-    );
-    const equivalent = choices.every(
-      (l) =>
-        l.bookScope === choices[0]?.bookScope &&
-        l.unitCost === choices[0]?.unitCost,
-    );
-    const lot = line.stockLotId
-      ? choices.find((l) => l.id === line.stockLotId)
-      : equivalent
-        ? (choices.find((l) => l.qty >= baseQty(line)) ?? choices[0])
-        : undefined;
-    if (!lot)
-      throw new Error(
-        choices.length
-          ? "Choose the purchase stock lot for each sale item."
-          : "No stock available on this date. Record the purchase first.",
-      );
-    const qty = baseQty(line);
-    if (qty > lot.qty)
-      throw new Error(`Only ${lot.qty} units remain in ${lot.number}.`);
+  const pool = available.map((lot) => ({ ...lot }));
+  const take = (lot: StockLot, line: InvoiceLine, qty: number) => {
     const stockCost =
       qty === lot.qty ? lot.value : Math.round(qty * lot.unitCost);
     lot.qty = quantity(lot.qty - qty);
     lot.value -= stockCost;
     return { ...line, stockLotId: lot.id, stockCost, bookScope: lot.bookScope };
+  };
+  return lines.flatMap((line) => {
+    const serviceScope = services.get(line.itemId);
+    if (serviceScope) {
+      const {
+        stockLotId: _lot,
+        stockCost: _cost,
+        batchNumber: _batch,
+        expiryDate: _expiry,
+        ...rest
+      } = line;
+      void [_lot, _cost, _batch, _expiry];
+      return [{ ...rest, bookScope: line.bookScope ?? serviceScope }];
+    }
+    const choices = pool.filter((l) => l.itemId === line.itemId && l.qty > 0);
+    const qty = baseQty(line);
+    if (line.stockLotId) {
+      const lot = choices.find((l) => l.id === line.stockLotId);
+      if (!lot)
+        throw new Error(
+          choices.length
+            ? "The chosen stock batch has no stock left on this date. Choose another batch."
+            : "No stock available on this date. Record the purchase first.",
+        );
+      if (qty > lot.qty)
+        throw new Error(`Only ${lot.qty} units remain in ${lot.number}.`);
+      return [take(lot, line, qty)];
+    }
+    if (!choices.length)
+      throw new Error(
+        "No stock available on this date. Record the purchase first.",
+      );
+    const scopes = [...new Set(choices.map((l) => l.bookScope))];
+    const scope =
+      line.bookScope ?? (scopes.length === 1 ? scopes[0] : undefined);
+    if (!scope) throw new Error(STOCK_BOOK_CHOICE_MESSAGE);
+    const fifo = choices.filter((l) => l.bookScope === scope);
+    const inStock = quantity(fifo.reduce((sum, l) => sum + l.qty, 0));
+    if (qty > inStock)
+      throw new Error(
+        `Only ${inStock} units are in ${scope === "gst" ? "GST" : "non-GST"} stock on this date.`,
+      );
+    const parts: { lot: StockLot; qty: number }[] = [];
+    let left = qty;
+    for (const lot of fifo) {
+      if (left <= 0) break;
+      const used = quantity(Math.min(left, lot.qty));
+      parts.push({ lot, qty: used });
+      left = quantity(left - used);
+    }
+    if (parts.length === 1) return [take(parts[0].lot, line, qty)];
+    // Split in the unit the line was entered in; the flat discount follows quantity.
+    const factor = line.per?.factor ?? 1;
+    let done = 0;
+    let discountGiven = 0;
+    return parts.map((part, index) => {
+      const partQty = quantity(part.qty / factor);
+      if (Math.abs(partQty * factor - part.qty) > 1e-9)
+        throw new Error(
+          `This quantity uses more than one stock batch and can't be split in ${line.per?.unit}. Enter it in the item's base unit or choose a batch.`,
+        );
+      done = quantity(done + part.qty);
+      let discountAmount = line.discountAmount;
+      if (line.discountAmount !== undefined) {
+        const upTo =
+          index === parts.length - 1
+            ? line.discountAmount
+            : mulDivRound(
+                line.discountAmount,
+                thousandths(done),
+                thousandths(qty),
+              );
+        discountAmount = upTo - discountGiven;
+        discountGiven = upTo;
+      }
+      return take(
+        part.lot,
+        { ...line, qty: partQty, discountAmount },
+        part.qty,
+      );
+    });
   });
+}
+
+/**
+ * Service items and the book their lines go to when the sale doesn't say:
+ * non-GST services, and every service of a firm without GST, to the non-GST book.
+ */
+export function serviceBooks(
+  items: Item[],
+  defaultScope: BookScope = "gst",
+): Map<string, BookScope> {
+  return new Map(
+    items
+      .filter((item) => !tracksStock(item))
+      .map((item) => [
+        item.id,
+        item.taxType === "nongst" ? "nongst" : defaultScope,
+      ]),
+  );
+}
+
+/** Select stock for sale lines from the books as they stood on `date`. */
+export function selectStockLines(
+  items: Item[],
+  vouchers: Voucher[],
+  lines: InvoiceLine[],
+  date: string,
+  /** Book of service lines that don't name one ("nongst" for firms without GST). */
+  serviceScope: BookScope = "gst",
+): InvoiceLine[] {
+  return allocateStock(
+    stockLotsFor(items, vouchers, date).flat(),
+    lines,
+    serviceBooks(items, serviceScope),
+  );
+}
+
+export interface ExpiringLot {
+  itemId: string;
+  itemName: string;
+  unit: string;
+  group: string;
+  lotId: string;
+  /** The purchase bill number, or "Opening stock". */
+  source: string;
+  batchNumber?: string;
+  expiryDate: string;
+  qty: number;
+  value: number;
+  /** Negative once expired. */
+  daysLeft: number;
+  status: "expired" | "expiring";
+}
+
+const dayNumber = (date: string) =>
+  Date.parse(`${date}T00:00:00Z`) / 86_400_000;
+
+/**
+ * Stock lots still in hand on `asOf` whose expiry date is on or before
+ * `asOf` + `withinDays` (doc 37, T38), soonest first: expired lots, then those
+ * expiring within the window. For the Expiring items report and a dashboard
+ * expiry timeline. Values are at FIFO cost.
+ */
+export function expiringLots(
+  items: Item[],
+  vouchers: Voucher[],
+  asOf: string,
+  withinDays = 30,
+  scope: TaxScope = "all",
+): ExpiringLot[] {
+  const lots = stockLotsFor(items, vouchers, asOf);
+  const today = dayNumber(asOf);
+  return items
+    .flatMap((item, index) =>
+      lots[index]
+        .filter(
+          (lot) =>
+            lot.qty > 0 &&
+            !!lot.expiryDate &&
+            (scope === "all" || lot.bookScope === scope),
+        )
+        .map((lot): ExpiringLot => {
+          const daysLeft = Math.round(dayNumber(lot.expiryDate!) - today);
+          return {
+            itemId: item.id,
+            itemName: item.name,
+            unit: item.unit,
+            group: item.group,
+            lotId: lot.id,
+            source: lot.number,
+            ...(lot.batchNumber ? { batchNumber: lot.batchNumber } : {}),
+            expiryDate: lot.expiryDate!,
+            qty: lot.qty,
+            value: lot.value,
+            daysLeft,
+            status: daysLeft < 0 ? "expired" : "expiring",
+          };
+        }),
+    )
+    .filter((row) => row.daysLeft <= withinDays)
+    .sort(
+      (a, b) =>
+        a.expiryDate.localeCompare(b.expiryDate) ||
+        a.itemName.localeCompare(b.itemName) ||
+        a.lotId.localeCompare(b.lotId),
+    );
 }
 
 /** Backdated entries must also leave enough stock for already-issued later invoices. */
@@ -270,11 +507,10 @@ export function assertLotsAvailable(
   vouchers: Voucher[],
   ids: string[],
 ) {
-  for (const item of items)
-    for (const lot of stockLots(item, vouchers)) {
-      if (ids.includes(lot.id) && lot.minimumQty < 0)
-        throw new Error(
-          `Stock in ${lot.number} is already used by another entry. Review its sales and returns first.`,
-        );
-    }
+  for (const lot of stockLotsFor(items, vouchers).flat()) {
+    if (ids.includes(lot.id) && lot.minimumQty < 0)
+      throw new Error(
+        `Stock in ${lot.number} is already used by another entry. Review its sales and returns first.`,
+      );
+  }
 }

@@ -8,6 +8,7 @@ import { VoucherAttachments } from "@/documents/VoucherAttachments";
 const CONVERT_LABEL: Record<string, string> = {
   sale: "Make sale invoice",
   purchase: "Make purchase bill",
+  proforma: "Make proforma invoice",
   "sales-order": "Make sales order",
   "delivery-note": "Make delivery challan",
 };
@@ -48,6 +49,7 @@ import {
   Screen,
   Txt,
   SectionHeader,
+  CustomFieldValuesView,
 } from "@/components";
 import {
   paymentModeLabel,
@@ -56,7 +58,9 @@ import {
   voucherBadge,
   voucherTypeLabel,
 } from "@/data/labels";
-import { useVoucher } from "@/data/queries";
+import { useCustomFields, useVoucher } from "@/data/queries";
+import { useData } from "@/data/DataProvider";
+import { canManageVoucher } from "@/data/voucherAccess";
 import { colors, space } from "@/theme";
 import { formatDateTime } from "@/data/format";
 
@@ -65,6 +69,7 @@ export default function VoucherScreen() {
   // `also` is set when saving split a bill into GST goods and non-GST goods
   const { id, also } = useLocalSearchParams<{ id: string; also?: string }>();
   const voucher = useVoucher(id);
+  const { role } = useData();
   const other = useVoucher(also ?? "");
   const v = voucher.data?.voucher;
   const isInvoice = v?.type === "sale" || v?.type === "purchase";
@@ -92,7 +97,11 @@ export default function VoucherScreen() {
         />
       }
       footer={
-        v && isInvoice && v.status === "posted" && due > 0 ? (
+        v &&
+        isInvoice &&
+        canManageVoucher(role, v.type) &&
+        v.status === "posted" &&
+        due > 0 ? (
           <FooterBar>
             <View style={{ flex: 1 }}>
               <Money value={due} variant="heading" />
@@ -135,6 +144,20 @@ export default function VoucherScreen() {
 
 function VoucherBody({ d }: { d: VoucherDetail }) {
   const v = d.voucher;
+  const { role } = useData();
+  const customDefs = useCustomFields().data;
+  const canWrite = canManageVoucher(role, v.type);
+  // Each button needs its own action on this type (doc 37, T57).
+  const canEdit = canManageVoucher(role, v.type, "edit");
+  const canCancel = canManageVoucher(role, v.type, "cancel");
+  const canReturn = canManageVoucher(
+    role,
+    v.type === "sale" ? "credit-note" : "debit-note",
+    "create",
+  );
+  const conversions = d.canConvertTo.filter((type) =>
+    canManageVoucher(role, type, "create"),
+  );
   const badge = voucherBadge(v);
   const isInvoice = v.type === "sale" || v.type === "purchase";
   const isNote = v.type === "credit-note" || v.type === "debit-note";
@@ -218,9 +241,9 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           </Txt>
         </Card>
       ) : null}
-      {isOrder && d.canConvertTo.length > 0 ? (
+      {isOrder && conversions.length > 0 ? (
         <View style={{ gap: space.sm }}>
-          {d.canConvertTo.map((t, i) => (
+          {conversions.map((t, i) => (
             <Button
               key={t}
               label={CONVERT_LABEL[t]}
@@ -228,17 +251,15 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
               variant={i === 0 ? "primary" : "secondary"}
               block
               onPress={() =>
-                router.push(
-                  `/order/fulfill?id=${v.id}&target=${t}` as Href,
-                )
+                router.push(`/order/fulfill?id=${v.id}&target=${t}` as Href)
               }
             />
           ))}
         </View>
       ) : null}
-      {v.status === "posted" ? (
+      {canWrite && v.status === "posted" ? (
         <View style={{ flexDirection: "row", gap: space.sm, flexWrap: "wrap" }}>
-          {isOrder && !v.convertedToId ? (
+          {isOrder && canEdit && !v.convertedToId ? (
             <Button
               label="Edit"
               size="sm"
@@ -252,35 +273,43 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           ) : null}
           {isInvoice ? (
             <>
-              <Button
-                label="Edit"
-                size="sm"
-                icon="edit-2"
-                onPress={() =>
-                  guard(d.editBlocker, () =>
-                    router.push(`/${v.type}/edit/${v.id}` as Href),
-                  )
-                }
-              />
-              <Button
-                label="Return"
-                size="sm"
-                icon={v.type === "sale" ? "corner-up-left" : "corner-up-right"}
-                onPress={() =>
-                  router.push(
-                    `/note/new?kind=${v.type === "sale" ? "credit" : "debit"}&against=${v.id}` as Href,
-                  )
-                }
-              />
+              {canEdit ? (
+                <Button
+                  label="Edit"
+                  size="sm"
+                  icon="edit-2"
+                  onPress={() =>
+                    guard(d.editBlocker, () =>
+                      router.push(`/${v.type}/edit/${v.id}` as Href),
+                    )
+                  }
+                />
+              ) : null}
+              {canReturn ? (
+                <Button
+                  label="Return"
+                  size="sm"
+                  icon={
+                    v.type === "sale" ? "corner-up-left" : "corner-up-right"
+                  }
+                  onPress={() =>
+                    router.push(
+                      `/note/new?kind=${v.type === "sale" ? "credit" : "debit"}&against=${v.id}` as Href,
+                    )
+                  }
+                />
+              ) : null}
             </>
           ) : null}
-          <Button
-            label="Cancel"
-            size="sm"
-            icon="x-circle"
-            variant="danger"
-            onPress={() => guard(d.cancelBlocker, () => setCancelling(true))}
-          />
+          {canCancel ? (
+            <Button
+              label="Cancel"
+              size="sm"
+              icon="x-circle"
+              variant="danger"
+              onPress={() => guard(d.cancelBlocker, () => setCancelling(true))}
+            />
+          ) : null}
         </View>
       ) : null}
       {blocked ? <Notice text={blocked} /> : null}
@@ -390,6 +419,9 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
                       ? ` (${lineQtyText(line, itemUnit(line.itemId)).base})`
                       : ""}
                     {t.discount ? ` · discount ${formatINR(t.discount)}` : ""}
+                    {t.billDiscount
+                      ? ` · bill discount ${formatINR(t.billDiscount)}`
+                      : ""}
                   </Txt>
                   {carriesGst ? (
                     <Txt variant="caption" tone="body" num>
@@ -404,10 +436,22 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           </View>
 
           <Card style={{ gap: 0 }}>
+            {d.totals.billDiscount ? (
+              <KeyValue
+                label={`Discount${v.billDiscount?.percent ? ` (${v.billDiscount.percent}%)` : ""}`}
+                value={`−${formatINR(d.totals.billDiscount)}`}
+              />
+            ) : null}
             {(v.charges ?? []).map((c) => (
               <KeyValue
                 key={c.name}
-                label={carriesGst ? `${c.name} (GST ${c.gstRate}%)` : c.name}
+                label={
+                  !carriesGst
+                    ? c.name
+                    : c.taxType === "exempt" || c.taxType === "nongst"
+                      ? `${c.name} (${taxTypeLabel(c.taxType)})`
+                      : `${c.name} (GST ${c.gstRate}%)`
+                }
                 value={formatINR(c.amount)}
               />
             ))}
@@ -545,6 +589,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         </Card>
       )}
 
+      <CustomFieldValuesView
+        defs={customDefs}
+        entity="voucher"
+        values={v.customFields}
+      />
       {v.narration ? (
         <Txt variant="small" tone="charcoal">
           {v.narration}
@@ -557,7 +606,7 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         </Txt>
       ) : null}
 
-      <VoucherAttachments key={v.id} voucherId={v.id} />
+      <VoucherAttachments key={v.id} voucherId={v.id} canWrite={canWrite} />
       {isOrder ? null : <PostingTable rows={d.postings} />}
 
       <History entries={d.history} />

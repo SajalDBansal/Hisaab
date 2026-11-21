@@ -1,7 +1,7 @@
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { TextInput, View } from "react-native";
-import type { PartyListRow, PartyType } from "@repo/core";
+import type { PartyListRow, PartyPageSummary, PartyType } from "@repo/core";
 import {
   Avatar,
   Balance,
@@ -13,13 +13,14 @@ import {
   Icon,
   ListRow,
   Money,
-  QueryView,
+  PagedView,
   Screen,
   Segmented,
   TabTitle,
   Txt,
 } from "@/components";
-import { useParties } from "@/data/queries";
+import { usePartyPages } from "@/data/pagedQueries";
+import { useDebounced } from "@/data/useDebounced";
 import { colors, radius, space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
@@ -33,7 +34,14 @@ export default function PartiesScreen() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [withBalance, setWithBalance] = useState(false);
   const [sort, setSort] = useState<Sort>("balance");
-  const parties = useParties(tab === "all" ? undefined : tab);
+  const query = useDebounced(search);
+  const parties = usePartyPages({
+    type: tab === "all" ? undefined : tab,
+    search: query,
+    overdue: overdueOnly,
+    withBalance,
+    sort,
+  });
 
   return (
     <Screen
@@ -54,8 +62,11 @@ export default function PartiesScreen() {
           }
         />
       }
-      onRefresh={() => parties.refetch()}
-      refreshing={parties.isRefetching}
+      onRefresh={() => parties.query.refetch()}
+      refreshing={
+        parties.query.isRefetching && !parties.query.isFetchingNextPage
+      }
+      onEndReached={parties.loadMore}
       contentStyle={{ gap: space.lg, paddingTop: space.xs }}
     >
       <Segmented
@@ -110,60 +121,28 @@ export default function PartiesScreen() {
         />
       </ChipRow>
 
-      <QueryView query={parties}>
-        {(rows) => (
-          <PartyList
-            rows={rows}
-            search={search}
-            overdueOnly={overdueOnly}
-            withBalance={withBalance}
-            sort={sort}
-          />
+      <PagedView list={parties} noun="parties">
+        {({ items, summary, total }) => (
+          <PartyList rows={items} summary={summary} total={total} />
         )}
-      </QueryView>
+      </PagedView>
     </Screen>
   );
 }
 
+/** One page after another; filters, sorting and totals come from the server. */
 function PartyList({
-  rows,
-  search,
-  overdueOnly,
-  withBalance,
-  sort,
+  rows: visible,
+  summary,
+  total,
 }: {
   rows: PartyListRow[];
-  search: string;
-  overdueOnly: boolean;
-  withBalance: boolean;
-  sort: Sort;
+  summary: PartyPageSummary;
+  total: number;
 }) {
   const gst = useGstMode();
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows
-      .filter(
-        (r) =>
-          !q ||
-          `${r.party.name} ${r.party.phone} ${r.party.gstin ?? ""}`
-            .toLowerCase()
-            .includes(q),
-      )
-      .filter((r) => !overdueOnly || r.overdueAmount > 0)
-      .filter((r) => !withBalance || r.balance !== 0)
-      .sort((a, b) =>
-        sort === "name"
-          ? a.party.name.localeCompare(b.party.name)
-          : Math.abs(b.balance) - Math.abs(a.balance),
-      );
-  }, [rows, search, overdueOnly, withBalance, sort]);
-
-  const youGet = rows
-    .filter((r) => r.balance > 0)
-    .reduce((s, r) => s + r.balance, 0);
-  const youGive = rows
-    .filter((r) => r.balance < 0)
-    .reduce((s, r) => s - r.balance, 0);
+  const youGet = summary.receivable;
+  const youGive = summary.payable;
 
   return (
     <>
@@ -183,7 +162,7 @@ function PartyList({
       </View>
 
       <Txt variant="small" tone="body" style={{ marginBottom: -space.sm }}>
-        {visible.length} {visible.length === 1 ? "party" : "parties"}
+        {total} {total === 1 ? "party" : "parties"}
       </Txt>
 
       {visible.length === 0 ? (

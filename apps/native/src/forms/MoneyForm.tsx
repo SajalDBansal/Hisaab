@@ -10,6 +10,7 @@ import { Pressable, View } from "react-native";
 import {
   allowedDates,
   TDS_SECTIONS,
+  tdsBase,
   amountInWords,
   autoAllocate,
   calcTds,
@@ -137,11 +138,6 @@ export function MoneyForm({
   // ---- Maths --------------------------------------------------------------------
   /** Bill value being settled (receipts: the money received). */
   const amount = parseRupees(amountText);
-  const tdsRate = Number(tdsRateText) || 0;
-  const tds =
-    kind === "payment" && withTds && amount ? calcTds(amount, tdsRate) : 0;
-  /** Money that actually leaves or enters the cash/bank account. */
-  const net = (amount ?? 0) - tds;
   // Default to oldest-first; explicit edits or an advance keep the user's allocation.
   const allocationValues =
     allocated ??
@@ -159,6 +155,14 @@ export function MoneyForm({
     }))
     .filter((a) => a.amount > 0);
   const allocatedTotal = allocations.reduce((s, a) => s + a.amount, 0);
+  const tdsRate = Number(tdsRateText) || 0;
+  // GST shown on the bills is left out of the TDS base.
+  const tds =
+    kind === "payment" && withTds && amount
+      ? calcTds(tdsBase(amount, allocations), tdsRate)
+      : 0;
+  /** Money that actually leaves or enters the cash/bank account. */
+  const net = (amount ?? 0) - tds;
   const leftover = Math.max((amount ?? 0) - allocatedTotal, 0);
   const problem = checkMoney({ kind, partyId, amount, allocations });
 
@@ -394,6 +398,12 @@ export function MoneyForm({
                     TDS kept back
                   </Txt>
                   <Money value={tds} variant="bodyStrong" />
+                  {amount && tdsBase(amount, allocations) !== amount ? (
+                    <Txt variant="caption" tone="body">
+                      On {formatINR(tdsBase(amount, allocations))}, without the
+                      GST on the bills
+                    </Txt>
+                  ) : null}
                 </View>
               </View>
               <Card style={{ gap: 0 }}>

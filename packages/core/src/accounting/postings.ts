@@ -103,6 +103,13 @@ export function voucherPostings(
       ),
     );
     (v.charges ?? []).forEach((c, i) => {
+      // A charge from a charge head posts to the ledger frozen on it (doc 37, T09).
+      if (c.account) {
+        const extra = !isSale && taxIntoCost ? (t.charges[i]?.tax ?? 0) : 0;
+        const name = c.account.slice(c.account.indexOf(":") + 1);
+        rows.push(side(c.account, name, c.amount + extra));
+        return;
+      }
       // Freight charged to a customer is income; freight paid on a purchase is a direct expense.
       if (isSale)
         rows.push(
@@ -163,10 +170,26 @@ export function voucherPostings(
 
   if (v.type === "expense") {
     const head = v.expenseHead ?? "Expenses";
-    return [
-      dr(acc.expense(head), head, v.amount),
-      cr(ledgerKey, ledgerName, v.amount),
-    ];
+    if (!v.charges?.length)
+      return [
+        dr(acc.expense(head), head, v.amount),
+        cr(ledgerKey, ledgerName, v.amount),
+      ];
+    // GST on the supplier's bill is input credit for a regular firm, otherwise cost.
+    const t = calcInvoice({
+      lines: [],
+      charges: v.charges,
+      interState: !!v.interState,
+    });
+    const claim = claimsInputTax(voucherMode(v));
+    const rows = [dr(acc.expense(head), head, t.taxable + (claim ? 0 : t.tax))];
+    if (claim) {
+      if (t.cgst) rows.push(dr(acc.input("cgst"), "Input CGST", t.cgst));
+      if (t.sgst) rows.push(dr(acc.input("sgst"), "Input SGST", t.sgst));
+      if (t.igst) rows.push(dr(acc.input("igst"), "Input IGST", t.igst));
+    }
+    rows.push(cr(ledgerKey, ledgerName, v.amount));
+    return rows;
   }
 
   if (v.type === "journal") {

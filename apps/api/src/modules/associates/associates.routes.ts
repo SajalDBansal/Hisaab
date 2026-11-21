@@ -1,3 +1,4 @@
+import { can } from "@repo/core";
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -17,7 +18,7 @@ export async function associateRoutes(
   const access = [
     ...app.inFirm(),
     async (req: FastifyRequest) => {
-      if (!["owner", "accountant"].includes(req.firm.role))
+      if (!can(req.firm.role, "accounts"))
         throw new AppError(
           "FORBIDDEN",
           "Only an owner or accountant can access associate accounts.",

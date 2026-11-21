@@ -17,6 +17,19 @@ export const API_BASE_URL = "https://api.hisaab.example/v1";
 
 let books: Db[] | null = null;
 let activeFirmId = "";
+/** The signed-in firm's books on this phone, read offline instead of the demo books. */
+let replicaSource: Db | (() => Db | null) | null = null;
+const replicaBooks = () =>
+  typeof replicaSource === "function" ? replicaSource() : replicaSource;
+
+/**
+ * The services below compute screens from the books kept on the phone,
+ * exactly as the server computes them. Pass the books, or a function that
+ * returns the latest after each sync; null stops.
+ */
+export function setReplicaBooks(source: Db | (() => Db | null) | null): void {
+  replicaSource = source;
+}
 
 function allBooks(): Db[] {
   if (!books) {
@@ -28,6 +41,8 @@ function allBooks(): Db[] {
 
 /** Books of the firm that is open right now. */
 export function getDb(): Db {
+  const replica = replicaBooks();
+  if (replica) return replica;
   const list = allBooks();
   return list.find((b) => b.firm.id === activeFirmId) ?? list[0];
 }
@@ -64,6 +79,8 @@ export function resetDb(): void {
 
 /** Wait 200–400 ms so loading states are visible, like a real network. */
 export function delay(): Promise<void> {
+  // The phone's own books answer at once; only the demo pretends to be a network.
+  if (replicaBooks()) return Promise.resolve();
   const ms = 200 + Math.floor(Math.random() * 200);
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

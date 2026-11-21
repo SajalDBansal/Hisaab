@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius, space } from "@/theme";
 import { Icon } from "./Icon";
 import { Txt } from "./Txt";
+import { PendingOperationError } from "@/data/offlineOperation";
 
 type Tone = "error" | "ok" | "info";
 interface ToastMessage {
@@ -31,6 +32,7 @@ export function showToast(text: string, tone: Tone = "info") {
 export function showError(title: string, e?: unknown) {
   const detail =
     e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  if (e instanceof PendingOperationError) return showToast(detail, "info");
   showToast(detail ? `${title}: ${detail}` : title, "error");
 }
 

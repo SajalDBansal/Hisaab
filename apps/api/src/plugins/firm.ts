@@ -1,5 +1,6 @@
 import {
   can,
+  costPayloadForRead,
   PERMISSIONS,
   roleInfo,
   type Permission,
@@ -11,6 +12,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
+import { refreshMemberRole } from "@repo/backend/modules/roles/roles.repo";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -38,8 +40,14 @@ const WHAT: Record<Permission, string> = Object.fromEntries(
 export function registerFirmContext(app: FastifyInstance, db: Db) {
   app.decorateRequest("firm");
   // Includes reads, writes and historical replay answers; never mutate stored snapshots.
+  // Commission policies and purchase costs are hidden from roles that may not see them.
   app.addHook("preSerialization", async (req, _reply, payload) =>
-    req.firm ? associatePayloadForRead(req.firm.role, payload) : payload,
+    req.firm
+      ? costPayloadForRead(
+          req.firm.role,
+          associatePayloadForRead(req.firm.role, payload),
+        )
+      : payload,
   );
 
   const firmContext = async (req: FastifyRequest) => {
@@ -52,8 +60,15 @@ export function registerFirmContext(app: FastifyInstance, db: Db) {
         400,
       );
     const [row] = await db
-      .select({ role: schema.member.role })
+      .select({
+        role: schema.member.role,
+        requireTwoFactor: schema.firmSecurity.requireTwoFactor,
+      })
       .from(schema.member)
+      .leftJoin(
+        schema.firmSecurity,
+        eq(schema.firmSecurity.firmId, schema.member.organizationId),
+      )
       .where(
         and(
           eq(schema.member.organizationId, parsed.data),
@@ -67,6 +82,16 @@ export function registerFirmContext(app: FastifyInstance, db: Db) {
         "You don't have access to this firm.",
         403,
       );
+    // The owner can require two-factor sign-in from every member (doc 37, T58).
+    // Account routes (/v1/me, /v1/firms) stay open so the member can set it up.
+    if (row.requireTwoFactor && !req.user.twoFactorEnabled)
+      throw new AppError(
+        "TWO_FACTOR_REQUIRED",
+        "This firm requires two-factor sign-in. Turn it on in Settings → Account, then open the firm again.",
+        403,
+      );
+    // Custom roles are read from this firm on every request (doc 37, T57).
+    await refreshMemberRole(db, parsed.data, row.role);
     req.firm = { id: parsed.data, role: row.role as Role };
   };
 

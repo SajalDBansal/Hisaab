@@ -23,7 +23,13 @@ import {
   Txt,
   showError,
 } from "@/components";
-import { useTeam, useUpdateMember } from "@/data/queries";
+import {
+  usePresence,
+  useRoles,
+  useTeam,
+  useUpdateMember,
+} from "@/data/queries";
+import { timeAgo } from "@/data/format";
 import { confirmAction } from "@/data/confirm";
 import { colors, radius, space } from "@/theme";
 
@@ -34,11 +40,32 @@ export default function TeamScreen() {
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const me = team.data?.members.find((m) => m.id === team.data?.currentUserId);
   const canManage = !!me && can(me.role, "team");
+  const isOwner = me?.role === "owner";
+  const presence = usePresence(canManage);
+  const customRoles = useRoles().data?.custom ?? [];
+  const status = (m: TeamMember) => {
+    if (!m.active) return "Invite sent";
+    const seen = presence.data?.members.find((p) => p.memberId === m.id);
+    if (seen?.online)
+      return `Online on ${seen.devices.map((d) => d.device).join(", ")}`;
+    return seen?.lastActiveAt
+      ? `Active ${timeAgo(seen.lastActiveAt)}`
+      : "Active";
+  };
+  const isOnline = (m: TeamMember) =>
+    !!presence.data?.members.find((p) => p.memberId === m.id)?.online;
 
-  const setRole = async (role: Role) => {
+  const setRole = async (role: Role | "transfer") => {
     if (!editing) return;
     const member = editing;
     setEditing(null);
+    if (role === "transfer") {
+      router.push({
+        pathname: "/settings/transfer",
+        params: { memberId: member.id },
+      });
+      return;
+    }
     try {
       await updateMember.mutateAsync({ id: member.id, patch: { role } });
     } catch (e) {
@@ -75,10 +102,7 @@ export default function TeamScreen() {
                 key={m.id}
                 left={<Avatar name={m.name} />}
                 title={m.id === currentUserId ? `${m.name} (you)` : m.name}
-                subtitle={[
-                  m.email || m.phone,
-                  m.active ? "Active" : "Invite sent",
-                ]
+                subtitle={[m.email || m.phone, status(m)]
                   .filter(Boolean)
                   .join(" · ")}
                 onPress={
@@ -93,6 +117,7 @@ export default function TeamScreen() {
                       tone={m.role === "owner" ? "ink" : "neutral"}
                     />
                     {!m.active ? <Badge label="Invited" tone="dashed" /> : null}
+                    {isOnline(m) ? <Badge label="Online" tone="ok" /> : null}
                     {canManage && m.role !== "owner" ? (
                       <Button
                         label={m.active ? "Remove" : "Cancel invite"}
@@ -125,6 +150,14 @@ export default function TeamScreen() {
         <Txt variant="caption" tone="body" center>
           Saving…
         </Txt>
+      ) : null}
+
+      {canManage ? (
+        <Button
+          label="Roles"
+          icon="shield"
+          onPress={() => router.push("/settings/roles")}
+        />
       ) : null}
 
       <View style={{ gap: space.sm }}>
@@ -177,16 +210,37 @@ export default function TeamScreen() {
         visible={!!editing}
         title={editing ? `Role for ${editing.name}` : "Role"}
         onClose={() => setEditing(null)}
-        onSelect={(role) => setRole(role as Role)}
-        options={ROLES.filter((r) => r.role !== "owner").map((r) => ({
-          id: r.role,
-          title: r.label,
-          subtitle: r.note,
-          right:
-            editing?.role === r.role ? (
-              <Icon name="check" size={18} />
-            ) : undefined,
-        }))}
+        onSelect={(role) => setRole(role as Role | "transfer")}
+        options={[
+          ...ROLES.filter((r) => r.role !== "owner").map((r) => ({
+            id: r.role,
+            title: r.label,
+            subtitle: r.note,
+            right:
+              editing?.role === r.role ? (
+                <Icon name="check" size={18} />
+              ) : undefined,
+          })),
+          // Custom roles (doc 37, T57)
+          ...customRoles.map((r) => ({
+            id: r.id,
+            title: r.name,
+            subtitle: r.description || "Custom role",
+            right:
+              editing?.role === r.id ? (
+                <Icon name="check" size={18} />
+              ) : undefined,
+          })),
+          ...(isOwner
+            ? [
+                {
+                  id: "transfer",
+                  title: "Make owner",
+                  subtitle: "Hand over the firm. You pick your own new role.",
+                },
+              ]
+            : []),
+        ]}
       />
     </Screen>
   );

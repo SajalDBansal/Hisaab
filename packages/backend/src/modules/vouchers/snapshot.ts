@@ -1,3 +1,4 @@
+import { firmStatutory, partyMsme } from "../../lib/business-profile";
 import type { MockDb, Voucher, VoucherType } from "@repo/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
@@ -5,6 +6,9 @@ import { listAccounts } from "../accounts/accountMasters";
 import { hydrateOrderFulfillment } from "../order-fulfillment/orderFulfillment.repo";
 import { hydrateSettlementVouchers } from "../settlements/settlements.shared";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
+import { loadCustomFieldDefs } from "../customFields/customFields.repo";
+import { itemExtras } from "../items/itemExtras";
+import { loadSalesControls } from "../salesControls/salesControls.repo";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -71,29 +75,49 @@ function counterKey(
 }
 
 /** Voucher rows with their lines, charges, journal lines and allocations, as core vouchers. */
+/** PostgreSQL accepts at most 65,535 bind parameters; stay well below it. */
+const ID_BATCH = 5000;
+
 export async function hydrateVouchers(
   db: Pick<Db, "select">,
   voucherRows: (typeof vouchers.$inferSelect)[],
+  /** Set when `voucherRows` are every voucher of this firm: children are read by firm. */
+  wholeFirm?: string,
 ): Promise<Voucher[]> {
   const ids = voucherRows.map((v) => v.id);
   if (!ids.length) return [];
-  // This reader may be a single transaction connection, not a connection pool.
-  const lineRows = await db
-    .select()
-    .from(voucherLines)
-    .where(inArray(voucherLines.voucherId, ids));
-  const chargeRows = await db
-    .select()
-    .from(voucherCharges)
-    .where(inArray(voucherCharges.voucherId, ids));
-  const journalRows = await db
-    .select()
-    .from(journalLines)
-    .where(inArray(journalLines.voucherId, ids));
-  const allocRows = await db
-    .select()
-    .from(allocations)
-    .where(inArray(allocations.voucherId, ids));
+  // This reader may be a single transaction connection, not a connection pool,
+  // so the queries run one after another.
+  const children = async <
+    T extends
+      | typeof voucherLines
+      | typeof voucherCharges
+      | typeof journalLines
+      | typeof allocations,
+  >(
+    table: T,
+  ) => {
+    if (wholeFirm)
+      return (await db
+        .select()
+        .from(table as typeof voucherLines)
+        .where(eq(table.firmId, wholeFirm))) as T["$inferSelect"][];
+    const rows: T["$inferSelect"][] = [];
+    for (let at = 0; at < ids.length; at += ID_BATCH)
+      rows.push(
+        ...((await db
+          .select()
+          .from(table as typeof voucherLines)
+          .where(
+            inArray(table.voucherId, ids.slice(at, at + ID_BATCH)),
+          )) as T["$inferSelect"][]),
+      );
+    return rows;
+  };
+  const lineRows = await children(voucherLines);
+  const chargeRows = await children(voucherCharges);
+  const journalRows = await children(journalLines);
+  const allocRows = await children(allocations);
 
   const by = <T extends { voucherId: string; position?: number }>(
     rows: T[],
@@ -131,6 +155,8 @@ export async function hydrateVouchers(
       inventoryAdjustment: undef(r.inventoryAdjustment),
       delivery: undef(r.delivery),
       commission: undef(r.commission),
+      customFields: undef(r.customFields),
+      createdBy: undef(r.createdBy),
       interState: undef(r.interState),
       dueDate: undef(r.dueDate),
       supplierInvoiceNo: undef(r.supplierInvoiceNo),
@@ -159,6 +185,12 @@ export async function hydrateVouchers(
             amount: r.tdsAmount,
           }
         : undefined,
+      billDiscount: r.billDiscountAmount
+        ? {
+            percent: undef(r.billDiscountPercent),
+            amount: r.billDiscountAmount,
+          }
+        : undefined,
       lines: lines?.map((l) => ({
         itemId: l.itemId,
         qty: l.qty ?? 0,
@@ -169,17 +201,26 @@ export async function hydrateVouchers(
             : undefined,
         discountPercent: undef(l.discountPercent),
         discountAmount: l.discountAmount || undefined,
+        billDiscountShare: l.billDiscount || undefined,
         gstRate: l.gstRate as 0 | 5 | 18 | 40,
         taxType: undef(l.taxType),
         sourceLine: undef(l.sourceLine),
+        returnAmounts: undef(l.returnAmounts),
         stockLotId: undef(l.stockLotId),
         stockCost: undef(l.stockCost),
         bookScope: undef(l.bookScope),
+        exactMath: l.exactMath || undefined,
+        batchNumber: undef(l.batchNumber),
+        expiryDate: undef(l.expiryDate),
       })),
       charges: charges?.map((c) => ({
         name: c.name,
         amount: c.amount,
         gstRate: c.gstRate as 0 | 5 | 18 | 40,
+        headId: undef(c.headId),
+        taxType: undef(c.taxType),
+        sac: undef(c.sac),
+        account: undef(c.account),
       })),
       journalLines: journal?.map((j) => ({
         account: j.account,
@@ -256,7 +297,7 @@ export async function loadBooks(
           )
       : [];
 
-  const loaded = await hydrateVouchers(db, voucherRows);
+  const loaded = await hydrateVouchers(db, voucherRows, firmId);
 
   // --- parties and items: asked for, plus the ones on the loaded vouchers
   const partyIds = new Set(wantedParties);
@@ -322,6 +363,7 @@ export async function loadBooks(
       phone: undef(p.phone),
       email: undef(p.email),
       pan: undef(p.pan),
+      ...firmStatutory(p),
     },
     parties: partyRows.map((r) => ({
       id: r.id,
@@ -337,6 +379,8 @@ export async function loadBooks(
       openingGstBalance: undef(r.openingGstBalance),
       openingDate: r.openingDate,
       openingBills: partyOpeningBills.get(r.id),
+      customFields: undef(r.customFields),
+      ...partyMsme(r),
     })),
     items: itemRows.map((r) => ({
       id: r.id,
@@ -363,6 +407,8 @@ export async function loadBooks(
         r.batchNumber && r.batchExpiry
           ? { number: r.batchNumber, expiry: r.batchExpiry }
           : undefined,
+      customFields: undef(r.customFields),
+      ...itemExtras(r),
     })),
     ledgers: ledgerRows.map((r) => ({
       id: r.id,
@@ -375,6 +421,9 @@ export async function loadBooks(
     vouchers: loaded,
     openingAccounts: [],
     counters: { ...counters },
+    customFieldDefs: await loadCustomFieldDefs(db, firmId),
+    // Stock control applies to new sales (doc 37, T37).
+    salesControls: await loadSalesControls(db, firmId),
     invoiceSettings: {
       template: settings.template,
       terms: settings.terms,
@@ -385,6 +434,9 @@ export async function loadBooks(
       ),
       prefixes: prefixes as MockDb["invoiceSettings"]["prefixes"],
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
+      chargeHeads:
+        settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
     },
     team: [
       {

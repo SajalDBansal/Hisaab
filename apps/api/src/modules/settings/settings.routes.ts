@@ -1,7 +1,11 @@
 import {
+  Branding,
+  BrandingView,
   InvoiceSettings,
   InvoiceSettingsUpdate,
   InvoiceSettingsView,
+  SalesControls,
+  SalesControlsView,
   TeamView,
   Role,
 } from "@repo/contracts";
@@ -12,6 +16,10 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
+import { loadBranding } from "@repo/backend/modules/branding/branding.repo";
+import { loadSalesControls } from "@repo/backend/modules/salesControls/salesControls.repo";
+import { withFirmWrite } from "@repo/backend/lib/firm-write";
+import { expectedVersion } from "@repo/backend/modules/masters/shared";
 
 const toRole = (value: string | null) => Role.safeParse(value).data ?? "viewer";
 
@@ -21,6 +29,87 @@ export async function settingsRoutes(
 ) {
   const db = options.db;
   const typed = app.withTypeProvider<ZodTypeProvider>();
+
+  // Logo and signature printed on documents (doc 37, T16).
+  typed.get(
+    "/settings/branding",
+    { preHandler: app.inFirm(), schema: { response: { 200: BrandingView } } },
+    async (req) => loadBranding(db, req.firm.id),
+  );
+
+  typed.put(
+    "/settings/branding",
+    {
+      preHandler: app.inFirm("settings"),
+      schema: { body: Branding, response: { 200: BrandingView } },
+    },
+    async (req) => {
+      const version = expectedVersion(req.headers["if-match"]);
+      return withFirmWrite(db, req.firm.id, async (tx) => {
+        const current = await loadBranding(tx, req.firm.id);
+        if (current.version !== version)
+          throw new AppError(
+            "EDITED_ELSEWHERE",
+            "Someone changed the logo or signature. Reload and try again.",
+            409,
+          );
+        await tx
+          .insert(schema.firmBranding)
+          .values({ firmId: req.firm.id, ...req.body })
+          .onConflictDoUpdate({
+            target: schema.firmBranding.firmId,
+            set: {
+              ...req.body,
+              version: sql`${schema.firmBranding.version} + 1`,
+              updatedAt: new Date(),
+            },
+          });
+        return loadBranding(tx, req.firm.id);
+      });
+    },
+  );
+  // Credit control (doc 37, T11): every member reads it (the sale form needs it).
+  typed.get(
+    "/settings/sales-controls",
+    {
+      preHandler: app.inFirm(),
+      schema: { response: { 200: SalesControlsView } },
+    },
+    async (req) => loadSalesControls(db, req.firm.id),
+  );
+
+  typed.put(
+    "/settings/sales-controls",
+    {
+      preHandler: app.inFirm("settings"),
+      schema: { body: SalesControls, response: { 200: SalesControlsView } },
+    },
+    async (req) => {
+      const version = expectedVersion(req.headers["if-match"]);
+      return withFirmWrite(db, req.firm.id, async (tx) => {
+        const current = await loadSalesControls(tx, req.firm.id);
+        if (current.version !== version)
+          throw new AppError(
+            "EDITED_ELSEWHERE",
+            "Someone changed credit control. Reload and try again.",
+            409,
+          );
+        await tx
+          .insert(schema.salesControls)
+          .values({ firmId: req.firm.id, ...req.body })
+          .onConflictDoUpdate({
+            target: schema.salesControls.firmId,
+            set: {
+              ...req.body,
+              version: sql`${schema.salesControls.version} + 1`,
+              updatedAt: new Date(),
+            },
+          });
+        return loadSalesControls(tx, req.firm.id);
+      });
+    },
+  );
+
   typed.patch(
     "/settings/invoice",
     {

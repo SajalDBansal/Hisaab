@@ -37,6 +37,7 @@ const labels: Record<FinancialAttachmentPath, string> = {
   "/credit-notes": "Credit note",
   "/debit-notes": "Debit note",
   "/orders/estimate": "Estimate",
+  "/orders/proforma": "Proforma invoice",
   "/orders/sales-order": "Sales order",
   "/orders/purchase-order": "Purchase order",
   "/orders/delivery-note": "Delivery note",
@@ -138,7 +139,7 @@ export function PendingFinancialDrafts({
                   body: record.draft.body,
                   role: record.draft.role,
                   legacy:
-                    record.draft.receiptProtocol !== "operations-v1" &&
+                    !record.draft.receiptProtocol &&
                     record.draft.firstAttemptAt !== undefined,
                 })
             : undefined,
@@ -297,7 +298,7 @@ export function PendingFinancialDrafts({
             </View>
             {offline && !draft.response ? (
               <Button
-                label="Review queued request"
+                label="Review retained request"
                 icon="list"
                 size="sm"
                 onPress={() => router.push("/settings/offline-books")}

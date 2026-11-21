@@ -124,7 +124,7 @@ export const handbookPages: HandbookPage[] = [
         id: "device-and-recovery",
         title: "Device copies have a limited purpose",
         paragraphs: [
-          "Downloaded book answers and pending requests use encrypted device storage. Native keys use Expo SecureStore; the browser uses Web Crypto and IndexedDB. The deployed Expo web application can cache its public application shell after an online visit. This is separate from the Next.js product site.",
+          "Downloaded book answers and pending requests use encrypted device storage. Native keys use Expo SecureStore; the browser uses Web Crypto and IndexedDB. Keep the browser application open to use downloaded books offline. Opening or reloading it requires a connection, including in production. The Next.js product site does not provide offline books.",
           "Device caches, Redis and JSON exports are not complete disaster recovery. Recovery planning must include PostgreSQL and independently recoverable R2 documents, including thumbnails.",
         ],
       },

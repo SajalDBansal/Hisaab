@@ -3,7 +3,6 @@ import { useState } from "react";
 import { View } from "react-native";
 import {
   formatINR,
-  periodRange,
   type PeriodKey,
   type FinalAccounts,
   type StatementLine,
@@ -24,6 +23,7 @@ import {
   Txt,
 } from "@/components";
 import { accountHref } from "@/data/labels";
+import { finalAccountsPeriod } from "@/data/reportPeriods";
 import { useFinalAccounts, useFirm, useTrialBalance } from "@/data/queries";
 import { colors, radius, space } from "@/theme";
 
@@ -43,10 +43,10 @@ export default function FinalAccountsScreen() {
   useFirm();
   const tb = useTrialBalance();
   const [period, setPeriod] = useState<PeriodKey>("fy");
-  const range = periodRange(period);
+  const range = finalAccountsPeriod(period);
   const final = useFinalAccounts(
     view === "pl" ? range.from : undefined,
-    view === "pl" ? range.to : undefined,
+    view === "pl" ? range.asOf : undefined,
   );
 
   return (
@@ -55,7 +55,7 @@ export default function FinalAccountsScreen() {
         <Header
           title="Final accounts"
           subtitle={
-            view === "pl" ? `${range.from} to ${range.to}` : "As at today"
+            view === "pl" ? `${range.from} to ${range.asOf}` : "As at today"
           }
         />
       }

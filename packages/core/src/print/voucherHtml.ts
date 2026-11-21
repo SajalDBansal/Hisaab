@@ -5,7 +5,13 @@
  * Pure function: the app turns the HTML into a PDF (expo-print), and the real API
  * can use the same function to render PDFs on the server.
  */
-import { calcCharge, calcInvoice, calcLine } from "../accounting/invoice";
+import {
+  calcCharge,
+  calcInvoice,
+  calcLine,
+  type LineTotals,
+} from "../accounting/invoice";
+import { udyamLabel } from "../businessProfile";
 import { voucherPostings } from "../accounting/postings";
 import { lineQtyText } from "../accounting/stock";
 import { docTypeLabel, lineTaxType, taxTypeLabel } from "../accounting/taxType";
@@ -18,9 +24,17 @@ import {
   voucherMode,
 } from "../accounting/gstMode";
 import { formatDate } from "../dates";
-import { amountInWords, formatINR } from "../money";
+import { amountInWords, formatINR, thousandths } from "../money";
 import { stateName } from "../states";
+import {
+  formatCustomValue,
+  type CustomFieldDef,
+  type CustomFieldEntity,
+  type CustomFieldValues,
+} from "../customFields";
 import type {
+  ExtraCharge,
+  InvoiceLine,
   Firm,
   InvoiceSettings,
   InvoiceTemplate,
@@ -44,6 +58,33 @@ export interface PrintInput {
   against?: { number: string; date: string };
   /** Receipts/payments: the bills the money was applied to. */
   allocatedTo?: { number: string; amount: number }[];
+  /** The firm's custom field definitions; those marked "print" are printed (doc 37, T07). */
+  customFields?: CustomFieldDef[];
+  /** Firm logo and signatory's signature as data:image URIs (doc 37, T16). */
+  branding?: { logo?: string | null; signature?: string | null };
+}
+
+/** Only PNG or JPEG data URIs reach the page; anything else is dropped. */
+const safeImage = (uri?: string | null) =>
+  uri && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(uri) ? uri : "";
+
+function signBlock(firmName: string, signature?: string | null) {
+  const image = safeImage(signature);
+  return `<div class="sign small">For <b>${esc(firmName)}</b><br/>${image ? `<img src="${image}" alt="" style="max-height:48px;max-width:160px;display:block;margin:4px 0 2px auto"/>` : "<br/><br/>"}Authorised signatory</div>`;
+}
+
+/** [label, value] pairs of a record's custom fields marked for printing. */
+function printedFields(
+  defs: CustomFieldDef[] | undefined,
+  entity: CustomFieldEntity,
+  values: CustomFieldValues | undefined,
+): [string, string][] {
+  return (defs ?? [])
+    .filter(
+      (d) => d.entity === entity && d.print && values?.[d.key] !== undefined,
+    )
+    .sort((a, b) => a.position - b.position)
+    .map((d) => [d.name, formatCustomValue(values?.[d.key])]);
 }
 
 /**
@@ -97,6 +138,8 @@ export function printTitle(v: Voucher): string {
       return "CONTRA VOUCHER";
     case "estimate":
       return "ESTIMATE";
+    case "proforma":
+      return "PROFORMA INVOICE";
     case "sales-order":
       return "SALES ORDER";
     case "delivery-note":
@@ -165,15 +208,33 @@ h1 { font-size: 15px; }
 // Pieces
 // ---------------------------------------------------------------------------
 
-function firmBlock(firm: Firm, compact: boolean) {
+function firmBlock(firm: Firm, compact: boolean, logo?: string | null) {
+  const image = safeImage(logo);
   const lines = [
     [firm.address, firm.city].filter(Boolean).join(", "),
     `${stateName(firm.stateCode)} (${firm.stateCode})`,
-    [firm.phone && `Ph ${firm.phone}`, firm.email].filter(Boolean).join(" · "),
+    [firm.phone && `Ph ${firm.phone}`, firm.email, !compact && firm.website]
+      .filter(Boolean)
+      .join(" · "),
     firm.gstin ? `GSTIN ${firm.gstin}` : "",
-    !compact && firm.pan ? `PAN ${firm.pan}` : "",
+    // Statutory numbers (doc 37, T61): food and drug licences go on every
+    // bill (FSSAI and drug rules); CIN, PAN and Udyam on full-size bills.
+    !compact
+      ? [firm.pan && `PAN ${firm.pan}`, firm.cin && `CIN ${firm.cin}`]
+          .filter(Boolean)
+          .join(" · ")
+      : "",
+    [
+      firm.fssai && `FSSAI Lic. No. ${firm.fssai}`,
+      firm.drugLicence && `D.L. No. ${firm.drugLicence}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    !compact && firm.msmeType && firm.udyamNumber
+      ? `Udyam Reg. No. ${udyamLabel(firm)}`
+      : "",
   ].filter(Boolean);
-  return `<h1>${esc(firm.name)}</h1>${lines.map((l) => `<div class="small muted">${esc(l)}</div>`).join("")}`;
+  return `${image ? `<img src="${image}" alt="" style="max-height:${compact ? 40 : 64}px;max-width:${compact ? 120 : 200}px;display:block;margin-bottom:4px"/>` : ""}<h1>${esc(firm.name)}</h1>${lines.map((l) => `<div class="small muted">${esc(l)}</div>`).join("")}`;
 }
 
 function partyBlock(
@@ -182,6 +243,8 @@ function partyBlock(
   label: string,
   /** Firms without GST don't print the party's GST status. */
   showGstin = true,
+  /** The party's custom fields marked for printing. */
+  extra: [string, string][] = [],
 ) {
   if (!party) return "";
   const gst = showGstin
@@ -193,7 +256,7 @@ function partyBlock(
 <div class="small muted">${esc(label)}</div>
 <div style="font-weight:600;font-size:13px">${esc(party.name)}</div>
 <div class="small">${esc([party.city, `${stateName(party.stateCode)} (${party.stateCode})`].filter(Boolean).join(", "))}</div>
-<div class="small">${[gst, party.phone ? `Ph ${esc(party.phone)}` : ""].filter(Boolean).join(" · ")}</div>`;
+<div class="small">${[gst, party.phone ? `Ph ${esc(party.phone)}` : ""].filter(Boolean).join(" · ")}</div>${extra.map(([k, value]) => `<div class="small">${esc(k)}: ${esc(value)}</div>`).join("")}`;
 }
 
 function metaRows(rows: [string, string | undefined][]) {
@@ -209,6 +272,38 @@ function metaRows(rows: [string, string | undefined][]) {
 // ---------------------------------------------------------------------------
 // Bills and returns
 // ---------------------------------------------------------------------------
+
+/**
+ * Lines as the customer should see them. A sale line that drew on several stock
+ * lots is saved as one line per lot; adjacent lines with the same item, unit,
+ * price, discount rate and tax print as one row with their amounts added up.
+ */
+export function printRows(lines: InvoiceLine[], interState: boolean) {
+  const rows: { line: InvoiceLine; lt: LineTotals }[] = [];
+  const same = (a: InvoiceLine, b: InvoiceLine) =>
+    a.itemId === b.itemId &&
+    a.rate === b.rate &&
+    a.gstRate === b.gstRate &&
+    a.taxType === b.taxType &&
+    a.discountPercent === b.discountPercent &&
+    !a.billDiscountShare === !b.billDiscountShare &&
+    (a.discountAmount === undefined) === (b.discountAmount === undefined) &&
+    a.per?.unit === b.per?.unit &&
+    a.per?.factor === b.per?.factor;
+  for (const line of lines) {
+    const lt = calcLine(line, interState);
+    const last = rows[rows.length - 1];
+    if (last && same(last.line, line)) {
+      last.line = {
+        ...last.line,
+        qty: (thousandths(last.line.qty) + thousandths(line.qty)) / 1000,
+      };
+      for (const key of Object.keys(lt) as (keyof LineTotals)[])
+        last.lt = { ...last.lt, [key]: last.lt[key] + lt[key] };
+    } else rows.push({ line, lt });
+  }
+  return rows;
+}
 
 function billHtml(input: PrintInput, title: string): string {
   const { firm, voucher: v, party, items, settings } = input;
@@ -228,7 +323,8 @@ function billHtml(input: PrintInput, title: string): string {
   const showHsn = mode !== "off";
   const isSale = v.type === "sale";
   const isNote = v.type === "credit-note" || v.type === "debit-note";
-  const isQuote = v.type === "estimate" || v.type === "sales-order";
+  const isQuote =
+    v.type === "estimate" || v.type === "proforma" || v.type === "sales-order";
   const isChallan = v.type === "delivery-note";
   const partyLabel =
     v.type === "purchase" ||
@@ -243,6 +339,7 @@ function billHtml(input: PrintInput, title: string): string {
     "debit-note": "Note no.",
     purchase: "Voucher no.",
     estimate: "Estimate no.",
+    proforma: "Proforma no.",
     "sales-order": "Order no.",
     "purchase-order": "PO no.",
     "delivery-note": "Challan no.",
@@ -271,38 +368,56 @@ function billHtml(input: PrintInput, title: string): string {
         ? `${stateName(party.stateCode)} (${party.stateCode})`
         : undefined,
     ],
+    ...printedFields(input.customFields, "voucher", v.customFields),
   ]);
+  const partyExtra = printedFields(
+    input.customFields,
+    "party",
+    party?.customFields,
+  );
+  const itemExtra = (it: Item | undefined) => {
+    const pairs = printedFields(input.customFields, "item", it?.customFields);
+    return pairs.length
+      ? `<div class="small muted">${pairs.map(([k, value]) => `${esc(k)}: ${esc(value)}`).join(" · ")}</div>`
+      : "";
+  };
 
-  // Item rows
-  const rows = (v.lines ?? [])
-    .map((line, i) => {
+  // Item rows (one row per item and price, even when the stock came from several lots)
+  const rows = printRows(v.lines ?? [], interState)
+    .map(({ line, lt }, i) => {
       const it = item(line.itemId);
-      const lt = calcLine(line, interState);
       const q = lineQtyText(line, it?.unit ?? "");
       const qty = `${esc(q.main)}${q.base ? `<div class="small muted">${esc(q.base)}</div>` : ""}`;
       const type = lineTaxType(line);
       const gst =
         type === "taxable" ? `${line.gstRate}%` : esc(taxTypeLabel(type));
+      // The line's own discount plus its share of the subtotal discount (doc 37, T09).
+      const disc = lt.discount + lt.billDiscount;
       if (compact)
-        return `<tr><td>${esc(it?.name)}<div class="small muted">${qty} × ${inr(line.rate)}${lt.discount ? ` − ${inr(lt.discount)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
+        return `<tr><td>${esc(it?.name)}${itemExtra(it)}<div class="small muted">${qty} × ${inr(line.rate)}${disc ? ` − ${inr(disc)}` : ""}${showGst ? ` · ${gst}` : ""}</div></td><td class="num">${inr(lt.total)}</td></tr>`;
       return `<tr>
 <td class="num">${i + 1}</td>
-<td>${esc(it?.name)}</td>
+<td>${esc(it?.name)}${itemExtra(it)}</td>
 ${showHsn ? `<td>${esc(it?.hsn || "—")}</td>` : ""}
 <td class="num">${qty}</td>
 <td class="num">${inr(line.rate)}</td>
-<td class="num">${lt.discount ? inr(lt.discount) : "—"}</td>
+<td class="num">${disc ? inr(disc) : "—"}</td>
 ${showGst ? `<td class="num">${inr(lt.taxable)}</td><td class="num">${gst}</td>` : ""}
 <td class="num">${inr(lt.total)}</td>
 </tr>`;
     })
     .join("");
+  // Exempt and non-GST charge heads print their treatment instead of a rate.
+  const chargeGst = (c: ExtraCharge) =>
+    c.taxType && c.taxType !== "taxable"
+      ? esc(taxTypeLabel(c.taxType))
+      : `${c.gstRate}%`;
   const chargeRows = (v.charges ?? [])
     .map((c) =>
       compact
-        ? `<tr><td>${esc(c.name)}${showGst ? ` · ${c.gstRate}%` : ""}</td><td class="num">${inr(c.amount)}</td></tr>`
+        ? `<tr><td>${esc(c.name)}${showGst ? ` · ${chargeGst(c)}` : ""}</td><td class="num">${inr(c.amount)}</td></tr>`
         : showGst
-          ? `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td><td class="num">${c.gstRate}%</td><td class="num">${inr(calcCharge(c, interState).total)}</td></tr>`
+          ? `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td><td class="num">${chargeGst(c)}</td><td class="num">${inr(calcCharge(c, interState).total)}</td></tr>`
           : `<tr><td></td><td colspan="${showHsn ? 5 : 4}">${esc(c.name)}</td><td class="num">${inr(c.amount)}</td></tr>`,
     )
     .join("");
@@ -314,8 +429,13 @@ ${showGst ? `<td class="num">${inr(lt.taxable)}</td><td class="num">${gst}</td>`
   const taxRows = interState
     ? `<tr><td>IGST</td><td class="num">${inr(totals.igst)}</td></tr>`
     : `<tr><td>CGST</td><td class="num">${inr(totals.cgst)}</td></tr><tr><td>SGST</td><td class="num">${inr(totals.sgst)}</td></tr>`;
+  const discountRows = totals.billDiscount
+    ? `<tr><td>Sub total</td><td class="num">${inr(totals.taxable + totals.billDiscount)}</td></tr>
+<tr><td>Discount${v.billDiscount?.percent ? ` (${v.billDiscount.percent}%)` : ""}</td><td class="num">−${inr(totals.billDiscount)}</td></tr>`
+    : "";
   const totalsTable = `<table class="totals">
-<tr><td>${showGst ? "Taxable value" : "Sub total"}</td><td class="num">${inr(totals.taxable)}</td></tr>
+${discountRows}
+<tr><td>${showGst ? "Taxable value" : totals.billDiscount ? "After discount" : "Sub total"}</td><td class="num">${inr(totals.taxable)}</td></tr>
 ${totals.tax ? taxRows : ""}
 ${totals.roundOff ? `<tr><td>Round off</td><td class="num">${inr(totals.roundOff)}</td></tr>` : ""}
 <tr class="grand"><td>Total</td><td class="num">${inr(totals.grandTotal)}</td></tr>
@@ -351,22 +471,24 @@ ${rates
 
   const bank = settings.bankAccount;
   const bankBlock =
-    (isSale || v.type === "estimate") && settings.showBankDetails && bank
+    (isSale || v.type === "estimate" || v.type === "proforma") &&
+    settings.showBankDetails &&
+    bank
       ? `<div class="small"><b>Bank details</b><br/>${esc(input.bankName ?? "")}<br/>A/c ${esc(bank.accountName)} · ${esc(bank.accountNumber)}<br/>IFSC ${esc(bank.ifsc)}${bank.upiId ? `<br/>UPI ${esc(bank.upiId)}` : ""}</div>`
       : "";
   const terms =
     (isSale || isQuote) && settings.terms
       ? `<div class="small"><b>Terms</b><br/>${esc(settings.terms)}</div>`
       : "";
-  const sign = `<div class="sign small">For <b>${esc(firm.name)}</b><br/><br/><br/>Authorised signatory</div>`;
+  const sign = signBlock(firm.name, input.branding?.signature);
   const copyTag =
     isSale || isNote ? `<span class="tag">Original for recipient</span>` : "";
 
   if (compact) {
     return `<div class="sheet">
-<div class="sec">${firmBlock(firm, true)}</div>
+<div class="sec">${firmBlock(firm, true, input.branding?.logo)}</div>
 <div class="sec"><div class="title">${esc(title)}</div>${meta}</div>
-<div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn)}</div>
+<div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div>
 <div class="sec">${itemsTable}</div>
 <div class="sec">${totalsTable}${supplyNote}</div>
 ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${terms ? `<br/>${terms}` : ""}</div>` : ""}
@@ -376,9 +498,9 @@ ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${t
 
   if (template === "modern") {
     return `<div class="sheet">
-<div class="row sec"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right">${copyTag}</div></div>
+<div class="row sec"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right">${copyTag}</div></div>
 <div class="band row"><span class="title">${esc(title)}</span><span>${esc(v.number)}</span></div>
-<div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn)}</div><div class="col card box">${meta}</div></div>
+<div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col card box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="row sec"><div class="col">${taxBreakup}${supplyNote}</div><div class="col">${totalsTable}</div></div>
 <div class="row sec"><div class="col">${bankBlock}</div><div class="col">${terms}</div></div>
@@ -389,8 +511,8 @@ ${sign}
 
   // classic
   return `<div class="sheet">
-<div class="sec box row"><div class="col">${firmBlock(firm, false)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
-<div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn)}</div><div class="col box">${meta}</div></div>
+<div class="sec box row"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
+<div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="sec row split"><div class="col box">${taxBreakup}${supplyNote}</div><div class="col box">${totalsTable}</div></div>
 ${bankBlock || terms ? `<div class="sec row split"><div class="col box">${bankBlock}</div><div class="col box">${terms}</div></div>` : ""}
@@ -424,7 +546,7 @@ function moneyHtml(input: PrintInput, title: string): string {
     ? `<tr><td>TDS ${esc(v.tds.section)} @ ${v.tds.rate}% kept back</td><td class="num">${inr(v.tds.amount)}</td></tr>`
     : "";
   return `<div class="sheet">
-<div class="sec box">${firmBlock(firm, compact)}</div>
+<div class="sec box">${firmBlock(firm, compact, input.branding?.logo)}</div>
 <div class="sec box row"><div class="col">${partyBlock(v, party, isReceipt ? "Received from" : "Paid to", gstModeOf(firm) !== "off")}</div><div class="col"><div class="title">${esc(title)}</div>${meta}</div></div>
 <div class="sec box">
 <div class="small muted">Amount</div>
@@ -433,7 +555,7 @@ function moneyHtml(input: PrintInput, title: string): string {
 </div>
 ${against || tds ? `<div class="sec box"><table class="totals"><tr><th>Against bill</th><th class="num">Amount</th></tr>${against}${tds}</table></div>` : ""}
 ${v.narration ? `<div class="sec box small">${esc(v.narration)}</div>` : ""}
-<div class="box">${`<div class="sign small">For <b>${esc(firm.name)}</b><br/><br/><br/>Authorised signatory</div>`}</div>
+<div class="box">${signBlock(firm.name, input.branding?.signature)}</div>
 </div>
 <div class="foot">Made with Hisaab</div>`;
 }
@@ -447,7 +569,7 @@ function voucherOnlyHtml(input: PrintInput, title: string): string {
     )
     .join("");
   return `<div class="sheet">
-<div class="sec box">${firmBlock(firm, false)}</div>
+<div class="sec box">${firmBlock(firm, false, input.branding?.logo)}</div>
 <div class="sec box"><div class="title">${esc(title)}</div>${metaRows([
     ["No.", v.number],
     ["Date", formatDate(v.date)],
@@ -470,7 +592,12 @@ export function voucherHtml(input: PrintInput): Printable {
       party,
       items,
       bankName,
-      settings: { ...settings, template: input.settings.template },
+      settings: {
+        ...settings,
+        // Older snapshots predate numbering rules; printing doesn't use them.
+        numbering: settings.numbering ?? {},
+        template: input.settings.template,
+      },
     };
   }
   const title = printTitle(v);
@@ -480,6 +607,7 @@ export function voucherHtml(input: PrintInput): Printable {
     v.type === "credit-note" ||
     v.type === "debit-note" ||
     v.type === "estimate" ||
+    v.type === "proforma" ||
     v.type === "sales-order" ||
     v.type === "delivery-note" ||
     v.type === "purchase-order"

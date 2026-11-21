@@ -14,6 +14,7 @@ import type {
   ISODate,
   Item,
   Ledger,
+  OrderType,
   Paise,
   Party,
   Voucher,
@@ -24,14 +25,25 @@ import {
   type CompositionQuarter,
 } from "./gstMode";
 import {
+  ageing,
   isPosted,
   overdueSummary,
   partyBalance,
   collectionBills,
+  vouchersByParty,
+  type Ageing,
 } from "./bills";
+import {
+  isQuietCustomer,
+  itcAtRiskBills,
+  rankParties,
+  type PartyRank,
+} from "./insightRules";
+import { ORDER_TYPES, orderStatus } from "./orders";
 import { isLowStock, stockQty } from "./stock";
-import { inventoryValue } from "./stockLots";
+import { expiringLots, inventoryValue, vouchersByItem } from "./stockLots";
 import { gstMonth } from "./gst";
+import { calcInvoice } from "./invoice";
 
 /** Newest first: by date, and for the same date the one entered last comes first. */
 export function newestFirst(vouchers: Voucher[]): Voucher[] {
@@ -147,14 +159,32 @@ export function gstForMonth(vouchers: Voucher[], month: string) {
   };
 }
 
-function sumAmount(
-  vouchers: Voucher[],
-  type: Voucher["type"],
-  match: (v: Voucher) => boolean,
-): Paise {
-  return vouchers
-    .filter((v) => isPosted(v) && v.type === type && match(v))
-    .reduce((s, v) => s + v.amount, 0);
+/**
+ * Goods value of posted bills less their returns, by month, without GST or
+ * charges: the same figure as the Sales / Purchase accounts (Doc 01, "Net sales").
+ */
+function netGoodsByMonth(vouchers: Voucher[]) {
+  const months = new Map<string, { sale: Paise; purchase: Paise }>();
+  const SIGNS = {
+    sale: ["sale", 1],
+    "credit-note": ["sale", -1],
+    purchase: ["purchase", 1],
+    "debit-note": ["purchase", -1],
+  } as const;
+  for (const v of vouchers) {
+    const sign = SIGNS[v.type as keyof typeof SIGNS];
+    if (!sign || !isPosted(v)) continue;
+    const { itemsTaxable } = calcInvoice({
+      lines: v.lines ?? [],
+      interState: !!v.interState,
+    });
+    const month = yearMonth(v.date);
+    const row = months.get(month) ?? { sale: 0, purchase: 0 };
+    row[sign[0]] += sign[1] * itemsTaxable;
+    months.set(month, row);
+  }
+  return (month: string, side: "sale" | "purchase") =>
+    months.get(month)?.[side] ?? 0;
 }
 
 export interface DashboardData {
@@ -166,17 +196,67 @@ export interface DashboardData {
   cash: Paise;
   banks: { ledger: Ledger; balance: Paise }[];
   bankTotal: Paise;
+  /** Bills issued today, as billed (GST included). */
   todaySales: { amount: Paise; count: number };
+  /** Net sales: goods value without GST, after sales returns. */
   monthSales: Paise;
   lastMonthSales: Paise;
   /** Regular GST firms: last month's output − input. Null for composition and no-GST firms. */
   gst: { month: string; output: Paise; input: Paise; payable: Paise } | null;
   /** Composition firms: this quarter's tax so far (CMP-08). */
   composition: CompositionQuarter | null;
-  /** Purchases this month (shown instead of GST for firms without GST). */
+  /** Net purchases this month, after returns (shown instead of GST for firms without GST). */
   monthPurchases: Paise;
   lowStockCount: number;
+  /** Batches already expired or expiring within 30 days (T38); counts only, no costs. */
+  expiringStock: {
+    expired: number;
+    expiring: number;
+    next: { itemName: string; expiryDate: ISODate } | null;
+  };
+  /** Closing stock at FIFO cost; 0 for roles that may not see costs. */
   stockValue: Paise;
+  /**
+   * Regular GST firms (T26): supplier bills with GST still unpaid from day 150
+   * of the 180-day limit, as on the ITC at risk report. Null for other firms.
+   */
+  itcAtRisk: {
+    /** ITC share still unpaid on those bills. */
+    amount: Paise;
+    bills: number;
+    /** Part of `amount` on bills already 180 days old: reverse it now. */
+    reverseNow: Paise;
+    reverseNowBills: number;
+    /** The next 180-day limit still ahead, if any. */
+    nextLimit: ISODate | null;
+    /** The supplier with most at risk, for the Pay button. */
+    topSupplier: { partyId: string; name: string; amount: Paise } | null;
+  } | null;
+  /** This month, bill totals less returns, top 3 (as the Top customers / suppliers reports). */
+  topCustomers: PartyRank[];
+  topSuppliers: PartyRank[];
+  /** Customer bills still to collect by age, as on the Receivables report. */
+  receivablesAgeing: Ageing;
+  /** Supplier bills: due in the next 7 days, and already past due. */
+  payablesDue: {
+    thisWeek: Paise;
+    thisWeekBills: number;
+    overdue: Paise;
+    overdueBills: number;
+  };
+  /** Customers with no sale in 90 days (Lost on the customer tracking report), biggest buyers first. */
+  quietCustomers: {
+    count: number;
+    rows: {
+      partyId: string;
+      name: string;
+      lastSale: ISODate;
+      daysSince: number;
+      balance: Paise;
+    }[];
+  };
+  /** Estimates, proformas and orders still open (or partly converted), by type. */
+  openOrders: { type: OrderType; count: number; amount: Paise }[];
   salesVsPurchases: {
     month: string;
     label: string;
@@ -209,6 +289,8 @@ export function computeDashboard(data: {
   asOf: ISODate;
   /** The firm, for its GST mode (left out = regular). */
   firm?: Pick<Firm, "gstRegistration" | "compositionType">;
+  /** False for roles that may not see purchase costs: stock value is left at 0. */
+  costs?: boolean;
 }): DashboardData {
   const { parties, items, ledgers, vouchers, asOf } = data;
   const mode = data.firm ? gstModeOf(data.firm) : "regular";
@@ -222,8 +304,18 @@ export function computeDashboard(data: {
   let customersWithBalance = 0;
   let suppliersWithBalance = 0;
   const overdueRows: DashboardData["topOverdue"] = [];
+  const receivablesAgeing: Ageing = {
+    "0-30": 0,
+    "31-60": 0,
+    "61-90": 0,
+    "90+": 0,
+  };
+  const balances = new Map<string, Paise>();
+  const byParty = vouchersByParty(parties, vouchers);
   for (const party of parties) {
-    const balance = partyBalance(party, vouchers, asOf);
+    const own = byParty.get(party.id) ?? [];
+    const balance = partyBalance(party, own, asOf);
+    balances.set(party.id, balance);
     if (balance > 0) {
       toCollect += balance;
       customersWithBalance += party.type === "customer" ? 1 : 0;
@@ -233,7 +325,11 @@ export function computeDashboard(data: {
       suppliersWithBalance += party.type === "supplier" ? 1 : 0;
     }
     if (party.type === "customer" && balance > 0) {
-      const summary = overdueSummary(collectionBills(party, vouchers, asOf));
+      const bills = collectionBills(party, own, asOf);
+      const aged = ageing(bills);
+      for (const key of Object.keys(aged) as (keyof Ageing)[])
+        receivablesAgeing[key] += aged[key];
+      const summary = overdueSummary(bills);
       if (summary.overdueAmount > 0)
         overdueRows.push({ party, balance, ...summary });
     }
@@ -254,32 +350,38 @@ export function computeDashboard(data: {
   const todaySalesList = vouchers.filter(
     (v) => isPosted(v) && v.type === "sale" && v.date === asOf,
   );
-  const monthSales = sumAmount(
-    vouchers,
-    "sale",
-    (v) => yearMonth(v.date) === thisMonth,
-  );
-  const lastMonthSales = sumAmount(
-    vouchers,
-    "sale",
-    (v) => yearMonth(v.date) === lastMonth,
-  );
+  const netGoods = netGoodsByMonth(vouchers);
+  const monthSales = netGoods(thisMonth, "sale");
+  const lastMonthSales = netGoods(lastMonth, "sale");
 
   // Stock
   let lowStockCount = 0;
   let totalStockValue = 0;
+  const byItem = vouchersByItem(vouchers);
   for (const item of items) {
-    const qty = stockQty(item, vouchers);
+    const own = byItem.get(item.id) ?? [];
+    const qty = stockQty(item, own);
     if (isLowStock(item, qty)) lowStockCount++;
-    totalStockValue += inventoryValue(item, vouchers);
+    if (data.costs !== false) totalStockValue += inventoryValue(item, own);
   }
+
+  // Batches by expiry date (T38): the soonest first.
+  const expiring = expiringLots(items, vouchers, asOf, 30);
+  const firstAhead = expiring.find((lot) => lot.status === "expiring");
+  const expiringStock = {
+    expired: expiring.filter((lot) => lot.status === "expired").length,
+    expiring: expiring.filter((lot) => lot.status === "expiring").length,
+    next: firstAhead
+      ? { itemName: firstAhead.itemName, expiryDate: firstAhead.expiryDate }
+      : null,
+  };
 
   // Charts
   const salesVsPurchases = months.map((m) => ({
     month: m,
     label: monthLabel(m),
-    sales: sumAmount(vouchers, "sale", (v) => yearMonth(v.date) === m),
-    purchases: sumAmount(vouchers, "purchase", (v) => yearMonth(v.date) === m),
+    sales: netGoods(m, "sale"),
+    purchases: netGoods(m, "purchase"),
   }));
   const cashTrend = months.map((m) => {
     const monthEnd =
@@ -339,9 +441,27 @@ export function computeDashboard(data: {
       daysLeft: daysTo(gstr3bDue),
       amount: gstLast.payable,
     });
+  const payablesDue: DashboardData["payablesDue"] = {
+    thisWeek: 0,
+    thisWeekBills: 0,
+    overdue: 0,
+    overdueBills: 0,
+  };
   for (const party of parties.filter((p) => p.type === "supplier")) {
-    for (const bill of collectionBills(party, vouchers, asOf)) {
+    for (const bill of collectionBills(
+      party,
+      byParty.get(party.id) ?? [],
+      asOf,
+    )) {
       const left = daysTo(bill.dueDate);
+      if (bill.pending > 0 && left < 0) {
+        payablesDue.overdue += bill.pending;
+        payablesDue.overdueBills++;
+      }
+      if (bill.pending > 0 && left >= 0 && left <= 7) {
+        payablesDue.thisWeek += bill.pending;
+        payablesDue.thisWeekBills++;
+      }
       if (bill.pending > 0 && left >= 0 && left <= 7)
         upcoming.push({
           title: `Pay ${party.name}`,
@@ -353,6 +473,83 @@ export function computeDashboard(data: {
     }
   }
   upcoming.sort((a, b) => a.daysLeft - b.daysLeft);
+
+  // ITC at risk (T26): only regular GST firms claim input credit
+  let itcAtRisk: DashboardData["itcAtRisk"] = null;
+  if (mode === "regular") {
+    const risky = itcAtRiskBills(parties, vouchers, asOf, { byParty });
+    const bySupplier = new Map<string, { name: string; amount: Paise }>();
+    for (const r of risky) {
+      const row = bySupplier.get(r.supplier.id) ?? {
+        name: r.supplier.name,
+        amount: 0,
+      };
+      row.amount += r.atRisk;
+      bySupplier.set(r.supplier.id, row);
+    }
+    const [top] = [...bySupplier.entries()].sort(
+      (a, b) => b[1].amount - a[1].amount,
+    );
+    const ahead = risky
+      .filter((r) => !r.reverseNow)
+      .map((r) => r.limit)
+      .sort();
+    const reverse = risky.filter((r) => r.reverseNow);
+    itcAtRisk = {
+      amount: risky.reduce((s, r) => s + r.atRisk, 0),
+      bills: risky.length,
+      reverseNow: reverse.reduce((s, r) => s + r.atRisk, 0),
+      reverseNowBills: reverse.length,
+      nextLimit: ahead[0] ?? null,
+      topSupplier: top ? { partyId: top[0], ...top[1] } : null,
+    };
+  }
+
+  // Top parties this month (as the Top customers / suppliers reports)
+  const partyName = new Map(parties.map((p) => [p.id, p.name]));
+  const nameOf = (v: Voucher) => partyName.get(v.partyId ?? "") ?? "";
+  const monthStart = `${thisMonth}-01`;
+  const top3 = (side: "customer" | "supplier") =>
+    rankParties(vouchers, side, monthStart, asOf, nameOf)
+      .filter((r) => r.value > 0)
+      .slice(0, 3);
+
+  // Customers gone quiet (Lost on the customer tracking report)
+  const salesByCustomer = new Map<string, { last: ISODate; total: Paise }>();
+  for (const v of vouchers) {
+    if (v.type !== "sale" || !v.partyId || !isPosted(v) || v.date > asOf)
+      continue;
+    const row = salesByCustomer.get(v.partyId) ?? { last: v.date, total: 0 };
+    if (v.date > row.last) row.last = v.date;
+    row.total += v.amount;
+    salesByCustomer.set(v.partyId, row);
+  }
+  const quiet = parties
+    .filter((p) => p.type === "customer")
+    .flatMap((p) => {
+      const sales = salesByCustomer.get(p.id);
+      return sales && isQuietCustomer(sales.last, asOf)
+        ? [{ party: p, ...sales }]
+        : [];
+    })
+    .sort((a, b) => b.total - a.total);
+
+  // Open estimates, proformas and orders
+  const openByType = new Map<string, { count: number; amount: Paise }>();
+  for (const v of vouchers) {
+    if (!ORDER_TYPES.includes(v.type as OrderType) || v.status === "draft")
+      continue;
+    const status = orderStatus(v, asOf);
+    if (status !== "open" && status !== "partial") continue;
+    const row = openByType.get(v.type) ?? { count: 0, amount: 0 };
+    row.count++;
+    row.amount += v.amount;
+    openByType.set(v.type, row);
+  }
+  const openOrders = ORDER_TYPES.map((type) => ({
+    type,
+    ...(openByType.get(type) ?? { count: 0, amount: 0 }),
+  }));
 
   return {
     toCollect,
@@ -371,13 +568,26 @@ export function computeDashboard(data: {
     lastMonthSales,
     gst: mode === "regular" ? { month: lastMonth, ...gstLast } : null,
     composition,
-    monthPurchases: sumAmount(
-      vouchers,
-      "purchase",
-      (v) => yearMonth(v.date) === thisMonth,
-    ),
+    monthPurchases: netGoods(thisMonth, "purchase"),
     lowStockCount,
+    expiringStock,
     stockValue: totalStockValue,
+    itcAtRisk,
+    topCustomers: top3("customer"),
+    topSuppliers: top3("supplier"),
+    receivablesAgeing,
+    payablesDue,
+    quietCustomers: {
+      count: quiet.length,
+      rows: quiet.slice(0, 3).map((q) => ({
+        partyId: q.party.id,
+        name: q.party.name,
+        lastSale: q.last,
+        daysSince: daysBetween(q.last, asOf),
+        balance: Math.max(balances.get(q.party.id) ?? 0, 0),
+      })),
+    },
+    openOrders,
     salesVsPurchases,
     cashTrend,
     topOverdue: overdueRows.slice(0, 5),

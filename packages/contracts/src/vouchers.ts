@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InvoiceTotals } from "./invoiceTotals";
+import { CustomFieldValues } from "./customFields";
 import {
   GstRate,
   Id,
@@ -34,12 +35,14 @@ export const VoucherType = z.enum([
   "debit-note",
   "contra",
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
 ]);
 export const OrderType = z.enum([
   "estimate",
+  "proforma",
   "sales-order",
   "delivery-note",
   "purchase-order",
@@ -77,6 +80,9 @@ const InputInvoiceLine = z
     stockLotId: z.string().min(1).max(160).optional(),
     stockCost: NonNegativePaise.optional(),
     bookScope: BookScope.optional(),
+    // Purchases of goods: batch bought and its expiry (doc 37, T38).
+    batchNumber: z.string().trim().max(40).optional(),
+    expiryDate: IsoDate.optional(),
     qty: Quantity.positive("Quantity must be more than 0."),
     // Rate per unit, in paise
     rate: Paise.positive("Enter a rate."),
@@ -95,17 +101,55 @@ const InputInvoiceLine = z
     message: "Use either a percentage or an amount for the discount, not both.",
   });
 
-// Fulfillment metadata is output-only; callers cannot claim that stock already moved.
+export const ReturnAmounts = z.object({
+  taxable: NonNegativePaise,
+  discount: NonNegativePaise,
+  cgst: NonNegativePaise,
+  sgst: NonNegativePaise,
+  igst: NonNegativePaise,
+  roundOff: Paise,
+});
+
+// Calculated amounts and fulfillment metadata are output-only.
 export const InvoiceLine = InputInvoiceLine.safeExtend({
+  returnAmounts: ReturnAmounts.optional(),
+  // Share of the subtotal discount, worked out by the server (doc 37, T09).
+  billDiscountShare: NonNegativePaise.optional(),
+  exactMath: z.boolean().optional(),
   orderLineId: Id.optional(),
   orderSourceLineId: Id.optional(),
   stockFulfilledById: Id.optional(),
 });
 
-export const ExtraCharge = z.object({
+/** A charge as sent: free-typed (Freight), or picked from a charge head by `headId`. */
+export const InputExtraCharge = z.object({
   name: requiredText("Name the charge, like Freight.", 60),
   amount: NonNegativePaise,
   gstRate: GstRate,
+  headId: z.string().min(1).max(40).optional(),
+});
+
+/** As saved: a head's GST treatment, SAC and ledger are frozen on the charge (doc 37, T09). */
+export const ExtraCharge = InputExtraCharge.extend({
+  taxType: TaxType.optional(),
+  sac: z.string().optional(),
+  account: z.string().optional(),
+});
+
+/** Subtotal discount: a percentage of the items' value or a flat amount (doc 37, T09). */
+export const BillDiscountInput = z
+  .object({
+    percent: Percentage.optional(),
+    amount: NonNegativePaise.optional(),
+  })
+  .refine((d) => !(d.percent && d.amount), {
+    path: ["percent"],
+    message: "Use either a percentage or an amount for the discount, not both.",
+  });
+
+export const BillDiscount = z.object({
+  percent: Percentage.optional(),
+  amount: NonNegativePaise,
 });
 
 export const Allocation = z.object({
@@ -143,13 +187,15 @@ export const NewInvoiceInput = z.object({
   partyId: PartyId,
   date: IsoDate,
   lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
-  charges: z.array(ExtraCharge),
+  charges: z.array(InputExtraCharge),
+  billDiscount: BillDiscountInput.optional(),
   supplierInvoiceNo: z.string().max(60).optional(),
   paidNow: z
     .object({ amount: PositivePaise, mode: PaymentMode, ledgerId: Id })
     .optional(),
   narration: z.string().max(500).optional(),
   sourceId: Id.optional(),
+  customFields: CustomFieldValues.optional(),
 });
 
 export const NewMoneyInput = z.object({
@@ -173,6 +219,14 @@ export const NewExpenseInput = z.object({
   mode: PaymentMode,
   ledgerId: Id,
   narration: z.string().max(500).optional(),
+  // GST on the supplier's bill, claimed as input credit; the server works out the total.
+  gst: z
+    .object({
+      partyId: PartyId,
+      rate: GstRate.refine((rate) => rate > 0, "Pick the GST rate."),
+      taxable: PositivePaise,
+    })
+    .optional(),
 });
 
 /** Journal entry: at least two lines, and debits must equal credits. */
@@ -218,10 +272,12 @@ export const NewOrderInput = z.object({
   partyId: PartyId,
   date: IsoDate,
   lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
-  charges: z.array(ExtraCharge),
+  charges: z.array(InputExtraCharge),
+  billDiscount: BillDiscountInput.optional(),
   validUntil: IsoDate.optional(),
   sourceId: Id.optional(),
   narration: z.string().max(500).optional(),
+  customFields: CustomFieldValues.optional(),
 });
 
 /** A return: which lines of the original bill, and how many, come back. */
@@ -248,6 +304,22 @@ export const CancelInput = z.object({
   reason: requiredText("Say why you're cancelling.", 200),
 });
 
+/** One cancelled entry the owner may restore (doc 37, T47). */
+export const CancelledEntry = z.object({
+  id: Id,
+  type: VoucherType,
+  number: z.string(),
+  date: IsoDate,
+  partyName: z.string().optional(),
+  amount: z.number().int(),
+  reason: z.string().optional(),
+  cancelledAt: z.string().optional(),
+  version: z.number().int(),
+  /** Why it can't be restored now; absent when it can. */
+  restoreBlocker: z.string().optional(),
+});
+export type CancelledEntry = z.infer<typeof CancelledEntry>;
+
 export const BankDateInput = z.object({
   clearedOn: IsoDate.nullable(),
   ledgerId: Id.optional(),
@@ -263,11 +335,17 @@ export const VoucherSnapshot = z.object({
   party: Party.optional(),
   items: z.array(Item),
   units: z.array(Unit),
-  settings: InvoiceSettings.extend({ bankLedgerId: z.string() }),
+  // Snapshots frozen before numbering rules (migration 0031) have no `numbering`;
+  // missing means the default format.
+  settings: InvoiceSettings.extend({
+    bankLedgerId: z.string(),
+    numbering: InvoiceSettings.shape.numbering.optional(),
+  }),
   bankName: z.string().optional(),
 });
 
 export const Voucher = z.object({
+  customFields: CustomFieldValues.optional(),
   delivery: DeliverySnapshot.optional(),
   commission: CommissionSnapshot.optional(),
   fulfillmentManaged: z.boolean().optional(),
@@ -289,6 +367,7 @@ export const Voucher = z.object({
   snapshot: VoucherSnapshot.optional(),
   lines: z.array(InvoiceLine).optional(),
   charges: z.array(ExtraCharge).optional(),
+  billDiscount: BillDiscount.optional(),
   interState: z.boolean().optional(),
   dueDate: IsoDate.optional(),
   supplierInvoiceNo: z.string().optional(),
@@ -379,6 +458,7 @@ const VoucherAuditEntry = z.object({
     "cancelled",
     "converted",
     "reopened",
+    "restored",
     "bank-date",
   ]),
   at: IsoDateTime,
@@ -417,6 +497,12 @@ export const ReturnableBill = z.object({
       returned: z.number(),
       returnable: z.number(),
       rate: Paise,
+      amountBasis: z.object({
+        qty: Quantity,
+        returnedQty: Quantity,
+        original: ReturnAmounts,
+        returned: ReturnAmounts,
+      }),
     }),
   ),
 });
@@ -444,6 +530,7 @@ export const VoucherDetail = Voucher.extend({
       "sale",
       "purchase",
       "estimate",
+      "proforma",
       "sales-order",
       "delivery-note",
       "purchase-order",
@@ -469,6 +556,7 @@ export type InvoiceStatus = z.infer<typeof InvoiceStatus>;
 export type OrderStatus = z.infer<typeof OrderStatus>;
 export type InvoiceLine = z.infer<typeof InvoiceLine>;
 export type NewInvoiceInput = z.infer<typeof NewInvoiceInput>;
+export type BillDiscountInput = z.infer<typeof BillDiscountInput>;
 export type NewMoneyInput = z.infer<typeof NewMoneyInput>;
 export type NewExpenseInput = z.infer<typeof NewExpenseInput>;
 export type NewJournalInput = z.infer<typeof NewJournalInput>;
@@ -489,3 +577,37 @@ export const VoucherListParams = VoucherListQuery.extend({
 
 /** `/orders/:type` — estimate, sales-order, delivery-note or purchase-order. */
 export const OrderParams = z.object({ type: OrderType });
+
+/**
+ * `POST /sales/margin` (doc 37, T12): the sale being made, as the sale form
+ * would send it, for its profit margin. Nothing is saved.
+ */
+export const SaleMarginInput = z.object({
+  date: IsoDate,
+  lines: z
+    .array(NewInvoiceInput.shape.lines.element)
+    .min(1, "Add at least one item.")
+    .max(300),
+  sourceId: Id.optional(),
+  /** A saved sale being edited: its own stock is free for the new lines. */
+  editingId: Id.optional(),
+  /** The bill's subtotal discount (T09): it lowers each line's taxable value. */
+  billDiscount: BillDiscountInput.optional(),
+});
+
+const MarginFigures = z.object({
+  taxable: Paise,
+  /** Null when unknown, and always for roles that may not see costs. */
+  cost: Paise.nullable(),
+  margin: Paise.nullable(),
+  marginPercent: z.number().nullable(),
+});
+
+/** Margin = taxable value (after discount, before GST) less FIFO stock cost. */
+export const SaleMargin = z.object({
+  lines: z.array(MarginFigures.extend({ problem: z.string().optional() })),
+  total: MarginFigures,
+  missing: z.number().int().min(0),
+});
+export type SaleMarginInput = z.infer<typeof SaleMarginInput>;
+export type SaleMargin = z.infer<typeof SaleMargin>;
