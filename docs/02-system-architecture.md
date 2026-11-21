@@ -42,9 +42,8 @@ Production Compose supplies their database URLs from passwords in its private
 
 Schema migrations remain in `apps/api/src/db/migrations` and run explicitly with
 `bun run --cwd apps/api db:migrate`. Neither application startup nor worker startup
-migrates the database. The production Compose file supervises containers behind
-Caddy HTTPS. The GitHub workflow builds images and can deploy after the operator
-configures services, secrets and SSH access; see [guide 25](25-docker-and-cicd.md).
+migrates the database. There is no deployment setup for now: the GitHub workflow
+only runs type checks, lint and the builds.
 
 New signed-in browser builds require network access to open or reload. Existing
 encrypted books and queued writes can be used within an already loaded app.

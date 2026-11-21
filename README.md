@@ -60,16 +60,10 @@ bun run --cwd apps/native export:web
 ```
 
 The workspace build compiles the API, worker and public website. The native
-README covers manual Expo builds. Four Dockerfiles, Compose and a GitHub Actions
-workflow package the services for EC2. Provider setup, production credentials,
-Android publication and independent backups remain operator responsibilities.
-
-The [deployment folder](deployment/README.md) contains the Dockerfiles and three
-Compose files: development dependencies, local app containers and production.
-It includes env templates and exact commands for each mode.
-Production runs PostgreSQL and Redis beside the apps on EC2, with private
-networking and persistent volumes. Follow guide 26 for credentials, backups and
-first startup; the development database credentials are not for deployment.
+README covers manual Expo builds. The app is not deployed for now: the GitHub
+workflow only runs type checks, lint and the builds, and the
+[deployment folder](deployment/README.md) holds just the development PostgreSQL
+and Redis containers.
 
 New browser builds need network access to open or reload. Cached books and queued
 writes remain available within an already loaded app; native offline behavior
@@ -87,9 +81,7 @@ Start with the [documentation index](docs/README.md). Guides are numbered in rea
 order: product and architecture, daily bookkeeping, storage and recovery, then
 runtime and release checks. App READMEs remain the source for local run commands.
 
-To finish and deploy this project, read the [phased completion plan](docs/24-completion-plan.md),
-[Docker/CI/CD guide](docs/25-docker-and-cicd.md) and
-[EC2/Expo walkthrough](docs/26-ec2-and-expo-deployment.md). The
-[readiness audit](docs/27-private-readiness-audit.md) records completed local
-checks and remaining deployment/device acceptance. Normal registration supports
+The [phased completion plan](docs/24-completion-plan.md) and the
+[readiness audit](docs/27-private-readiness-audit.md) record completed local
+checks and remaining device acceptance. Normal registration supports
 multiple accounts and firms; there is no installation-wide owner email allowlist.

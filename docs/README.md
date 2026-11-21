@@ -71,8 +71,6 @@ define the latest repairs and backup/migration work.
 | Order | Guide                                                        | What it covers                                                                      |
 | ----- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | 24    | [Completion plan](24-completion-plan.md)                     | Remaining code fixes, implementation phases and acceptance gates                    |
-| 25    | [Docker and CI/CD](25-docker-and-cicd.md)                    | Minimal file set, image contracts, Compose and GitHub deployment                    |
-| 26    | [EC2 and Expo deployment](26-ec2-and-expo-deployment.md)     | Owner setup, env files, first deployment, Android release and operations            |
 | 27    | [Private-use readiness audit](27-private-readiness-audit.md) | Verified checks, accounting/authentication defects and ordered private-release work |
 | 28    | [Dependency review](28-dependency-review.md)                 | Security updates, remaining advisories and their actual exposure                    |
 | 29    | [System audit and work plan](29-system-audit-and-work-plan.md) | Current reproduced defects, coverage, evidence and ordered implementation tasks |
@@ -95,9 +93,9 @@ define the latest repairs and backup/migration work.
   before relying on a restore.
 - Manual check sections describe checks to perform; they are not evidence that
   a device or deployment passed. Known gaps are separate from future features.
-- The Dockerfiles, Compose and Caddy in `deployment/`, plus the GitHub workflow, use the existing app
-  commands, with no root operator scripts or regression-test pipeline. See guides
-  25-26 for configuration; full backups and APK publication remain operator duties.
+- There is no deployment setup for now. `deployment/` holds only the development
+  PostgreSQL and Redis containers, and the GitHub workflow only runs type checks,
+  lint and the builds. Full backups and APK publication remain operator duties.
 
 Keep guides current when behavior changes. Preserve these filenames when possible,
 and update incoming links whenever a guide is renamed.

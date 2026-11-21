@@ -4,8 +4,8 @@
 
 A full recovery needs the database, private file bytes, application version and
 separately protected configuration. The procedure below is manual; it adds no script
-framework. Production now runs PostgreSQL/Redis containers on EC2; use
-[guide 26](26-ec2-and-expo-deployment.md) for container dump/restore commands.
+framework. There is no production deployment for now; when one is set up, its
+container dump/restore commands belong with it.
 The deployment workflow's pre-migration dump stays on EC2 until you copy it
 elsewhere; it is not an independent backup or a scheduled backup service.
 

@@ -36,10 +36,8 @@ verified backup, with API/worker writes paused and coordinated client updates.
 Use the [root README](../README.md) and app READMEs for commands and manual builds.
 Arrange hosting, PostgreSQL/Redis, private storage, HTTPS, runtime secrets and
 process supervision separately. Start the API and worker independently.
-The supplied container setup and owner steps are in
-[Docker and CI/CD](25-docker-and-cicd.md) and
-[EC2 and Expo deployment](26-ec2-and-expo-deployment.md). Follow their configuration
-and acceptance sequence before enabling production deployment.
+There is no deployment setup in the repository for now; it will be added when
+the app is ready to be deployed.
 
 Back up and verify the database before applying pending migrations. Pause
 API/worker writes, use `bun run --cwd apps/api db:migrate`, and stop the rollout on

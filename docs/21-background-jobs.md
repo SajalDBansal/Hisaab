@@ -9,8 +9,8 @@ Only worker startup registers recurring schedules.
 
 Start and supervise the worker separately. Its app environment file must point
 to the same PostgreSQL, Redis and private document storage as the API. Provide
-these services and a PDF browser explicitly. The supplied worker Dockerfile and
-Compose service are described in [guide 25](25-docker-and-cicd.md).
+these services and a PDF browser explicitly. There is no container setup for the
+worker for now; run it on the host (see the worker README).
 
 ## Supported behavior
 
