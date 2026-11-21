@@ -30,10 +30,11 @@ export const MSME_NO_AGREEMENT_DAYS = 15;
 /** Bills this close to their date are flagged as due soon. */
 export const MSME_DUE_SOON_DAYS = 7;
 /**
- * Default yearly rate for s.16 interest: three times an RBI bank rate of
- * 5.50%. The RBI changes the bank rate; the report takes the rate as an input.
+ * Default yearly rate for s.16 interest: three times the RBI bank rate of
+ * 5.75% (from 7 Oct 2026). The RBI changes the bank rate; the report takes the
+ * rate as an input.
  */
-export const DEFAULT_MSME_INTEREST_RATE = 16.5;
+export const DEFAULT_MSME_INTEREST_RATE = 17.25;
 
 /** Micro and small suppliers are covered by s.15-16 and s.43B(h); medium are not. */
 export const msmeCovered = (type: MsmeType | undefined): boolean =>

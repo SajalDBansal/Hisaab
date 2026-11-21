@@ -217,7 +217,7 @@ export function buildReport(
   if (request.report === "msme-payables")
     notes.push(
       `Micro and small suppliers must be paid by the agreed date, at most ${MSME_MAX_DAYS} days from accepting the goods or services, or within ${MSME_NO_AGREEMENT_DAYS} days when no credit period was agreed (MSMED Act s.15). The bill date is taken as the acceptance date and the bill's due date as the agreed date. Medium enterprises are not covered and are not listed.`,
-      "Interest (s.16): compound interest with monthly rests at three times the bank rate notified by the RBI, from the day after the pay-by date to the report date. The default rate assumes a 5.50% bank rate; check the RBI's current bank rate and set the rate on the report. Worked out on what is still unpaid; it is a working figure, not posted to the books.",
+      "Interest (s.16): compound interest with monthly rests at three times the bank rate notified by the RBI, from the day after the pay-by date to the report date. The default rate assumes the 5.75% bank rate in force from 7 Oct 2026; check the RBI's current bank rate and set the rate on the report. Worked out on what is still unpaid; it is a working figure, not posted to the books.",
       "Income Tax s.43B(h): an amount due to a micro or small enterprise that is not paid within this time limit is allowed as an expense only in the year it is actually paid. Bills still overdue at the year end are added back to income for that year.",
     );
   if (request.report === "customer-tracking")

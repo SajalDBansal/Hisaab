@@ -274,7 +274,7 @@ export interface ReportRequest {
   partyId?: string;
   includeNarration: boolean;
   includeZeroBalances: boolean;
-  /** Interest calculator (default 18) and MSME payables (default 16.5): yearly rate in percent. */
+  /** Interest calculator (default 18) and MSME payables (default 17.25): yearly rate in percent. */
   interestRate?: number;
   /** Expiring items: days ahead to include (default 30). */
   expiryDays?: number;
