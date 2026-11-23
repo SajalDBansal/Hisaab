@@ -2,6 +2,7 @@
  * Stock quantities and values, worked out from opening stock and posted vouchers.
  */
 import type { ISODate, InvoiceLine, Item, Paise, Voucher } from "../types";
+import { challanHoldsStock } from "./challans";
 import { thousandths } from "../money";
 import { isPosted } from "./bills";
 import { calcLine } from "./invoice";
@@ -58,10 +59,7 @@ export function stockMovements(
     const inward = v.type === "purchase" || v.type === "credit-note";
     // A delivery challan moves stock out until it is billed; then the invoice does
     const outward =
-      v.type === "sale" ||
-      v.type === "debit-note" ||
-      (v.type === "delivery-note" &&
-        (!v.convertedToId || v.fulfillmentManaged));
+      v.type === "sale" || v.type === "debit-note" || challanHoldsStock(v);
     if (!isPosted(v) || (!inward && !outward)) continue;
     for (const line of v.lines ?? []) {
       if (line.itemId !== itemId) continue;

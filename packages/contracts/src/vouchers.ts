@@ -24,6 +24,14 @@ import {
   InvoiceAssociatesInput,
 } from "./associates";
 
+/** Why goods move on a delivery challan (CGST Rule 55; doc 37, T04). */
+export const ChallanType = z.enum([
+  "supply",
+  "approval",
+  "job-work",
+  "branch-transfer",
+  "other",
+]);
 export const VoucherType = z.enum([
   "sale",
   "purchase",
@@ -275,6 +283,8 @@ export const NewOrderInput = z.object({
   charges: z.array(InputExtraCharge),
   billDiscount: BillDiscountInput.optional(),
   validUntil: IsoDate.optional(),
+  // Delivery challans only (doc 37, T04); default supply.
+  challanType: ChallanType.optional(),
   sourceId: Id.optional(),
   narration: z.string().max(500).optional(),
   customFields: CustomFieldValues.optional(),
@@ -382,6 +392,8 @@ export const Voucher = z.object({
   clearedOn: IsoDate.optional(),
   bankClearings: z.record(Id, IsoDate).optional(),
   validUntil: IsoDate.optional(),
+  challanType: ChallanType.optional(),
+  challanStock: z.boolean().optional(),
   sourceId: Id.optional(),
   convertedToId: Id.optional(),
   mode: PaymentMode.optional(),

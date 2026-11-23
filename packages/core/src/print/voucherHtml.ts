@@ -11,6 +11,7 @@ import {
   calcLine,
   type LineTotals,
 } from "../accounting/invoice";
+import { CHALLAN_TYPE_LABELS } from "../accounting/challans";
 import { udyamLabel } from "../businessProfile";
 import { voucherPostings } from "../accounting/postings";
 import { lineQtyText } from "../accounting/stock";
@@ -352,6 +353,13 @@ function billHtml(input: PrintInput, title: string): string {
     ["Delivery phone", v.delivery?.printPhone ? v.delivery.phone : undefined],
     [numberLabel[v.type] ?? "Invoice no.", v.number],
     ["Date", formatDate(v.date)],
+    // CGST Rule 55: the challan says why the goods move (doc 37, T04).
+    [
+      "Purpose",
+      isChallan && v.challanType
+        ? CHALLAN_TYPE_LABELS[v.challanType]
+        : undefined,
+    ],
     ["Supplier invoice", v.supplierInvoiceNo],
     [
       "Against",

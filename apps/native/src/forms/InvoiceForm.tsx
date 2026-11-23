@@ -21,6 +21,10 @@ import {
   type OrderType,
   allowedDates,
   isOrderType,
+  CHALLAN_TYPES,
+  CHALLAN_TYPE_LABELS,
+  challanMovesStock,
+  type ChallanType,
   formatQty,
   lineQtyText,
   checkInvoice,
@@ -240,6 +244,15 @@ export function InvoiceForm({
   const approveCredit = useApproveSaleCredit();
   const salesControls = useSalesControls();
   const overduePolicy = salesControls.data?.overdueSales ?? "warn";
+  // Delivery challans (doc 37, T04): a saved challan keeps what it did when issued.
+  const challanStock =
+    kind === "delivery-note" &&
+    (editing
+      ? editing.challanStock !== false
+      : (salesControls.data?.challanStock ?? true));
+  const [challanType, setChallanType] = useState<ChallanType>(
+    editing?.challanType ?? "supply",
+  );
   const stockPolicy =
     kind === "sale" && !editing
       ? (salesControls.data?.stockPolicy ?? "warn")
@@ -295,7 +308,11 @@ export function InvoiceForm({
     : allowedDates();
   const stock = useStockLots(date);
   // An edit may reuse the stock this bill already took.
-  const lotPool = lotsWithoutBill(stock.data ?? [], editing);
+  // A sale made from a stock-moving challan takes over the stock the challan holds.
+  const lotPool = lotsWithoutBill(
+    lotsWithoutBill(stock.data ?? [], editing),
+    kind === "sale" && source && challanMovesStock(source) ? source : undefined,
+  );
   const lotsFor = (itemId: string) =>
     lotPool.filter((lot) => lot.itemId === itemId);
   /** Books (GST / non-GST) that still hold this item on the bill date. */
@@ -354,7 +371,9 @@ export function InvoiceForm({
   const [paidText, setPaidText] = useState("");
   const [mode, setMode] = useState<PaymentMode>("cash");
   const [bankId, setBankId] = useState("");
-  const [picker, setPicker] = useState<"party" | "item" | "bank" | null>(null);
+  const [picker, setPicker] = useState<
+    "party" | "item" | "bank" | "challanType" | null
+  >(null);
   const [showErrors, setShowErrors] = useState(false);
 
   const party = parties.data?.find((r) => r.party.id === partyId);
@@ -373,7 +392,7 @@ export function InvoiceForm({
     issuedParty.stateCode !== issuedFirm.stateCode;
 
   // ---- Maths (pure functions from @repo/core) -----------------------------------
-  const usesStock = kind === "sale" || kind === "delivery-note";
+  const usesStock = kind === "sale" || challanStock;
   // Rows without a chosen lot take stock oldest first; an item in both books needs the user's choice.
   const needsBook =
     usesStock &&
@@ -722,6 +741,7 @@ export function InvoiceForm({
             charges,
             billDiscount,
             sourceId: source?.id,
+            ...(kind === "delivery-note" ? { challanType } : {}),
             ...associates,
             customFields: customValues,
           },
@@ -816,7 +836,9 @@ export function InvoiceForm({
           subtitle={`${source ? `From ${source.number} · ` : ""}${
             isOrder
               ? kind === "delivery-note"
-                ? "Not a bill · stock goes out until it is billed"
+                ? challanStock
+                  ? "Not a bill · stock goes out on the challan"
+                  : "Not a bill · stock moves on the invoice"
                 : "Not a bill · no stock, tax or balance change"
               : kind === "purchase"
                 ? "Purchase bill"
@@ -894,6 +916,20 @@ export function InvoiceForm({
           checked={withoutGst}
           onChange={editing ? () => {} : setWithoutGst}
         />
+      ) : null}
+      {kind === "delivery-note" ? (
+        <View style={{ gap: space.sm }}>
+          <SelectField
+            label="Challan type"
+            value={CHALLAN_TYPE_LABELS[challanType]}
+            onPress={editing ? () => {} : () => setPicker("challanType")}
+          />
+          <Txt variant="small" tone="body">
+            {challanStock
+              ? "This challan takes the goods out of stock; the invoice made from it will not take them again."
+              : "Paperwork only: stock moves on the invoice made from this challan."}
+          </Txt>
+        </View>
       ) : null}
       {/* Party */}
       <View style={{ gap: space.sm }}>
@@ -1053,8 +1089,7 @@ export function InvoiceForm({
                   onChange={(on) => toggleAlt(l, item, on)}
                 />
               ) : null}
-              {(kind === "sale" || kind === "delivery-note") &&
-              item?.kind !== "service" ? (
+              {(kind === "sale" || challanStock) && item?.kind !== "service" ? (
                 <SelectField
                   label="Stock lot"
                   value={(() => {
@@ -1477,6 +1512,19 @@ export function InvoiceForm({
               ) : undefined,
             })),
         ]}
+      />
+      <PickerSheet
+        visible={picker === "challanType"}
+        title="Challan type"
+        onClose={() => setPicker(null)}
+        onSelect={(id) => {
+          setChallanType(id as ChallanType);
+          setPicker(null);
+        }}
+        options={CHALLAN_TYPES.map((id) => ({
+          id,
+          title: CHALLAN_TYPE_LABELS[id],
+        }))}
       />
       <PickerSheet
         visible={picker === "party"}

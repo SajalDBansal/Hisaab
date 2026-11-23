@@ -302,6 +302,13 @@
       "when": 1795064391441,
       "tag": "0042_item_extras_and_expiry",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795418396999,
+      "tag": "0043_challan_stock",
+      "breakpoints": true
     }
   ]
 }

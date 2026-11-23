@@ -1,3 +1,4 @@
+import type { ChallanType } from "./accounting/challans";
 import type { CustomFieldValues } from "./customFields";
 /**
  * Shared data types for Hisaab.
@@ -509,6 +510,10 @@ export interface Voucher {
   bankClearings?: Record<string, ISODate>;
   /** Estimates: quote valid until this date. */
   validUntil?: ISODate;
+  /** Delivery challans (doc 37, T04): the purpose printed on it. */
+  challanType?: ChallanType;
+  /** Delivery challans: false = paperwork only; missing or true = it moved stock when issued. */
+  challanStock?: boolean;
   /** The estimate / order this voucher was made from. */
   sourceId?: ID;
   /** Estimates / orders: the voucher it was turned into (it then stops being "open"). */
@@ -788,6 +793,8 @@ export interface NewOrderInput {
   billDiscount?: BillDiscountInput;
   /** Estimates only. Defaults to 15 days after the date. */
   validUntil?: ISODate;
+  /** Delivery challans only: the purpose (default supply). */
+  challanType?: ChallanType;
   /** Made from another document, e.g. a sales order from an estimate. */
   sourceId?: ID;
   narration?: string;

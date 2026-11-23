@@ -1,4 +1,5 @@
 import type { BookScope, InvoiceLine, Item, TaxScope, Voucher } from "../types";
+import { challanHoldsStock } from "./challans";
 import { mulDivRound, thousandths } from "../money";
 import { calcLine } from "./invoice";
 import { baseQty, stockVouchersAsOf, tracksStock } from "./stockInputs";
@@ -175,10 +176,7 @@ export function stockLots(
     }
     const inward = v.type === "purchase";
     const outward =
-      v.type === "sale" ||
-      v.type === "debit-note" ||
-      (v.type === "delivery-note" &&
-        (!v.convertedToId || v.fulfillmentManaged));
+      v.type === "sale" || v.type === "debit-note" || challanHoldsStock(v);
     if (!inward && !outward && v.type !== "credit-note") continue;
     for (const [index, line] of (v.lines ?? []).entries()) {
       if (line.itemId !== item.id) continue;

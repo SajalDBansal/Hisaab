@@ -755,6 +755,7 @@ export function useSaveSalesControls() {
       args: {
         overdueSales: OverdueSalesPolicy;
         stockPolicy?: StockPolicy;
+        challanStock?: boolean;
         version: number;
       },
     ) =>
@@ -762,6 +763,9 @@ export function useSaveSalesControls() {
         {
           overdueSales: args.overdueSales,
           ...(args.stockPolicy ? { stockPolicy: args.stockPolicy } : {}),
+          ...(args.challanStock === undefined
+            ? {}
+            : { challanStock: args.challanStock }),
         },
         args.version,
       ),

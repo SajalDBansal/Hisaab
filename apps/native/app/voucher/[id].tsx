@@ -27,6 +27,7 @@ import {
   formatINR,
   type VoucherDetail,
   AUDIT_ACTION_LABEL,
+  CHALLAN_TYPE_LABELS,
   billsCarryGst,
   COMPOSITION_DECLARATION,
   sideOf,
@@ -195,6 +196,17 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         <Notice
           text={`Cancelled${v.cancelledAt ? ` on ${formatDate(v.cancelledAt.slice(0, 10))}` : ""}${v.cancelReason ? ` · ${v.cancelReason}` : ""}. It no longer counts anywhere.`}
         />
+      ) : null}
+      {v.type === "delivery-note" ? (
+        <Card variant="soft">
+          <Txt variant="small">
+            {v.challanType ? CHALLAN_TYPE_LABELS[v.challanType] : "Challan"}
+            {" · "}
+            {v.challanStock === false
+              ? "Paperwork only: stock moves on the invoice."
+              : "Goods taken out of stock on this challan."}
+          </Txt>
+        </Card>
       ) : null}
       {isNote && d.against ? (
         <Card

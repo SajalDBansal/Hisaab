@@ -1,5 +1,9 @@
 import { eq } from "drizzle-orm";
-import { DEFAULT_OVERDUE_SALES_POLICY, DEFAULT_STOCK_POLICY } from "@repo/core";
+import {
+  DEFAULT_CHALLAN_STOCK,
+  DEFAULT_OVERDUE_SALES_POLICY,
+  DEFAULT_STOCK_POLICY,
+} from "@repo/core";
 import type { Db } from "../../db/client";
 import { salesControls } from "../../db/schema/firms";
 
@@ -15,6 +19,7 @@ export async function loadSalesControls(
   return {
     overdueSales: row?.overdueSales ?? DEFAULT_OVERDUE_SALES_POLICY,
     stockPolicy: row?.stockPolicy ?? DEFAULT_STOCK_POLICY,
+    challanStock: row?.challanStock ?? DEFAULT_CHALLAN_STOCK,
     version: row?.version ?? 0,
   };
 }

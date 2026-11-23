@@ -120,9 +120,12 @@ export const SalesControls = z.object({
   overdueSales: OverdueSalesPolicy,
   // Optional: older apps send only the overdue policy; the saved one is kept.
   stockPolicy: StockPolicy.optional(),
+  // Delivery challans move stock (doc 37, T04); applies to challans issued after it.
+  challanStock: z.boolean().optional(),
 });
 export const SalesControlsView = SalesControls.extend({
   stockPolicy: StockPolicy,
+  challanStock: z.boolean(),
   version: z.number().int(),
 });
 /**

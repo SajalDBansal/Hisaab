@@ -288,6 +288,7 @@ Size: S (days), M (1-2 weeks), L (3-5 weeks), XL (more, or needs an outside prov
 
 | Step | Status |
 | --- | --- |
+| Delivery challan types and stock (T04) | **Built.** A challan carries its purpose under CGST Rule 55, printed on it as "Purpose": supply (invoice to follow), sale on approval, job work, branch / own use transfer, other (not a supply); default supply. A firm setting (Settings → Stock control → "Delivery challans move stock", stored in `sales_controls.challan_stock`, default **yes**, today's behaviour) decides whether a new challan moves stock. Each challan stores what it did when issued (`vouchers.challan_stock`; null on older challans = it moved stock), so the setting is one-way in time: it applies only to challans issued after the change and never re-books old ones. Stock on: the challan takes the goods out of stock (FIFO lots frozen on the challan), the invoice made from it takes none again, cancelling the challan returns the stock (as before). Stock off: the challan is paperwork only and the invoice made from it takes the stock (order fulfilment picks lots like a sales order; the old "sale from" path already did). The challan register shows purpose and where stock moves. Migration 0043 adds the columns; the firm export carries them (optional in version 5). Tests: `packages/core/tests/challans.test.ts`, `apps/api/tests/challans.test.ts`. |
 
 The items below are the original list; all are now settled above.
 

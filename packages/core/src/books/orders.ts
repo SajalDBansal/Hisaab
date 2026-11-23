@@ -3,6 +3,7 @@ import { storedCustomValues } from "../customFields";
 import { gstModeOf } from "../accounting/gstMode";
 import { allocateBillDiscount, calcInvoice } from "../accounting/invoice";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
+import { CHALLAN_TYPES, firmChallanStock } from "../accounting/challans";
 import { assertLotsAvailable, selectStockLines } from "../accounting/stockLots";
 import { captureVoucherSnapshot } from "../accounting/voucherSnapshot";
 import { addDays } from "../dates";
@@ -48,7 +49,16 @@ export function createOrder(
   const { lines, charges } = parts;
   let billDiscount = parts.billDiscount;
   if (!lines.length) throw new Error("Add at least one item.");
-  if (type === "delivery-note" && !options.legacyStock) {
+  const challan = type === "delivery-note";
+  // Each challan keeps what the firm setting said when it was issued (doc 37, T04).
+  const movesStock = challan && firmChallanStock(db);
+  if (input.challanType !== undefined) {
+    if (!challan)
+      throw new Error("Only a delivery challan has a challan type.");
+    if (!CHALLAN_TYPES.includes(input.challanType))
+      throw new Error("Pick a challan type.");
+  }
+  if (movesStock && !options.legacyStock) {
     const selected = selectStockLines(
       db.items,
       db.vouchers,
@@ -93,7 +103,11 @@ export function createOrder(
     pendingSync: options.pendingSync,
     createdAt: new Date().toISOString(),
   };
-  if (type === "delivery-note") {
+  if (challan) {
+    voucher.challanType = input.challanType ?? "supply";
+    voucher.challanStock = movesStock;
+  }
+  if (movesStock) {
     voucher.bookScope = lines[0].bookScope;
     assertLotsAvailable(
       db.items,

@@ -11,6 +11,7 @@ import {
   itcAtRiskBills,
   rankParties,
 } from "../accounting/insightRules";
+import { CHALLAN_TYPE_LABELS, challanMovesStock } from "../accounting/challans";
 import { collectionBills, isPosted, partyBills } from "../accounting/bills";
 import {
   DEFAULT_MSME_INTEREST_RATE,
@@ -534,6 +535,8 @@ export function orderRegisterSection(
   request: ReportRequest,
 ): ReportSection {
   const type = ORDER_REPORT_TYPE[request.report];
+  // Challans show their purpose and whether they moved stock (doc 37, T04).
+  const challan = type === "delivery-note";
   const rows = books.vouchers
     .filter(
       (v) =>
@@ -553,7 +556,12 @@ export function orderRegisterSection(
         v.number,
         voucherParty(books, v)?.name ?? "",
         ORDER_STATUS_LABEL[orderStatus(v, request.to)] ?? "",
-        v.validUntil ? formatDate(v.validUntil) : "",
+        ...(challan
+          ? [
+              v.challanType ? CHALLAN_TYPE_LABELS[v.challanType] : "",
+              challanMovesStock(v) ? "On challan" : "On invoice",
+            ]
+          : [v.validUntil ? formatDate(v.validUntil) : ""]),
         v.status === "cancelled" ? 0 : v.amount,
       ),
     );
@@ -564,7 +572,9 @@ export function orderRegisterSection(
       textColumn("Number"),
       textColumn("Party"),
       textColumn("Status"),
-      textColumn("Valid until"),
+      ...(challan
+        ? [textColumn("Purpose"), textColumn("Stock moves")]
+        : [textColumn("Valid until")]),
       moneyColumn("Amount"),
     ],
     rows,

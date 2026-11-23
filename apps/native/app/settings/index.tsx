@@ -182,7 +182,7 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
       },
       {
         title: "Stock control",
-        note: "What the minimum stock level does to a new sale",
+        note: "Minimum stock on new sales; whether challans move stock",
         icon: "package",
         href: "/settings/stock",
         needs: "settings",
