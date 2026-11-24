@@ -124,6 +124,8 @@ export const BackupRows = {
     overdueSales: z.enum(["off", "warn", "block"]),
     // Stock control (doc 37, T37); files made before it have none.
     stockPolicy: z.enum(["warn", "block"]).default("warn"),
+    // Challan stock (doc 37, T04); files made before it have none.
+    challanStock: z.boolean().default(true),
   }),
   // Firm security (doc 37, T58)
   firmSecurity: z.strictObject({
@@ -276,6 +278,12 @@ export const BackupRows = {
     billDiscountAmount: Paise.default(0),
     // Retail bills' buyer details (doc 37, T02); older version 5 files have none.
     retail: RetailDetails.strict().nullable().optional(),
+    // Delivery challans (doc 37, T04); older files have none.
+    challanType: z
+      .enum(["supply", "approval", "job-work", "branch-transfer", "other"])
+      .nullable()
+      .default(null),
+    challanStock: z.boolean().nullable().default(null),
   }),
   voucherLines: z.strictObject({
     ...entry,

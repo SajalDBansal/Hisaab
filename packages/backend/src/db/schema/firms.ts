@@ -145,6 +145,8 @@ export const salesControls = pgTable("sales_controls", {
   firmId: firmKey(),
   overdueSales: overdueSalesPolicy("overdue_sales").notNull().default("warn"),
   stockPolicy: stockPolicy("stock_policy").notNull().default("warn"),
+  // Delivery challans move stock (doc 37, T04); each challan stores what it did.
+  challanStock: boolean("challan_stock").notNull().default(true),
   ...stamps,
 });
 

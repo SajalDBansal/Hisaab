@@ -14,6 +14,7 @@ import {
   type Item,
   type Voucher as CoreVoucher,
 } from "@repo/core";
+import { challanMovesStock } from "@repo/core/src/accounting/challans";
 import { itemExtras } from "@repo/backend/modules/items/itemExtras";
 import { Voucher, type FirmExportData } from "@repo/contracts";
 import { restoreIds, unsupported } from "./restore.remap";
@@ -521,7 +522,7 @@ function checkOrderMetadata(data: FirmExportData, vouchers: CoreVoucher[]) {
       unsupported(
         "An order fulfillment has changed its source line or frozen snapshot.",
       );
-    if (source.type === "delivery-note") {
+    if (challanMovesStock(source)) {
       if (
         row.stockFulfilledById !== source.id ||
         target.type !== "sale" ||
@@ -593,7 +594,9 @@ function checkOrderMetadata(data: FirmExportData, vouchers: CoreVoucher[]) {
     )
       unsupported("An order is missing persisted source-line identities.");
   for (const row of data.orderSourceLines) {
-    if (byId.get(row.sourceId)?.type !== "delivery-note") continue;
+    const challan = byId.get(row.sourceId);
+    // A paperwork-only challan's invoices take their own stock (doc 37, T04).
+    if (!challan || !challanMovesStock(challan)) continue;
     const consumedCost = checked(() =>
       sumPaise(
         data.orderFulfillmentLines

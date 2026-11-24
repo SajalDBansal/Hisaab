@@ -83,6 +83,8 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     cancelledAt: at(v.cancelledAt),
     editedAt: at(v.editedAt),
     validUntil: v.validUntil ?? null,
+    challanType: v.challanType ?? null,
+    challanStock: v.challanStock ?? null,
     mode: v.mode ?? null,
     ledgerId: ids.optional(v.ledgerId),
     toLedgerId: ids.optional(v.toLedgerId),

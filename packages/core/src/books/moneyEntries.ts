@@ -3,6 +3,8 @@ import { claimsInputTax, gstModeOf } from "../accounting/gstMode";
 import { calcInvoice } from "../accounting/invoice";
 import { checkInvoiceNumbers } from "../accounting/invoiceValidation";
 import { allocateAvailablePayments } from "../accounting/paymentAllocation";
+import { checkRefund, refundType } from "../accounting/refunds";
+import { today } from "../dates";
 import { UNREGISTERED_SUPPLIER_GST_MESSAGE } from "../accounting/taxType";
 import { captureVoucherSnapshot } from "../accounting/voucherSnapshot";
 import type {
@@ -48,7 +50,12 @@ function createMoneyVoucher(
   input: NewMoneyInput,
   options: CreateOptions,
 ): Voucher {
-  findParty(db, input.partyId);
+  const party = findParty(db, input.partyId);
+  const bookScope =
+    input.bookScope ?? (gstModeOf(db.firm) === "off" ? "nongst" : "gst");
+  // A payment to a customer or a receipt from a supplier is a refund (doc 37, T05).
+  if (type === refundType(party))
+    checkRefund(db, party, { ...input, bookScope }, today());
   const settles = input.amount + (input.tds?.amount ?? 0);
   const allocated = input.allocations.reduce((s, a) => s + a.amount, 0);
   if (allocated > settles)
@@ -57,8 +64,7 @@ function createMoneyVoucher(
     id: newId("v"),
     type,
     number: takeNumber(db, type, input.date),
-    bookScope:
-      input.bookScope ?? (gstModeOf(db.firm) === "off" ? "nongst" : "gst"),
+    bookScope,
     date: input.date,
     status: options.status ?? "posted",
     partyId: input.partyId,

@@ -296,8 +296,22 @@ export function unallocatedMoney(party: Party, vouchers: Voucher[]): Paise {
         ),
       0,
     );
+  // Money paid back (doc 37, T05) comes out of what is left on account.
+  const refunded = vouchers
+    .filter(
+      (v) =>
+        isPosted(v) &&
+        v.partyId === party.id &&
+        v.type === (party.type === "customer" ? "payment" : "receipt") &&
+        !v.settlementKind,
+    )
+    .map((v) => -v.amount);
   return Math.max(
-    sumPaise([ordinary, settlementUnallocatedAdjustment(party.id, vouchers)]),
+    sumPaise([
+      ordinary,
+      settlementUnallocatedAdjustment(party.id, vouchers),
+      ...refunded,
+    ]),
     0,
   );
 }

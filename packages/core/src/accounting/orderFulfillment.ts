@@ -9,6 +9,7 @@ import { isStoredQuantity } from "../precision";
 import { calcLine, lineGross, splitBillDiscount } from "./invoice";
 import { checkInvoiceNumbers } from "./invoiceValidation";
 import { CONVERTS_TO, isOrderType } from "./orders";
+import { challanMovesStock } from "./challans";
 import {
   createOrder,
   createPurchase,
@@ -301,7 +302,8 @@ function sliceLine(
       ),
     );
   }
-  if (source.type === "delivery-note") {
+  // A paperwork-only challan (doc 37, T04) is billed like an order: the invoice takes the stock.
+  if (challanMovesStock(source)) {
     if (selection.stockLotId && selection.stockLotId !== line.stockLotId)
       throw new Error("The delivery stock lot is frozen.");
     line.stockFulfilledById = source.id;
@@ -441,6 +443,8 @@ export function planOrderFulfillment(input: {
   narration?: string;
   supplierInvoiceNo?: string;
   availableStockLots?: StockLot[];
+  /** The firm's challan stock setting, for a new delivery challan (default yes). */
+  challanStock?: boolean;
 }): OrderFulfillmentPlan {
   const { source, balances, target, selections } = input;
   if (!isOrderType(source.type) || !CONVERTS_TO[source.type].includes(target))
@@ -478,8 +482,9 @@ export function planOrderFulfillment(input: {
       );
     const line = sliceLine(row, selection, source);
     if (
-      (target === "sale" || target === "delivery-note") &&
-      source.type !== "delivery-note" &&
+      (target === "sale" ||
+        (target === "delivery-note" && input.challanStock !== false)) &&
+      !challanMovesStock(source) &&
       stock &&
       // Services take no stock (doc 37, T39); their kind is fixed once used.
       tracksStock(source.snapshot?.items.find((i) => i.id === line.itemId))
@@ -618,7 +623,7 @@ export function createPlannedFulfillments(
     // persisted delivery continues to move it, and the new bill carries its provenance.
     const hidden = draft.vouchers.filter(
       (v) =>
-        (plan.source.type === "delivery-note" && v.id === plan.source.id) ||
+        (challanMovesStock(plan.source) && v.id === plan.source.id) ||
         (plan.target === "purchase" &&
           saved.some((child) => child.id === v.id)),
     );

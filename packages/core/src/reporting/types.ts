@@ -54,6 +54,8 @@ export const REPORT_IDS = [
   // Stock levels and expiry (doc 37, T37/T38)
   "stock-levels",
   "expiring-items",
+  // Refund history (doc 37, T05)
+  "refunds",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -262,6 +264,11 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     title: "Expiring items",
     category: "Inventory",
     asOf: true,
+  },
+  refunds: {
+    title: "Refunds",
+    category: "Cash and expenses",
+    parties: true,
   },
 };
 

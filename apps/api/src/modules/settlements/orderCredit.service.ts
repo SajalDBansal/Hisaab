@@ -103,6 +103,7 @@ export async function approveOrderCredit(
           availableStockLots: snapshot.books.items.flatMap((item) =>
             stockLots(item, snapshot.books.vouchers, input.fulfillment.date),
           ),
+          challanStock: snapshot.books.salesControls?.challanStock,
         });
         created = createPlannedFulfillments(snapshot.books, plan);
       } catch (error) {

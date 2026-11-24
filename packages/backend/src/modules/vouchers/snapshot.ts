@@ -159,6 +159,8 @@ export async function hydrateVouchers(
       cancelledAt: iso(r.cancelledAt),
       editedAt: iso(r.editedAt),
       validUntil: undef(r.validUntil),
+      challanType: undef(r.challanType),
+      challanStock: undef(r.challanStock),
       sourceId: undef(r.sourceId),
       convertedToId: undef(r.convertedToId),
       mode: undef(r.mode),

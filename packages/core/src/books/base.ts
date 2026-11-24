@@ -36,6 +36,8 @@ export interface Db {
     overdueSales: OverdueSalesPolicy;
     /** Stock control (doc 37, T37); missing = "warn". */
     stockPolicy?: StockPolicy;
+    /** Delivery challans move stock (doc 37, T04); missing = yes. */
+    challanStock?: boolean;
     version: number;
   };
   firm: Firm;

@@ -167,6 +167,7 @@ test(
       assert.deepEqual(controls, {
         overdueSales: "warn",
         stockPolicy: "warn",
+        challanStock: true,
         version: 0,
       });
       assert.equal((await saleCall(bill(customer.id))).statusCode, 201);
@@ -190,6 +191,7 @@ test(
       assert.deepEqual(saved.json(), {
         overdueSales: "block",
         stockPolicy: "warn",
+        challanStock: true,
         version: 1,
       });
 

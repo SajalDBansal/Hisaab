@@ -149,6 +149,10 @@ function PartyBody({
   const p = d.party;
   // A supplier's rates are purchase costs, hidden from sales staff.
   const showProducts = p.type === "customer" || canSeeCosts(role);
+  // Unused credit that can be paid back (doc 37, T05), in either book.
+  const refundable = d.refundable
+    ? Math.max(d.refundable.gst, d.refundable.nongst)
+    : 0;
   const balanceTone = d.balance > 0 ? "get" : d.balance < 0 ? "give" : "body";
   const usedPct =
     p.creditLimit > 0 ? Math.min(d.balance / p.creditLimit, 1) : 0;
@@ -264,19 +268,31 @@ function PartyBody({
         />
       ) : null}
 
-      {d.unallocated > 0 && d.openBills.length > 0 ? (
+      {(d.unallocated > 0 || (d.unappliedCredit ?? 0) > 0) &&
+      d.openBills.length > 0 ? (
         <View style={{ gap: space.sm }}>
           <Notice
-            text={`${formatINR(d.unallocated)} in payments is not linked to bills yet.`}
+            text={[
+              d.unallocated > 0
+                ? `${formatINR(d.unallocated)} in payments is not linked to bills yet.`
+                : "",
+              (d.unappliedCredit ?? 0) > 0
+                ? `${formatINR(d.unappliedCredit ?? 0)} of credit from ${p.type === "customer" ? "credit notes" : "debit notes"} is not used yet.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
           />
           <Button
-            label="Allocate payments"
+            label={
+              d.unallocated > 0 ? "Allocate payments" : "Apply credit to bills"
+            }
             icon="link"
             loading={allocate.isPending}
             onPress={() =>
               confirmAction(
                 "Allocate payments?",
-                "Link unused payments to the oldest open bills. Payment amounts and account balances stay unchanged.",
+                "Link unused payments and return credit to the oldest open bills. Amounts and account balances stay unchanged.",
                 "Allocate",
                 () => {
                   allocate.mutate(p.id, {
@@ -287,6 +303,23 @@ function PartyBody({
             }
           />
         </View>
+      ) : null}
+
+      {refundable > 0 ? (
+        <Button
+          label={
+            p.type === "customer"
+              ? `Refund unused credit (up to ${formatINR(refundable)})`
+              : `Record refund from supplier (up to ${formatINR(refundable)})`
+          }
+          icon="rotate-ccw"
+          onPress={() =>
+            router.push({
+              pathname: p.type === "customer" ? "/payment/new" : "/receipt/new",
+              params: { partyId: p.id, refund: "1" },
+            })
+          }
+        />
       ) : null}
 
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>

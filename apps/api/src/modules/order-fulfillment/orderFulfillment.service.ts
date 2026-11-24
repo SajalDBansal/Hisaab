@@ -33,6 +33,7 @@ import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { requireVoucherTypeRead } from "../../lib/read-permissions";
 import { notFound } from "@repo/backend/modules/masters/shared";
 import { loadReportBooks } from "@repo/backend/modules/reports/books";
+import { loadSalesControls } from "@repo/backend/modules/salesControls/salesControls.repo";
 import { enforcePlannedSaleCredit } from "../settlements/orderCredit.service";
 import {
   assertOrderCapacity,
@@ -299,6 +300,7 @@ export const orderFulfillmentService = {
       const available = books.items.flatMap((item) =>
         stockLots(item, books.vouchers, input.date),
       );
+      const { challanStock } = await loadSalesControls(tx, actor.firmId);
       const plan = core(() =>
         planOrderFulfillment({
           source,
@@ -310,6 +312,7 @@ export const orderFulfillmentService = {
           narration: input.narration,
           supplierInvoiceNo: input.supplierInvoiceNo,
           availableStockLots: available,
+          challanStock,
         }),
       );
       await persistSourceLines(

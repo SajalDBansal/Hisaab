@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { CustomFieldValues } from "@repo/core";
+import type { ChallanType, CustomFieldValues } from "@repo/core";
 import type {
   CommissionSnapshot,
   DeliverySnapshot,
@@ -137,6 +137,9 @@ export const vouchers = pgTable(
 
     // Estimates and orders
     validUntil: date("valid_until", { mode: "string" }),
+    // Delivery challans (doc 37, T04): purpose, and false when it moved no stock
+    challanType: text("challan_type").$type<ChallanType>(),
+    challanStock: boolean("challan_stock"),
     sourceId: uuid("source_id").references((): AnyPgColumn => vouchers.id, {
       onDelete: "restrict",
     }),

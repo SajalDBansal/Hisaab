@@ -1,5 +1,6 @@
 /** Corrections: cancelling, editing and moving bills, and returns (credit / debit notes). */
 import { storedCustomValues } from "../customFields";
+import { challanMovesStock } from "../accounting/challans";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
@@ -361,7 +362,7 @@ export function updateInvoice(
       "Cancel and recreate the bill to change its book category.",
     );
   input = { ...input, bookScope: bookScopeOf(v) };
-  const usesStock = v.type === "sale" || v.type === "delivery-note";
+  const usesStock = v.type === "sale" || challanMovesStock(v);
   if (usesStock)
     input.lines = selectStockLines(
       db.items,

@@ -1,4 +1,5 @@
 import type { InvoiceLine, Item, Voucher } from "../types";
+import { challanHoldsStock } from "./challans";
 import { bookScopeOf } from "./bookScope";
 import { baseQty, tracksStock } from "./stockInputs";
 import { stockLots } from "./stockLots";
@@ -19,11 +20,7 @@ function movesLot(voucher: Voucher, line: InvoiceLine) {
     )
   )
     return false;
-  if (
-    voucher.type === "delivery-note" &&
-    voucher.convertedToId &&
-    !voucher.fulfillmentManaged
-  )
+  if (voucher.type === "delivery-note" && !challanHoldsStock(voucher))
     return false;
   return voucher.lines?.some(
     (row) =>
