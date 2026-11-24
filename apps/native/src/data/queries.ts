@@ -22,7 +22,8 @@ import {
   type DocumentFile,
   type FirmUpdate,
   type InvoiceSettings,
-  type InvoiceTemplate,
+  type PrintLayout,
+  type NewRetailSaleInput,
   type ItemInput,
   type PartyInput,
   type NewDocumentInput,
@@ -61,8 +62,11 @@ export const keys = {
   ledgers: ["ledgers"] as const,
   vouchers: (filters: VoucherFilters) => ["vouchers", filters] as const,
   voucher: (id: string) => ["voucher", id] as const,
-  nextNumber: (type: VoucherType, series?: "bos" | "nongst", fy?: string) =>
-    ["nextNumber", type, series ?? "normal", fy ?? "now"] as const,
+  nextNumber: (
+    type: VoucherType,
+    series?: "bos" | "nongst" | "retail" | "nongst-retail",
+    fy?: string,
+  ) => ["nextNumber", type, series ?? "normal", fy ?? "now"] as const,
   invoices: (type: "sale" | "purchase") => ["invoices", type] as const,
   statement: (ledgerId: string) => ["statement", ledgerId] as const,
   chart: ["chart"] as const,
@@ -211,7 +215,7 @@ export const useVoucher = (id: string) =>
 /** Next voucher number; series "bos" = sales bill of supply. `date` picks the financial year. */
 export const useNextNumber = (
   type: VoucherType,
-  series?: "bos" | "nongst",
+  series?: "bos" | "nongst" | "retail" | "nongst-retail",
   date?: string,
 ) => {
   const fy = date ? financialYear(date).short : undefined;
@@ -412,7 +416,7 @@ export const useUnits = () =>
   });
 
 /** Printable HTML for a voucher; `template` previews another format. */
-export const usePrintable = (id: string, template?: InvoiceTemplate) =>
+export const usePrintable = (id: string, template?: PrintLayout) =>
   useQuery({
     queryKey: ["printable", id, template ?? "saved"],
     queryFn: (services) => services.printService.voucher(id, template),
@@ -467,6 +471,17 @@ export function useCreateSales() {
   return useMutation({
     mutationFn: (services, input: NewInvoiceInput) =>
       services.voucherService.createSales(input),
+    onSuccess: refreshAll,
+  });
+}
+/** Retail (walk-in) bill, paid in full now (doc 37, T02). Online only. */
+export function useCreateRetailSale() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      { input, requestKey }: { input: NewRetailSaleInput; requestKey: string },
+    ) => services.voucherService.createRetailSale(input, requestKey),
     onSuccess: refreshAll,
   });
 }

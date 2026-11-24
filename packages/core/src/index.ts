@@ -67,6 +67,7 @@ export {
 } from "./services/customFieldService";
 export * from "./print/voucherHtml";
 export * from "./print/messages";
+export * from "./print/upi";
 export { printService, type PrintableVoucher } from "./services/printService";
 export { type FirmRow } from "./services/firmService";
 export {
@@ -112,6 +113,8 @@ export {
   createReceipt,
   createSale,
   createSales,
+  createRetailSale,
+  walkInParty,
   draftSaleMargin,
   type SaleMarginInput,
   editBlocker,
@@ -127,7 +130,12 @@ export {
   nextSequence,
   numberingRule,
   seriesPrefix,
+  DEFAULT_RETAIL_PREFIX,
+  retailPrefixOf,
+  parseCounterKey,
+  counterKeyOf,
 } from "./books/base";
+export { WALK_IN_PARTY_NAME, retailDetails } from "./books/invoices";
 export * from "./precision";
 export * from "./accounting/voucherSnapshot";
 export { checkInvoiceNumbers } from "./accounting/invoiceValidation";

@@ -4,7 +4,7 @@ import type { PdfRenderer } from "@repo/backend/modules/server-pdf/server-pdf.se
 
 // Only render our generated HTML: no page scripts, external requests or file URLs.
 export function createPdfRenderer(executablePath: string): PdfRenderer {
-  return async (html, compact) => {
+  return async (html, roll) => {
     if (Buffer.byteLength(html) > 2 * 1024 * 1024)
       throw new AppError(
         "PDF_TOO_LARGE",
@@ -34,9 +34,11 @@ export function createPdfRenderer(executablePath: string): PdfRenderer {
         timeout: 15_000,
       });
       return await page.pdf({
-        ...(compact ? { width: "80mm", height: "297mm" } : { format: "A4" }),
+        ...(roll ? { width: roll, height: "297mm" } : { format: "A4" }),
         printBackground: true,
-        margin: { top: "8mm", bottom: "8mm", left: "5mm", right: "5mm" },
+        margin: roll
+          ? { top: "4mm", bottom: "4mm", left: "3mm", right: "3mm" }
+          : { top: "8mm", bottom: "8mm", left: "5mm", right: "5mm" },
       });
     } finally {
       clearTimeout(timer);

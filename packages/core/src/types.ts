@@ -450,7 +450,18 @@ export interface Allocation {
   amount: Paise;
 }
 
+/**
+ * A retail (walk-in) sale (doc 37, T02): paid in full when made and numbered in
+ * its own series. The buyer's name and phone are optional and only printed.
+ */
+export interface RetailDetails {
+  name?: string;
+  phone?: string;
+}
+
 export interface Voucher {
+  /** Retail sales only (doc 37, T02); missing on every other voucher. */
+  retail?: RetailDetails;
   /** The user who made it (for roles limited to their own records, doc 37). */
   createdBy?: string;
   /** Header custom field values by field key (doc 37, T07). */
@@ -594,6 +605,24 @@ export interface NewInvoiceInput {
   narration?: string;
   /** The estimate / order this bill is made from; it is marked as converted. */
   sourceId?: ID;
+  /** A retail sale (doc 37, T02): paid in full now and numbered in the retail series. */
+  retail?: RetailDetails;
+}
+
+/**
+ * A walk-in sale (doc 37, T02). Without a party it goes to the firm's cash
+ * customer; the whole bill is received now into the chosen cash or UPI account.
+ */
+export interface NewRetailSaleInput {
+  customFields?: CustomFieldValues;
+  partyId?: ID;
+  /** Printed on the bill; the cash customer stays the party. */
+  buyer?: RetailDetails;
+  date: ISODate;
+  lines: InvoiceLine[];
+  billDiscount?: BillDiscountInput;
+  paidBy: { mode: PaymentMode; ledgerId: ID };
+  narration?: string;
 }
 
 /** A new receipt (money in from a customer) or payment (money out to a supplier). */
@@ -643,6 +672,16 @@ export interface NewJournalInput {
 // ---------------------------------------------------------------------------
 
 export type InvoiceTemplate = "classic" | "modern" | "compact";
+/** How a bill is printed: a firm template, or the compact layout on a 58 mm roll ("compact" is 80 mm). */
+export type PrintLayout = InvoiceTemplate | "compact-58";
+
+/** UPI QR printed on sale bills with an amount due (doc 37, T18). */
+export interface UpiQrSettings {
+  /** e.g. "shreekrishna@hdfcbank" */
+  upiId: string;
+  /** Name the customer's UPI app shows, e.g. the firm's name. */
+  payeeName: string;
+}
 
 export interface InvoiceSettings {
   template: InvoiceTemplate;
@@ -661,6 +700,12 @@ export interface InvoiceSettings {
   numbering: Partial<Record<VoucherType, NumberingRule>>;
   /** Charge heads picked on bills (doc 37, T09); missing = none set up. */
   chargeHeads?: ChargeHead[];
+  /** Retail bills' own series (doc 37, T02), e.g. "RI" gives "RI/26-27/0001"; missing = "RI". */
+  retailPrefix?: string;
+  /** Thermal roll retail bills print on; missing = "80". */
+  retailPaper?: "58" | "80";
+  /** UPI QR on sale bills (doc 37, T18); null or missing = off. */
+  upiQr?: UpiQrSettings | null;
 }
 
 /**

@@ -332,6 +332,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           {v.docType ? (
             <Badge label={docTypeLabel(v.docType)} tone="ink" />
           ) : null}
+          {v.retail ? (
+            <Badge
+              label={`Retail${v.retail.name ? ` · ${v.retail.name}` : ""}`}
+            />
+          ) : null}
           <Badge
             label={
               v.status === "posted"

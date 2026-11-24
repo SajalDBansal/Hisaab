@@ -57,6 +57,13 @@ export function voucherServices({ request, pages }: Client) {
         body: input,
         headers: pendingWriteHeaders(input, "/sales/split"),
       }),
+    // Retail bills (doc 37, T02) are online only: sent now with the form's
+    // own Idempotency-Key, never queued.
+    createRetailSale: (input, requestKey?: string) =>
+      request("/sales/retail", z.array(c.Voucher), {
+        body: input,
+        headers: requestKey ? { "idempotency-key": requestKey } : undefined,
+      }),
     // A read: nothing is saved, so no request key and never queued offline.
     saleMargin: (input) =>
       request("/sales/margin", c.SaleMargin, { method: "POST", body: input }),

@@ -167,6 +167,8 @@ export const vouchers = pgTable(
     // each line holds its share in voucher_lines.bill_discount.
     billDiscountPercent: percent("bill_discount_percent"),
     billDiscountAmount: paise("bill_discount_amount"),
+    // Retail bills only (doc 37, T02): { name?, phone? } of the walk-in buyer.
+    retail: jsonb("retail").$type<{ name?: string; phone?: string }>(),
 
     createdBy: uuid("created_by"),
     ...stamps,

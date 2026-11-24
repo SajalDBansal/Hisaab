@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { View } from "react-native";
-import { PAGE_WIDTH, type InvoiceTemplate } from "@repo/core";
+import { PAGE_WIDTH, retailLayout, type PrintLayout } from "@repo/core";
 import {
   Button,
   FooterBar,
@@ -14,15 +14,22 @@ import {
   showError,
 } from "@/components";
 import { printHtml, sharePdf, whatsappText } from "@/data/print";
-import { useInvoiceSettings, usePrintable } from "@/data/queries";
+import { useInvoiceSettings, usePrintable, useVoucher } from "@/data/queries";
 import { space } from "@/theme";
 
 /** Preview a voucher as it will print, then share it as a PDF, print it or send a WhatsApp message. */
 export default function PrintScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const settings = useInvoiceSettings();
-  const [template, setTemplate] = useState<InvoiceTemplate | undefined>();
-  const chosen = template ?? settings.data?.template ?? "classic";
+  const [template, setTemplate] = useState<PrintLayout | undefined>();
+  // Retail bills (doc 37, T02) open on the firm's thermal roll.
+  const retail = !!useVoucher(id).data?.voucher.retail;
+  const saved: PrintLayout | undefined = settings.data
+    ? retail
+      ? retailLayout(settings.data)
+      : settings.data.template
+    : undefined;
+  const chosen = template ?? saved ?? "classic";
   const doc = usePrintable(id, chosen);
   const [busy, setBusy] = useState(false);
 
@@ -81,7 +88,8 @@ export default function PrintScreen() {
         options={[
           { value: "classic", label: "Classic" },
           { value: "modern", label: "Modern" },
-          { value: "compact", label: "Compact" },
+          { value: "compact", label: "80 mm" },
+          { value: "compact-58", label: "58 mm" },
         ]}
       />
       <QueryView query={doc}>
@@ -89,11 +97,13 @@ export default function PrintScreen() {
           <View style={{ gap: space.sm }}>
             <HtmlPreview
               html={p.html}
-              height={chosen === "compact" ? 760 : 560}
+              height={
+                chosen === "compact" || chosen === "compact-58" ? 760 : 560
+              }
               pageWidth={PAGE_WIDTH[chosen]}
             />
             <Txt variant="caption" tone="body">
-              {template && template !== settings.data?.template
+              {template && template !== saved
                 ? "Previewing another format. Change the default in Settings → Invoice and numbering."
                 : "Share PDF sends the bill as a PDF file — pick WhatsApp, Gmail or any app. Message only sends a short WhatsApp text with the amount."}
             </Txt>

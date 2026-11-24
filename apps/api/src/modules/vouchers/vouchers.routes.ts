@@ -14,6 +14,7 @@ import {
   NewMoneyInput,
   NewNoteInput,
   NewOrderInput,
+  NewRetailSaleInput,
   NextNumber,
   NextNumberQuery,
   OrderListQuery,
@@ -108,6 +109,20 @@ export async function voucherRoutes(
       reply
         .code(201)
         .send(await vouchersService.sales(db, createCtx(req), req.body)),
+  );
+
+  // Retail (walk-in) bill, paid in full now (doc 37, T02). Online only: the
+  // app never queues it offline; a retry with the same Idempotency-Key is safe.
+  typed.post(
+    "/sales/retail",
+    {
+      preHandler: app.inFirm("sales"),
+      schema: { body: NewRetailSaleInput, response: { 201: z.array(Voucher) } },
+    },
+    async (req, reply) =>
+      reply
+        .code(201)
+        .send(await vouchersService.retailSale(db, createCtx(req), req.body)),
   );
 
   // Profit margin while making a sale (doc 37, T12): only with the "see profit

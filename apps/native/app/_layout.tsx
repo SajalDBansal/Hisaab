@@ -19,6 +19,7 @@ import { PrivacyBoundary } from "@/auth/PrivacyBoundary";
 /** Create and edit screens, with the rights the server checks on their save. */
 const CREATE_SCREENS: [string, Permission[] | null][] = [
   ["sale/new", ["sales"]],
+  ["sale/retail", ["sales"]],
   ["sale/edit/[id]", ["sales"]],
   ["receipt/new", ["sales"]],
   ["purchase/new", ["purchase"]],
