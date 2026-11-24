@@ -387,6 +387,56 @@ export const BackupRows = {
     ipAddress: Text.nullable(),
     device: Text.nullable(),
   }),
+  // Recurring entries and approvals (doc 37, T03/T06); files made before them have none.
+  approvalControls: z.strictObject({
+    ...firm,
+    ...stamps,
+    types: z.array(VoucherType).max(20),
+  }),
+  recurringSchedules: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    voucherType: VoucherType,
+    template: z.record(z.string(), z.unknown()),
+    frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]),
+    interval: Count,
+    startDate: IsoDate,
+    endDate: IsoDate.nullable(),
+    maxCount: Count.nullable(),
+    generatedCount: Count,
+    nextDate: IsoDate.nullable(),
+    active: z.boolean(),
+    lastSkippedOn: IsoDate.nullable(),
+    sourceVoucherId: Id.nullable(),
+    createdBy: Id,
+    createdByName: Text,
+  }),
+  pendingEntries: z.strictObject({
+    ...row,
+    ...stamps,
+    voucherType: VoucherType,
+    status: z.enum(["draft", "submitted", "rejected", "posted", "discarded"]),
+    source: z.enum(["recurring", "approval"]),
+    scheduleId: Id.nullable(),
+    dueDate: IsoDate.nullable(),
+    date: IsoDate,
+    partyId: Id.nullable(),
+    amount: Paise,
+    input: z.record(z.string(), z.unknown()),
+    note: Text.nullable(),
+    createdBy: Id.nullable(),
+    createdByName: Text,
+    submittedBy: Id.nullable(),
+    submittedByName: Text.nullable(),
+    submittedAt: IsoDateTime.nullable(),
+    reviewedBy: Id.nullable(),
+    reviewedByName: Text.nullable(),
+    reviewedAt: IsoDateTime.nullable(),
+    rejectReason: Text.nullable(),
+    voucherId: Id.nullable(),
+    history: z.array(z.record(z.string(), z.unknown())).max(200),
+  }),
   customRoles: z.strictObject({
     ...row,
     ...stamps,
@@ -513,6 +563,10 @@ export const FirmExportData = z.strictObject({
   masterImportBatches: rows(BackupRows.masterImportBatches),
   customFields: rows(BackupRows.customFields),
   customRoles: rows(BackupRows.customRoles),
+  // Optional: version 5 files made before recurring entries and approvals have none.
+  approvalControls: BackupRows.approvalControls.nullable().optional(),
+  recurringSchedules: rows(BackupRows.recurringSchedules).optional(),
+  pendingEntries: rows(BackupRows.pendingEntries).optional(),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 
@@ -586,6 +640,9 @@ const LegacyDataV4 = FirmExportData.extend({
   customRoles: true,
   salesControls: true,
   firmSecurity: true,
+  approvalControls: true,
+  recurringSchedules: true,
+  pendingEntries: true,
 });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({

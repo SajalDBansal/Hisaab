@@ -1,5 +1,10 @@
 import * as demo from "@repo/core";
 import { demoCashForecastService } from "./cashForecastService";
+import {
+  demoEntryNotices,
+  demoRecurringService,
+  type RecurringService,
+} from "./recurringServices";
 import type { ImportService } from "./importServices";
 import type { LoanService } from "./loanServices";
 import type { InventoryService } from "./inventoryServices";
@@ -25,6 +30,8 @@ import type {
 
 export const demoServices = {
   cashForecastService: demoCashForecastService,
+  // Recurring entries and approvals (doc 37, T03/T06), on the in-memory books.
+  recurringService: demoRecurringService as RecurringService,
   bookControlService: {
     get: signInForBookControls,
     update: signInForBookControls,
@@ -65,7 +72,22 @@ export const demoServices = {
   customFieldService: demo.customFieldService,
   printService: demo.printService,
   searchService: demo.searchService,
-  notificationService: demo.notificationService,
+  notificationService: {
+    ...demo.notificationService,
+    // Recurring drafts and approvals join the bell, as on the server.
+    async list(): Promise<demo.NoticeList> {
+      const [list, pending] = await Promise.all([
+        demo.notificationService.list(),
+        demoEntryNotices(),
+      ]);
+      const read = new Set(list.notices.filter((n) => n.read).map((n) => n.id));
+      const extra = pending.map((n) => ({ ...n, read: read.has(n.id) }));
+      return {
+        notices: [...extra, ...list.notices],
+        unread: list.unread + extra.filter((n) => !n.read).length,
+      };
+    },
+  },
   documentService: demo.documentService,
   reminderService: demo.reminderService,
   bankService: demo.bankService,

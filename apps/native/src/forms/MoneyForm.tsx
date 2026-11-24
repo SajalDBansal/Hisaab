@@ -59,6 +59,7 @@ import {
   useParty,
 } from "@/data/queries";
 import { colors, radius, space } from "@/theme";
+import { useApprovalSave } from "@/forms/approvalSave";
 
 export type MoneyKind = "receipt" | "payment";
 
@@ -220,6 +221,7 @@ export function MoneyForm({
     });
   };
 
+  const approval = useApprovalSave(kind);
   const save = async () => {
     setShowErrors(true);
     if (problem || !partyId || !amount) return;
@@ -249,6 +251,7 @@ export function MoneyForm({
         : undefined,
     };
     try {
+      if (await approval.send(input)) return;
       const saved = await attachments.save(
         kind === "receipt" ? "/receipts" : "/payments",
         input,
@@ -290,10 +293,10 @@ export function MoneyForm({
             </Txt>
           </View>
           <Button
-            label={text.saveLabel}
+            label={approval.waits ? "Send for approval" : text.saveLabel}
             variant="primary"
             onPress={save}
-            loading={saving || attachments.busy}
+            loading={saving || attachments.busy || approval.busy}
             disabled={showErrors && !!problem}
           />
         </FooterBar>

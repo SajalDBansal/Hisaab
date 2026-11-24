@@ -167,6 +167,25 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "team",
       },
       {
+        title: "Recurring entries",
+        note: "Drafts made on a schedule, like rent",
+        icon: "repeat",
+        href: "/settings/recurring",
+      },
+      {
+        title: "Entries to review",
+        note: "Recurring drafts and entries waiting for approval",
+        icon: "inbox",
+        href: "/entries",
+      },
+      {
+        title: "Approvals",
+        note: "Which entries need the owner's approval",
+        icon: "check-square",
+        href: "/settings/approvals",
+        needs: "team",
+      },
+      {
         title: "Credit control",
         note: "What overdue bills do to a new sale",
         icon: "alert-octagon",

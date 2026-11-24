@@ -61,6 +61,7 @@ import {
 import { useCustomFields, useVoucher } from "@/data/queries";
 import { useData } from "@/data/DataProvider";
 import { canManageVoucher } from "@/data/voucherAccess";
+import { isRecurringType } from "@repo/core";
 import { colors, space } from "@/theme";
 import { formatDateTime } from "@/data/format";
 
@@ -300,6 +301,16 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
                 />
               ) : null}
             </>
+          ) : null}
+          {isRecurringType(v.type) && !v.settlementKind ? (
+            <Button
+              label="Repeat"
+              size="sm"
+              icon="repeat"
+              onPress={() =>
+                router.push(`/recurring/new?voucherId=${v.id}` as Href)
+              }
+            />
           ) : null}
           {canCancel ? (
             <Button

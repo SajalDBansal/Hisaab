@@ -26,6 +26,7 @@ export const backupTables = {
   firmBranding: schema.firmBranding,
   salesControls: schema.salesControls,
   firmSecurity: schema.firmSecurity,
+  approvalControls: schema.approvalControls,
   parties: schema.parties,
   items: schema.items,
   units: schema.units,
@@ -70,6 +71,8 @@ export const backupTables = {
   openingBills: schema.openingBills,
   customFields: schema.customFields,
   customRoles: schema.customRoles,
+  recurringSchedules: schema.recurringSchedules,
+  pendingEntries: schema.pendingEntries,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 
@@ -245,6 +248,7 @@ export async function readFirmExport(db: Reader, firmId: string) {
       "firmBranding",
       "salesControls",
       "firmSecurity",
+      "approvalControls",
       "bookControls",
     ].includes(name);
     data[name] = single ? (rows[0] ?? null) : rows;

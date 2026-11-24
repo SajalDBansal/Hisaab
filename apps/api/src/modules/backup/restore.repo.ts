@@ -47,6 +47,7 @@ async function insertRows(
 
 const first: TableName[] = [
   "firmProfile",
+  "approvalControls",
   "customFields",
   "customRoles",
   "parties",
@@ -95,6 +96,8 @@ const last: TableName[] = [
   "associateJournals",
   "commissionEntries",
   "associateEvents",
+  "recurringSchedules",
+  "pendingEntries",
   "bookControlEvents",
   "bookControls",
 ];

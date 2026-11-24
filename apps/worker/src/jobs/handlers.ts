@@ -10,6 +10,7 @@ import type {
 } from "@repo/backend/jobs/queues";
 import { UnrecoverableError } from "bullmq";
 import { runReminders } from "./reminders";
+import { runRecurringEntries } from "./recurring";
 import type { RedisClient } from "@repo/backend/lib/redis";
 import {
   renderVoucherPdf,
@@ -54,6 +55,7 @@ export async function handleJob<K extends QueueName>(
         );
       return ctx.backup.run();
     case "reminders":
+      if (data.kind === "recurring-entries") return runRecurringEntries(ctx);
       if (data.kind !== "scan-firm" && data.kind !== "scan-all-firms") break;
       if (!ctx.redis || !ctx.jobs)
         throw new UnrecoverableError("Reminder jobs are not configured.");

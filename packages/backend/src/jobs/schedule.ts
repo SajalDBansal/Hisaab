@@ -23,6 +23,15 @@ export async function scheduleRecurringJobs(
         repeat: { pattern: "0 10 * * *", tz: IST },
       },
     ),
+    // Hourly, so drafts appear early on their date and a missed run catches up.
+    jobs.add(
+      "reminders",
+      { kind: "recurring-entries" },
+      {
+        jobId: "repeat-recurring-entries",
+        repeat: { pattern: "5 * * * *", tz: IST },
+      },
+    ),
     jobs.add(
       "cleanup",
       { kind: "nightly-cleanup" },

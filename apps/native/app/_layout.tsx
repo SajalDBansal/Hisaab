@@ -41,6 +41,8 @@ const CREATE_SCREENS: [string, Permission[] | null][] = [
   ["settings/firm", ["settings"]],
   ["settings/invoice", ["settings"]],
   ["settings/credit", ["settings"]],
+  ["settings/approvals", ["team"]],
+  ["recurring/new", ["sales", "purchase", "payments", "accounts"]],
   ["settings/charges", ["settings"]],
   ["settings/stock", ["settings"]],
   ["settings/invite", ["team"]],
