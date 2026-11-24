@@ -9,6 +9,7 @@ export const NoticeKind = z.enum([
   "estimate",
   "gst",
   "backup",
+  "entries",
 ]);
 
 export const NoticeLink = z.object({
@@ -20,6 +21,7 @@ export const NoticeLink = z.object({
     "gst",
     "backup",
     "outstanding",
+    "entries",
   ]),
   id: Id.optional(),
 });

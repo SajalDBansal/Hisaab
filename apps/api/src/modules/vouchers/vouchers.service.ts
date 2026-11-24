@@ -1,4 +1,6 @@
 import {
+  canApprove,
+  isApprovalType,
   canSeeCosts,
   canVoucher,
   draftSaleMargin,
@@ -101,6 +103,7 @@ import {
 import { enforceSaleCredit } from "../settlements/credit.service";
 import { billAllocations } from "@repo/core/src/accounting/settlements";
 import { printVoucher } from "@repo/backend/modules/vouchers/print";
+import { loadApprovalControls } from "@repo/backend/modules/recurring/recurring.repo";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type ChangeDb = Db | Tx;
@@ -111,6 +114,10 @@ export interface Ctx extends Actor {
   role: Role;
   /** Set on creates that carried an Idempotency-Key. */
   idem?: Idem;
+  /** Posting an entry that was approved, or saved by someone who may post it (doc 37, T06). */
+  approved?: boolean;
+  /** Note on the new entry's "created" edit-log row (approval, recurring schedule). */
+  auditNote?: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -241,6 +248,27 @@ export async function change(
       requireRight(member.role as Role, v.type, action);
       if (was) requireOwnRecord(member.role as Role, ctx, was);
     }
+    // Approvals (doc 37, T06): a new receipt, payment, contra, expense or
+    // journal of a type that needs approval is sent for approval instead.
+    // Entries made with a sale or purchase (money paid now) never wait.
+    const created = [result].flat().filter((v) => !snap.before.has(v.id));
+    if (
+      !ctx.approved &&
+      created.length &&
+      created.every((v) => isApprovalType(v.type)) &&
+      !canApprove(member.role)
+    ) {
+      const { types } = await loadApprovalControls(tx, ctx.firmId);
+      if (created.some((v) => types.includes(v.type)))
+        throw new AppError(
+          "APPROVAL_REQUIRED",
+          "This kind of entry needs approval in this firm. Send it for approval.",
+          409,
+        );
+    }
+    if (ctx.auditNote)
+      for (const entry of snap.books.auditLog)
+        if (entry.action === "created") entry.note ??= ctx.auditNote;
     const saved = await saveChanges(tx, ctx.firmId, ctx, snap);
     await syncAssociateVouchers(tx, ctx, snap, saved);
     for (const v of [result].flat()) {

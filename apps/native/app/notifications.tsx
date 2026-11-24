@@ -23,6 +23,7 @@ const ICON: Record<NoticeKind, IconName> = {
   estimate: "clipboard",
   gst: "percent",
   backup: "cloud",
+  entries: "repeat",
 };
 
 const hrefFor = (link: NoticeLink): Href => {
@@ -41,6 +42,8 @@ const hrefFor = (link: NoticeLink): Href => {
       return "/settings/backup";
     case "outstanding":
       return { pathname: "/reports/outstanding", params: { type: "customer" } };
+    case "entries":
+      return "/entries";
   }
 };
 

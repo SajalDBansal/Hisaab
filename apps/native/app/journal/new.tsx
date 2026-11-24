@@ -36,6 +36,7 @@ import {
 import { space } from "@/theme";
 import { AttachmentPicker } from "@/documents/AttachmentPicker";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
+import { useApprovalSave } from "@/forms/approvalSave";
 
 interface Line {
   account: string;
@@ -97,18 +98,21 @@ export default function NewJournalScreen() {
     setLines([...lines, line]);
   };
 
+  const approval = useApprovalSave("journal");
   const save = async () => {
     setShowErrors(true);
     if (problem) return;
     try {
+      const input = {
+        bookScope,
+        date,
+        lines: amounts.filter((l) => l.account),
+        narration: note.trim() || undefined,
+      };
+      if (await approval.send(input)) return;
       const saved = await attachments.save(
         "/journals",
-        {
-          bookScope,
-          date,
-          lines: amounts.filter((l) => l.account),
-          narration: note.trim() || undefined,
-        },
+        input,
         createJournal.mutateAsync,
       );
       router.replace(`/voucher/${saved.id}`);
@@ -139,10 +143,12 @@ export default function NewJournalScreen() {
             </Txt>
           </View>
           <Button
-            label="Save journal"
+            label={approval.waits ? "Send for approval" : "Save journal"}
             variant="primary"
             onPress={save}
-            loading={createJournal.isPending || attachments.busy}
+            loading={
+              createJournal.isPending || attachments.busy || approval.busy
+            }
             disabled={
               accounts.isPending ||
               accounts.isError ||

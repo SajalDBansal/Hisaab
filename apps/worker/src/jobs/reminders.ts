@@ -95,6 +95,7 @@ export async function runReminders(
   const asOf = businessDate(now);
   if (job.kind === "scan-all-firms")
     return queueFirmScans(ctx.db, ctx.jobs, asOf);
+  if (job.kind !== "scan-firm") return { skipped: "not-a-scan", delivered: 0 };
   const [firm] = await ctx.db
     .select({ id: schema.firmProfile.firmId })
     .from(schema.firmProfile)

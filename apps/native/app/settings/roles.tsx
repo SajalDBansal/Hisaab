@@ -54,6 +54,11 @@ const FLAGS: { key: keyof RoleFlags; label: string; note: string }[] = [
     label: "Restore cancelled entries",
     note: "Put a cancelled entry back",
   },
+  {
+    key: "approveEntries",
+    label: "Approve entries",
+    note: "Approve or send back entries that need approval, and post those directly",
+  },
 ];
 const ACTION_LABEL: Record<VoucherAction, string> = {
   view: "See",
@@ -317,7 +322,7 @@ function RoleEditor({ draft, done }: { draft: Draft; done: () => void }) {
         <View key={f.key} style={{ gap: 2 }}>
           <Checkbox
             label={f.label}
-            checked={rights.flags[f.key]}
+            checked={!!rights.flags[f.key]}
             onChange={(on) =>
               setRights({ ...rights, flags: { ...rights.flags, [f.key]: on } })
             }

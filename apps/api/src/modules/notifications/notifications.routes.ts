@@ -19,7 +19,13 @@ export async function notificationRoutes(
       schema: { response: { 200: NoticeList } },
     },
     async (req) =>
-      notificationsService.list(db, req.firm.id, req.user.id, req.firm.role),
+      notificationsService.list(
+        db,
+        req.firm.id,
+        req.user.id,
+        req.firm.role,
+        req.user.name,
+      ),
   );
 
   typed.post(

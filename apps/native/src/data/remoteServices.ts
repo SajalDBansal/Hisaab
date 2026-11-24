@@ -22,6 +22,7 @@ import { settlementServices } from "./settlementServices";
 import { orderFulfillmentServices } from "./orderFulfillmentServices";
 import { importServices } from "./importServices";
 import { cashForecastService } from "./cashForecastService";
+import { recurringServices } from "./recurringServices";
 
 /** Real mode has no fallback to demo books, even for screens not connected yet. */
 export function remoteServices(
@@ -38,6 +39,7 @@ export function remoteServices(
     orderFulfillmentService: orderFulfillmentServices(client),
     importService: importServices(client),
     cashForecastService: cashForecastService(client),
+    recurringService: recurringServices(client),
     ...masterServices(client),
     ...readServices(client),
     voucherService: voucherServices(client),
