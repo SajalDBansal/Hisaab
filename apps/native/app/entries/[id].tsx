@@ -241,9 +241,11 @@ function Review({ entry }: { entry: PendingEntry }) {
               />
             ) : null}
             <Txt variant="small" tone="body">
-              {waits
-                ? "Your entries of this kind need approval: saving sends it to the owner."
-                : "Saving posts it with the usual checks and gives it the next number."}
+              {reviewing
+                ? "Approving posts it with the usual checks and gives it the next number. Sending back returns it to the sender with your reason."
+                : waits
+                  ? "Your entries of this kind need approval: saving sends it to the owner."
+                  : "Saving posts it with the usual checks and gives it the next number."}
             </Txt>
           </View>
         ) : (
