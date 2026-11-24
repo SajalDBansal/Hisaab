@@ -3,6 +3,7 @@ import { partyBills, partyEffect, type Bill } from "./bills";
 import { scopeBooks } from "./bookScope";
 import type { Books } from "./generalLedger";
 import { settlementUnallocatedAdjustment, sumPaise } from "./settlements";
+import { moneyRefunds, noteType } from "./refunds";
 
 type AllocationBooks = Books & { firm?: Firm };
 
@@ -10,6 +11,15 @@ export interface PaymentAllocationChange {
   voucher: Voucher;
   before: number;
   allocated: number;
+}
+
+/** Money on account, and unused credit from returns (doc 37, T05), can settle later bills. */
+function isSource(v: Voucher, party: Party) {
+  return (
+    v.partyId === party.id &&
+    (v.type === (party.type === "customer" ? "receipt" : "payment") ||
+      v.type === noteType(party))
+  );
 }
 
 function allocatedAmount(voucher: Voucher): number {
@@ -33,15 +43,15 @@ function availableFunds(
   const visible = vouchers.filter(
     (v) => v.status === "posted" && v.date <= date,
   );
-  const type = party.type === "customer" ? "receipt" : "payment";
   const ordinary = sumPaise(
     visible
-      .filter((v) => v.partyId === party.id && v.type === type)
+      .filter((v) => isSource(v, party))
       .map((v) => Math.max(0, remainingAmount(v))),
   );
   const unallocated = sumPaise([
     ordinary,
     settlementUnallocatedAdjustment(party.id, visible),
+    -moneyRefunds(party, visible),
   ]);
   const direction = party.type === "customer" ? 1 : -1;
   const effects = visible.flatMap((v) =>
@@ -100,14 +110,12 @@ export function allocateAvailablePayments(
   party: Party,
   asOf: ISODate,
 ): { allocated: number; changes: PaymentAllocationChange[] } {
-  const type = party.type === "customer" ? "receipt" : "payment";
   // Stage every link so a whole-paise validation failure cannot leave partial changes.
   const working = { ...books, vouchers: books.vouchers.map((v) => ({ ...v })) };
   const sources = working.vouchers
     .filter(
       (v) =>
-        v.partyId === party.id &&
-        v.type === type &&
+        isSource(v, party) &&
         v.status === "posted" &&
         !v.settlementLocked &&
         !v.settlementKind &&

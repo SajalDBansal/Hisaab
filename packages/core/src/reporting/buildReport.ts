@@ -26,6 +26,7 @@ import {
 } from "./insights";
 import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
 import { expiringItemsSection, stockLevelsSection } from "./stockLevels";
+import { refundsSection } from "./refunds";
 import {
   REPORTS,
   ReportInputError,
@@ -167,6 +168,8 @@ function buildSections(
       return [stockLevelsSection(books, request)];
     case "expiring-items":
       return [expiringItemsSection(books, request)];
+    case "refunds":
+      return [refundsSection(books, request)];
   }
 }
 
@@ -209,6 +212,10 @@ export function buildReport(
   if (request.report === "expiring-items")
     notes.push(
       "Stock lots still in hand with an expiry date from the purchase line (or the item's opening batch), valued at FIFO cost. Sales take the oldest purchase first, not the earliest expiry.",
+    );
+  if (request.report === "refunds")
+    notes.push(
+      "Money paid back to customers from their advances or unused credit notes, and money suppliers paid back from our advances or debit notes. A refund never exceeds the party's unused credit in that book.",
     );
   if (request.report === "interest-calculator")
     notes.push(
