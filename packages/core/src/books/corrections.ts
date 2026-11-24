@@ -433,6 +433,11 @@ export function updateInvoice(
         : "With these items this would become a Tax invoice. Cancel this bill and make a new one instead.",
     );
   const amount = calcInvoice({ lines, charges, interState }).grandTotal;
+  // A retail bill (doc 37, T02) stays paid in full.
+  if (v.retail && amount !== settled)
+    throw new Error(
+      `This retail bill was paid ${formatINR(settled)}; keep that total, or cancel it and make a new bill.`,
+    );
   if (amount < settled)
     throw new Error(
       `${formatINR(settled)} is already settled against this bill; the new total can't be less.`,

@@ -6,6 +6,8 @@ import {
   voucherPostings,
   today,
   type Voucher,
+  parseCounterKey,
+  seriesPrefix,
 } from "@repo/core";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
@@ -93,6 +95,7 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     tdsAmount: v.tds?.amount ?? 0,
     billDiscountPercent: v.billDiscount?.percent ?? null,
     billDiscountAmount: v.billDiscount?.amount ?? 0,
+    retail: v.retail ?? null,
     againstId: ids.optional(v.againstId),
     sourceId: ids.optional(v.sourceId),
     convertedToId: ids.optional(v.convertedToId),
@@ -389,21 +392,10 @@ export async function saveChanges(
   // 4. Numbers used
   for (const [key, last] of Object.entries(books.counters)) {
     if (snap.counters[key] === last) continue;
-    const [typeAndSeries = "", financialYear = ""] = key.split(":");
-    const isBos = typeAndSeries.endsWith("-bos");
-    const isNonGst = typeAndSeries.endsWith("-nongst");
-    const type = (
-      isNonGst
-        ? typeAndSeries.slice(0, -7)
-        : isBos
-          ? typeAndSeries.slice(0, -4)
-          : typeAndSeries
-    ) as Voucher["type"];
-    const series = isNonGst
-      ? `N${books.invoiceSettings.prefixes[type]}`
-      : isBos
-        ? books.invoiceSettings.billOfSupplyPrefix
-        : books.invoiceSettings.prefixes[type];
+    const parsed = parseCounterKey(key);
+    const { type } = parsed;
+    const financialYear = parsed.year;
+    const series = seriesPrefix(books.invoiceSettings, type, parsed.series);
     await tx
       .insert(schema.voucherCounters)
       .values({ firmId, type, series, financialYear, lastNumber: last })

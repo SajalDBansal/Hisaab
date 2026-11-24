@@ -524,6 +524,13 @@ export function buildSeed(asOf: string = today()): Db {
       prefixes: { ...DEFAULT_PREFIXES },
       billOfSupplyPrefix: DEFAULT_BILL_OF_SUPPLY_PREFIX,
       numbering: {},
+      // Retail bills and the UPI QR on bills (doc 37, T02, T18)
+      retailPrefix: "RI",
+      retailPaper: "80",
+      upiQr: {
+        upiId: "shreekrishna@hdfcbank",
+        payeeName: "Shree Krishna Traders",
+      },
       // Charge heads for the demo (doc 37, T09)
       chargeHeads: [
         {
@@ -1296,6 +1303,9 @@ export function blankBooks(
       prefixes: { ...DEFAULT_PREFIXES },
       billOfSupplyPrefix: DEFAULT_BILL_OF_SUPPLY_PREFIX,
       numbering: {},
+      retailPrefix: "RI",
+      retailPaper: "80",
+      upiQr: null,
     },
     team: [
       {

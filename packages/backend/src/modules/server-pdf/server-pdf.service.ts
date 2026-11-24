@@ -6,7 +6,7 @@ import type { JobQueueClient, PdfJob } from "../../jobs/queues";
 import { printVoucher } from "../vouchers/print";
 import type { PdfStorage } from "./storage";
 
-const Template = z.enum(["classic", "modern", "compact"]);
+const Template = z.enum(["classic", "modern", "compact", "compact-58"]);
 export type PdfInput = {
   firmId: string;
   voucherId: string;
@@ -25,7 +25,11 @@ export const PdfResponse = z.discriminatedUnion("status", [
     jobId: z.string(),
   }),
 ]);
-export type PdfRenderer = (html: string, compact: boolean) => Promise<Buffer>;
+/** `roll`: the thermal roll width for compact layouts; none = A4. */
+export type PdfRenderer = (
+  html: string,
+  roll?: "80mm" | "58mm",
+) => Promise<Buffer>;
 
 async function artifact(db: Db, input: PdfInput) {
   const printable = await printVoucher(
@@ -92,8 +96,14 @@ export async function renderVoucherPdf(
       "The voucher changed. Request its current PDF.",
     );
   if (!(await ctx.storage.exists(current.key))) {
-    const compact = /width=340/.test(current.html);
-    await ctx.storage.put(current.key, await ctx.render(current.html, compact));
+    const roll =
+      /<meta name="hisaab-roll" content="(80mm|58mm)"/.exec(
+        current.html,
+      )?.[1] ?? (/width=340/.test(current.html) ? "80mm" : undefined);
+    await ctx.storage.put(
+      current.key,
+      await ctx.render(current.html, roll as "80mm" | "58mm" | undefined),
+    );
   }
   // Never persist a short-lived signed URL in Redis; each read signs a fresh URL.
   return {

@@ -353,6 +353,9 @@ async function readReportBooks(
       numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
       chargeHeads:
         settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
+      retailPrefix: settings.retailPrefix,
+      retailPaper: settings.retailPaper,
+      upiQr: settings.upiQr ?? null,
     },
     team: [],
     currentUserId: "",

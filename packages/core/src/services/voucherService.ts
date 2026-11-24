@@ -30,6 +30,7 @@ import {
   createReceipt,
   createSale,
   createSales,
+  createRetailSale,
   draftSaleMargin,
   type SaleMarginInput,
   cancelBlocker,
@@ -61,6 +62,7 @@ import type {
   Party,
   Voucher,
   VoucherType,
+  NewRetailSaleInput,
 } from "../types";
 import { clone, delay, getDb } from "./client";
 import type { SaleMargin } from "../accounting/saleMargin";
@@ -340,6 +342,17 @@ export const voucherService = {
   async createSales(input: NewInvoiceInput): Promise<Voucher[]> {
     await delay();
     return clone(createSales(getDb(), input));
+  },
+
+  /** Retail (walk-in) bill, paid in full now (doc 37, T02). Real API: POST /sales/retail */
+  async createRetailSale(
+    input: NewRetailSaleInput,
+    /** The real API takes an Idempotency-Key; the demo saves once anyway. */
+    _requestKey?: string,
+  ): Promise<Voucher[]> {
+    await delay();
+    assertDate(input.date);
+    return clone(createRetailSale(getDb(), input));
   },
 
   /**

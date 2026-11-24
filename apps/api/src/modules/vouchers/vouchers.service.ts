@@ -25,6 +25,8 @@ import {
   createReceipt,
   createSale,
   createSales,
+  createRetailSale,
+  WALK_IN_PARTY_NAME,
   editBlocker,
   financialYear,
   formatVoucherNumber,
@@ -62,12 +64,14 @@ import type {
   NewMoneyInput,
   NewNoteInput,
   NewOrderInput,
+  NewRetailSaleInput,
   OrderRow,
   ReturnableBill,
   Voucher,
   VoucherDetail,
 } from "@repo/contracts";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import {
@@ -114,7 +118,7 @@ export interface Ctx extends Actor {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-type Series = "bos" | "nongst";
+type Series = "bos" | "nongst" | "retail" | "nongst-retail";
 
 /** Which right a voucher type needs (the same split as the app's roles). */
 export const NEEDS: Record<VoucherType, Permission> = {
@@ -448,6 +452,35 @@ export const vouchersService = {
   },
   async sale(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "sale", input);
+  },
+
+  /**
+   * Retail (walk-in) bill (doc 37, T02): a sale in the retail series, received in
+   * full into `paidBy`. Without a party it goes to the firm's "Cash customer",
+   * made on first use. Credit control runs as for any sale (nothing stays due).
+   */
+  async retailSale(db: Db, ctx: Ctx, input: NewRetailSaleInput) {
+    requireRight(ctx.role, "sale");
+    const partyId = input.partyId ?? (await walkInPartyId(db, ctx.firmId));
+    const sale = { ...input, partyId };
+    return change(
+      db,
+      ctx,
+      { parties: [partyId], items: lineItems(input.lines), vouchers: [] },
+      (snap) => {
+        findParty(snap, partyId, "customer");
+        checkItems(snap, input.lines);
+        checkLedger(snap, input.paidBy.ledgerId, "paidBy");
+        return core(() => createRetailSale(snap.books, sale));
+      },
+      (tx, saved) =>
+        enforceSaleCredit(
+          tx,
+          ctx,
+          { ...sale, charges: [], paidNow: undefined },
+          saved,
+        ),
+    );
   },
 
   /**
@@ -875,6 +908,7 @@ export const vouchersService = {
     const numbering = {
       prefixes: settings.prefixes as Record<VoucherType, string>,
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      retailPrefix: settings.retailPrefix,
       numbering: settings.numbering as InvoiceSettingsCore["numbering"],
     };
     const prefix = seriesPrefix(numbering, type, series);
@@ -933,6 +967,51 @@ export const vouchersService = {
 
 type OrderKind =
   "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
+
+/**
+ * The firm's live "Cash customer" (doc 37, T02), made the first time a retail
+ * bill needs it: same state as the firm, no credit. The firm lock keeps two
+ * first bills from making two.
+ */
+async function walkInPartyId(db: Db, firmId: string): Promise<string> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${firmId}, 0))`,
+    );
+    const [found] = await tx
+      .select({ id: schema.parties.id, type: schema.parties.type })
+      .from(schema.parties)
+      .where(
+        sql`${schema.parties.firmId} = ${firmId}::uuid
+          and ${schema.parties.deletedAt} is null
+          and lower(${schema.parties.name}) = ${WALK_IN_PARTY_NAME.toLowerCase()}`,
+      );
+    if (found) {
+      if (found.type !== "customer")
+        throw new AppError(
+          "INVALID_VOUCHER",
+          `A supplier is called "${WALK_IN_PARTY_NAME}". Rename it to make retail bills.`,
+          400,
+        );
+      return found.id;
+    }
+    const [firm] = await tx
+      .select({ stateCode: schema.firmProfile.stateCode })
+      .from(schema.firmProfile)
+      .where(eq(schema.firmProfile.firmId, firmId));
+    if (!firm) throw notFound("firm");
+    const id = uuidv7();
+    await tx.insert(schema.parties).values({
+      id,
+      firmId,
+      name: WALK_IN_PARTY_NAME,
+      type: "customer",
+      stateCode: firm.stateCode,
+      openingDate: today(),
+    });
+    return id;
+  });
+}
 
 async function invoice(
   db: Db,

@@ -20,8 +20,14 @@ import {
   ChargeHead,
   InvoiceSettings,
   InvoiceTemplate,
+  UpiQr,
 } from "./settings";
-import { ReturnAmounts, VoucherSnapshot, VoucherType } from "./vouchers";
+import {
+  RetailDetails,
+  ReturnAmounts,
+  VoucherSnapshot,
+  VoucherType,
+} from "./vouchers";
 import { LoanDirection, LoanStatus, LoanTerms } from "./loans";
 import { ImportApplyResult, ImportKind } from "./imports";
 import { ExtendedBackupData, ExtendedBackupRows } from "./backupExtensions";
@@ -99,6 +105,10 @@ export const BackupRows = {
     billOfSupplyPrefix: Text,
     numbering: InvoiceSettings.shape.numbering,
     chargeHeads: z.array(ChargeHead).max(30).default([]),
+    // Retail bills and the UPI QR (doc 37, T02, T18); older version 5 files have none.
+    retailPrefix: Text.optional(),
+    retailPaper: z.enum(["58", "80"]).optional(),
+    upiQr: UpiQr.strict().nullable().optional(),
   }),
   firmBranding: z.strictObject({
     ...firm,
@@ -264,6 +274,8 @@ export const BackupRows = {
     // Subtotal discount (doc 37, T09); older version 5 files have none.
     billDiscountPercent: Percentage.nullable().default(null),
     billDiscountAmount: Paise.default(0),
+    // Retail bills' buyer details (doc 37, T02); older version 5 files have none.
+    retail: RetailDetails.strict().nullable().optional(),
   }),
   voucherLines: z.strictObject({
     ...entry,

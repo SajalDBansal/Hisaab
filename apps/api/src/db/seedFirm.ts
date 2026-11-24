@@ -3,6 +3,8 @@ import { v7 as uuidv7 } from "uuid";
 import {
   captureVoucherSnapshot,
   itemStockMovements,
+  parseCounterKey,
+  seriesPrefix,
   voucherPostings,
   type MockDb,
   type Voucher,
@@ -77,6 +79,9 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
       bankAccount: s.bankAccount ?? null,
       prefixes: s.prefixes,
       billOfSupplyPrefix: s.billOfSupplyPrefix,
+      retailPrefix: s.retailPrefix,
+      retailPaper: s.retailPaper,
+      upiQr: s.upiQr ?? null,
     });
     await tx
       .insert(schema.reminderSettings)
@@ -379,14 +384,8 @@ async function insertVouchers(
 
   // Next bill numbers: "sale:26-27" uses the sale prefix, "sale-bos:26-27" the bill-of-supply one
   const counters = Object.entries(source.counters).map(([key, lastNumber]) => {
-    const [typeAndSeries = "", financialYear = ""] = key.split(":");
-    const isBos = typeAndSeries.endsWith("-bos");
-    const type = (
-      isBos ? typeAndSeries.slice(0, -4) : typeAndSeries
-    ) as Voucher["type"];
-    const series = isBos
-      ? source.invoiceSettings.billOfSupplyPrefix
-      : source.invoiceSettings.prefixes[type];
+    const { type, series: kind, year: financialYear } = parseCounterKey(key);
+    const series = seriesPrefix(source.invoiceSettings, type, kind);
     return { firmId, type, series, financialYear, lastNumber };
   });
   if (counters.length) await tx.insert(schema.voucherCounters).values(counters);

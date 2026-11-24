@@ -16,7 +16,7 @@ import {
 import { Item, TaxType, Unit, BookScope } from "./items";
 import { Firm } from "./firms";
 import { Party } from "./parties";
-import { GstMode, InvoiceTemplate, InvoiceSettings } from "./settings";
+import { GstMode, InvoiceSettings, PrintLayout } from "./settings";
 import { InventoryAdjustment } from "./inventory";
 import {
   DeliverySnapshot,
@@ -198,6 +198,35 @@ export const NewInvoiceInput = z.object({
   customFields: CustomFieldValues.optional(),
 });
 
+/** Buyer details printed on a retail bill (doc 37, T02). */
+export const RetailDetails = z.object({
+  name: z.string().trim().max(80).optional(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?[\d\s-]{0,20}$/, "Enter a phone number.")
+    .optional(),
+});
+
+/**
+ * Retail (walk-in) bill (doc 37, T02). The server works out the total and
+ * receives all of it now into `paidBy`; without `partyId` the bill goes to the
+ * firm's "Cash customer". Numbered in the retail series (RI/26-27/0001).
+ */
+export const NewRetailSaleInput = z.object({
+  partyId: PartyId.optional(),
+  buyer: RetailDetails.optional(),
+  date: IsoDate,
+  lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
+  billDiscount: BillDiscountInput.optional(),
+  paidBy: z.object({
+    mode: z.enum(["cash", "upi", "card"]),
+    ledgerId: Id,
+  }),
+  narration: z.string().max(500).optional(),
+  customFields: CustomFieldValues.optional(),
+});
+
 export const NewMoneyInput = z.object({
   bookScope: BookScope.optional(),
   partyId: PartyId,
@@ -345,6 +374,8 @@ export const VoucherSnapshot = z.object({
 });
 
 export const Voucher = z.object({
+  /** Retail bills only (doc 37, T02). */
+  retail: RetailDetails.optional(),
   customFields: CustomFieldValues.optional(),
   delivery: DeliverySnapshot.optional(),
   commission: CommissionSnapshot.optional(),
@@ -418,12 +449,12 @@ export const OrderListQuery = z.object({
 
 export const NextNumberQuery = z.object({
   type: VoucherType,
-  series: z.enum(["bos", "nongst"]).optional(),
+  series: z.enum(["bos", "nongst", "retail", "nongst-retail"]).optional(),
   date: IsoDate.optional(),
 });
 
 export const PrintableVoucherQuery = z.object({
-  template: InvoiceTemplate.optional(),
+  template: PrintLayout.optional(),
 });
 
 const Posting = z.object({
@@ -556,6 +587,8 @@ export type InvoiceStatus = z.infer<typeof InvoiceStatus>;
 export type OrderStatus = z.infer<typeof OrderStatus>;
 export type InvoiceLine = z.infer<typeof InvoiceLine>;
 export type NewInvoiceInput = z.infer<typeof NewInvoiceInput>;
+export type NewRetailSaleInput = z.infer<typeof NewRetailSaleInput>;
+export type RetailDetails = z.infer<typeof RetailDetails>;
 export type BillDiscountInput = z.infer<typeof BillDiscountInput>;
 export type NewMoneyInput = z.infer<typeof NewMoneyInput>;
 export type NewExpenseInput = z.infer<typeof NewExpenseInput>;

@@ -1,8 +1,13 @@
 import { openBills, partyBalance, collectionBills } from "../accounting/bills";
 import { today } from "../dates";
 import { reminderText, voucherShareText } from "../print/messages";
-import { voucherHtml, type Printable } from "../print/voucherHtml";
-import type { InvoiceTemplate } from "../types";
+import {
+  retailLayout,
+  voucherHtml,
+  type Printable,
+} from "../print/voucherHtml";
+import { billPayment } from "../print/upi";
+import type { PrintLayout } from "../types";
 import { clone, delay, getDb } from "./client";
 
 export interface PrintableVoucher extends Printable {
@@ -18,19 +23,16 @@ export const printService = {
    * Real API: http.get<PrintableVoucher>(`/vouchers/${id}/print?template=${template ?? ""}`)
    * (or a PDF URL the app downloads).
    */
-  async voucher(
-    id: string,
-    template?: InvoiceTemplate,
-  ): Promise<PrintableVoucher> {
+  async voucher(id: string, template?: PrintLayout): Promise<PrintableVoucher> {
     await delay();
     const db = getDb();
     const voucher = db.vouchers.find((v) => v.id === id);
     if (!voucher) throw new Error("Voucher not found");
     const party = db.parties.find((p) => p.id === voucher.partyId);
-    const settings = {
-      ...db.invoiceSettings,
-      ...(template ? { template } : {}),
-    };
+    const settings = db.invoiceSettings;
+    // Retail bills (doc 37, T02) open on the firm's thermal roll.
+    const layout =
+      template ?? (voucher.retail ? retailLayout(settings) : undefined);
     const against = db.vouchers.find((v) => v.id === voucher.againstId);
     const itemIds = new Set((voucher.lines ?? []).map((l) => l.itemId));
     const printable = voucherHtml({
@@ -41,6 +43,9 @@ export const printService = {
       branding: db.branding,
       items: db.items.filter((i) => itemIds.has(i.id)),
       settings,
+      layout,
+      payment:
+        voucher.type === "sale" ? billPayment(db.vouchers, voucher) : undefined,
       bankName: db.ledgers.find((l) => l.id === settings.bankLedgerId)?.name,
       ledgerName: db.ledgers.find((l) => l.id === voucher.ledgerId)?.name,
       against: against

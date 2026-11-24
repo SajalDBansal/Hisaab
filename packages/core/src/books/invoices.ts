@@ -41,13 +41,23 @@ import type {
   ISODate,
   InvoiceLine,
   NewInvoiceInput,
+  NewRetailSaleInput,
+  Party,
+  RetailDetails,
   Voucher,
   VoucherType,
 } from "../types";
 import type { CreateOptions, Db } from "./base";
-import { findParty, logAudit, newId, takeNumber } from "./base";
+import {
+  findParty,
+  logAudit,
+  newId,
+  takeNumber,
+  WALK_IN_PARTY_NAME,
+} from "./base";
 import { createPayment, createReceipt } from "./moneyEntries";
 import { convertBlocker } from "./orders";
+import { createParty } from "./masters";
 // ---------------------------------------------------------------------------
 // Sale and purchase invoices
 // ---------------------------------------------------------------------------
@@ -98,6 +108,11 @@ export function createSales(
     throw new Error(
       "Split this mixed order into separate orders before conversion.",
     );
+  // A retail bill (doc 37, T02) is received in full, whatever its total comes to.
+  const full = !!input.retail;
+  if (full && !input.paidNow) throw new Error("Choose how the customer paid.");
+  if (full && input.sourceId)
+    throw new Error("A retail bill can't be made from an order.");
   let remaining = input.paidNow?.amount ?? 0;
   // A subtotal discount is shared by the bills by value (a percentage applies to each).
   const discounts = splitBillDiscount(
@@ -118,7 +133,7 @@ export function createSales(
       },
       options,
     );
-    const amount = Math.min(remaining, voucher.amount);
+    const amount = full ? voucher.amount : Math.min(remaining, voucher.amount);
     if (input.paidNow && amount > 0)
       createReceipt(
         draft,
@@ -132,7 +147,7 @@ export function createSales(
         },
         options,
       );
-    remaining -= amount;
+    if (!full) remaining -= amount;
     return voucher;
   });
   if (remaining > 0) throw new Error("The payment exceeds the invoice totals.");
@@ -412,6 +427,8 @@ function createInvoice(
     input.customFields,
     type,
   );
+  const retail =
+    type === "sale" && input.retail ? retailDetails(input.retail) : undefined;
   const invoice: Voucher = {
     id: newId("v"),
     customFields,
@@ -421,11 +438,16 @@ function createInvoice(
       type,
       input.date,
       bookScope === "nongst" && !options.legacyStock
-        ? "nongst"
-        : mode === "regular" && docType === "bill-of-supply"
-          ? "bos"
-          : undefined,
+        ? retail
+          ? "nongst-retail"
+          : "nongst"
+        : retail
+          ? "retail"
+          : mode === "regular" && docType === "bill-of-supply"
+            ? "bos"
+            : undefined,
     ),
+    retail,
     date: input.date,
     status: options.status ?? "posted",
     partyId: party.id,
@@ -489,6 +511,72 @@ function createInvoice(
     else createPayment(db, money);
   }
   return invoice;
+}
+
+export { WALK_IN_PARTY_NAME };
+
+/** Buyer details as saved: trimmed, empty ones dropped, phone digits only. */
+export function retailDetails(input: RetailDetails): RetailDetails {
+  const name = input.name?.trim().slice(0, 80);
+  const phone = input.phone?.replace(/[^\d+]/g, "").slice(0, 15);
+  return { ...(name ? { name } : {}), ...(phone ? { phone } : {}) };
+}
+
+/** The live customer named "Cash customer"; made (same state as the firm, no credit) when missing. */
+export function walkInParty(db: Db, date: ISODate): Party {
+  const name = WALK_IN_PARTY_NAME.toLowerCase();
+  const existing = db.parties.find((p) => p.name.trim().toLowerCase() === name);
+  if (existing) {
+    if (existing.type !== "customer")
+      throw new Error(
+        `A supplier is called "${WALK_IN_PARTY_NAME}". Rename it to make retail bills.`,
+      );
+    return existing;
+  }
+  return createParty(
+    db,
+    {
+      name: WALK_IN_PARTY_NAME,
+      type: "customer",
+      phone: "",
+      city: "",
+      stateCode: db.firm.stateCode,
+      creditDays: 0,
+      creditLimit: 0,
+      openingBalance: 0,
+    },
+    date,
+  );
+}
+
+/**
+ * A retail bill (doc 37, T02): a normal sale (GST, stock oldest first,
+ * postings, GSTR-1) in the retail series, received in full now. A mixed
+ * GST/non-GST cart gives two bills, each with its own receipt.
+ */
+export function createRetailSale(
+  db: Db,
+  input: NewRetailSaleInput,
+  options: CreateOptions = {},
+): Voucher[] {
+  const partyId = input.partyId ?? walkInParty(db, input.date).id;
+  if (findParty(db, partyId).type !== "customer")
+    throw new Error("Pick a customer.");
+  return createSales(
+    db,
+    {
+      partyId,
+      date: input.date,
+      lines: input.lines,
+      charges: [],
+      billDiscount: input.billDiscount,
+      narration: input.narration,
+      customFields: input.customFields,
+      retail: retailDetails(input.buyer ?? {}),
+      paidNow: { amount: 0, ...input.paidBy },
+    },
+    { ...options, status: "posted" },
+  );
 }
 
 /** Mark the source document as converted into `into`. Party must match. */

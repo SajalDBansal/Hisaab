@@ -22,6 +22,12 @@ const SECTIONS: { title: string; actions: CreateAction[] }[] = [
         primary: true,
       },
       {
+        label: "Retail bill",
+        icon: "shopping-bag",
+        href: "/sale/retail",
+        permission: "sales",
+      },
+      {
         label: "Purchase",
         icon: "shopping-cart",
         href: "/purchase/new",

@@ -14,6 +14,7 @@ import type {
   StoredDocument,
   TeamMember,
   UnitDef,
+  UpiQrSettings,
   Voucher,
 } from "../types";
 import { checkUnit } from "../units";
@@ -24,7 +25,7 @@ import {
   STATUTORY_KEYS,
 } from "../businessProfile";
 import type { Db } from "./base";
-import { findParty, logAudit, newId } from "./base";
+import { findParty, logAudit, newId, retailPrefixOf } from "./base";
 // ---------------------------------------------------------------------------
 // Settings, team and documents
 // ---------------------------------------------------------------------------
@@ -68,6 +69,17 @@ export function updateFirm(db: Db, patch: FirmUpdate): Firm {
   return db.firm;
 }
 
+/** UPI id and payee name for the QR on bills (doc 37, T18). */
+export function checkUpiQr(input: UpiQrSettings): UpiQrSettings {
+  const upiId = input.upiId.trim();
+  const payeeName = input.payeeName.trim().replace(/\s+/g, " ");
+  if (!/^[\w.-]{2,256}@[A-Za-z0-9]{2,64}$/.test(upiId))
+    throw new Error("UPI id should look like name@bank.");
+  if (!payeeName || payeeName.length > 60)
+    throw new Error("Enter the payee name (up to 60 letters).");
+  return { upiId, payeeName };
+}
+
 export function updateInvoiceSettings(
   db: Db,
   patch: Partial<InvoiceSettings>,
@@ -88,6 +100,20 @@ export function updateInvoiceSettings(
       "Bill of supply prefix must be 1–5 capital letters or digits.",
     );
   }
+  if (
+    patch.retailPrefix !== undefined &&
+    !/^[A-Z0-9-]{1,4}$/.test(patch.retailPrefix)
+  )
+    throw new Error(
+      "Retail bill prefix must be 1–4 capital letters or digits.",
+    );
+  if (
+    patch.retailPaper !== undefined &&
+    patch.retailPaper !== "58" &&
+    patch.retailPaper !== "80"
+  )
+    throw new Error("Pick a 58 mm or 80 mm roll for retail bills.");
+  if (patch.upiQr) patch = { ...patch, upiQr: checkUpiQr(patch.upiQr) };
   for (const [type, rule] of Object.entries(patch.numbering ?? {})) {
     if (!(type in db.invoiceSettings.prefixes))
       throw new Error(`Unknown voucher type: ${type}.`);
@@ -121,6 +147,12 @@ export function updateInvoiceSettings(
   )
     throw new Error(
       "Tax invoice, non-GST invoice and bill of supply prefixes must be different.",
+    );
+  const retail = retailPrefixOf(next);
+  const others = [salePrefix, `N${salePrefix}`, next.billOfSupplyPrefix];
+  if (others.includes(retail) || others.includes(`N${retail}`))
+    throw new Error(
+      "The retail bill prefix must differ from the invoice and bill of supply prefixes.",
     );
   db.invoiceSettings = next;
   return db.invoiceSettings;
