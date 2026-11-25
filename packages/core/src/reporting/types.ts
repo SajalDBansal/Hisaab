@@ -6,6 +6,7 @@ import type {
   TaxScope,
 } from "../types";
 import type { Books } from "../accounting/generalLedger";
+import type { Salesperson } from "../catalog";
 
 export const REPORT_IDS = [
   "trial-balance",
@@ -54,6 +55,11 @@ export const REPORT_IDS = [
   // Stock levels and expiry (doc 37, T37/T38)
   "stock-levels",
   "expiring-items",
+  // Refund history (doc 37, T05)
+  "refunds",
+  // Salespersons (doc 37, T10)
+  "sales-by-salesperson",
+  "sales-orders-by-salesperson",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -263,6 +269,21 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     category: "Inventory",
     asOf: true,
   },
+  refunds: {
+    title: "Refunds",
+    category: "Cash and expenses",
+    parties: true,
+  },
+  "sales-by-salesperson": {
+    title: "Sales by salesperson",
+    category: "Trading",
+    parties: true,
+  },
+  "sales-orders-by-salesperson": {
+    title: "Sales orders by salesperson",
+    category: "Orders",
+    parties: true,
+  },
 };
 
 export interface ReportRequest {
@@ -278,7 +299,16 @@ export interface ReportRequest {
   interestRate?: number;
   /** Expiring items: days ahead to include (default 30). */
   expiryDays?: number;
+  /** Stock summary and sales/purchases by item: variants on their parent's row (doc 37, T35). */
+  groupByParent?: boolean;
 }
+
+/** Reports that can put item variants on their parent's row (doc 37, T35). */
+export const PARENT_GROUP_REPORTS: ReportId[] = [
+  "stock",
+  "sales-by-item",
+  "purchases-by-item",
+];
 
 export interface ReportColumn {
   label: string;
@@ -306,6 +336,8 @@ export interface ReportDocument {
 }
 export type ReportBooks = Books & {
   firm: Firm;
+  /** Salespersons for the salesperson reports (doc 37, T10). */
+  salespersons?: Salesperson[];
   /** Edit log for the audit trail report; the API loads it only for that report. */
   auditLog?: AuditEntry[];
   /** The reader may see each change's IP address and device. */

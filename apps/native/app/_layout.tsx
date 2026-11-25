@@ -19,6 +19,7 @@ import { PrivacyBoundary } from "@/auth/PrivacyBoundary";
 /** Create and edit screens, with the rights the server checks on their save. */
 const CREATE_SCREENS: [string, Permission[] | null][] = [
   ["sale/new", ["sales"]],
+  ["sale/retail", ["sales"]],
   ["sale/edit/[id]", ["sales"]],
   ["receipt/new", ["sales"]],
   ["purchase/new", ["purchase"]],
@@ -36,10 +37,13 @@ const CREATE_SCREENS: [string, Permission[] | null][] = [
   ["party/edit/[id]", ["sales", "purchase"]],
   ["item/new", ["sales", "purchase"]],
   ["item/edit/[id]", ["sales", "purchase"]],
+  ["item/variants/[id]", ["sales", "purchase"]],
   ["documents/new", ["sales", "purchase", "payments", "accounts", "settings"]],
   ["settings/firm", ["settings"]],
   ["settings/invoice", ["settings"]],
   ["settings/credit", ["settings"]],
+  ["settings/approvals", ["team"]],
+  ["recurring/new", ["sales", "purchase", "payments", "accounts"]],
   ["settings/charges", ["settings"]],
   ["settings/stock", ["settings"]],
   ["settings/invite", ["team"]],

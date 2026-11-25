@@ -1,4 +1,5 @@
 /** Parties and items. */
+import { priceListSideOf } from "../priceLists";
 import { gstModeOf } from "../accounting/gstMode";
 import { storedCustomValues } from "../customFields";
 import type { ID, ISODate, Item, ItemInput, Party, PartyInput } from "../types";
@@ -41,6 +42,21 @@ function cleanMsme(
   };
 }
 
+/** Price list (doc 37, T36): left out keeps, null removes; must suit the party's side. */
+function applyPriceList(db: Db, party: Party, p: PartyInput) {
+  if (p.priceListId === undefined) return;
+  if (!p.priceListId) {
+    delete party.priceListId;
+    return;
+  }
+  const list = db.priceLists?.find((l) => l.id === p.priceListId);
+  if (!list || list.side !== priceListSideOf(party.type))
+    throw new Error(
+      `Pick a ${party.type === "customer" ? "sale" : "purchase"} price list.`,
+    );
+  party.priceListId = list.id;
+}
+
 /** Puts cleaned MSME details on a stored party: null removes, left out keeps. */
 function applyMsme(party: Party, p: PartyInput) {
   if (p.msmeType === undefined) return;
@@ -59,13 +75,19 @@ export function createParty(db: Db, input: PartyInput, date: ISODate): Party {
     "party",
     p.customFields,
   );
-  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
+  const {
+    msmeType: _type,
+    udyamNumber: _udyam,
+    priceListId: _list,
+    ...rest
+  } = p;
   const party: Party = {
     id: newId(p.type === "customer" ? "c" : "s"),
     ...rest,
     openingDate: date,
   };
   applyMsme(party, p);
+  applyPriceList(db, party, p);
   db.parties.push(party);
   return party;
 }
@@ -86,9 +108,15 @@ export function updateParty(db: Db, id: ID, input: PartyInput): Party {
       `This party already has entries, so it can't be changed to a ${p.type}.`,
     );
   }
-  const { msmeType: _type, udyamNumber: _udyam, ...rest } = p;
+  const {
+    msmeType: _type,
+    udyamNumber: _udyam,
+    priceListId: _list,
+    ...rest
+  } = p;
   Object.assign(party, rest);
   applyMsme(party, p);
+  applyPriceList(db, party, p);
   return party;
 }
 

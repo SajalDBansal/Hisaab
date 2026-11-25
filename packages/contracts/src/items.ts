@@ -126,7 +126,25 @@ export const ItemInput = z
       });
   });
 
-export const Item = ItemInput.safeExtend({ id: Id });
+/** Item variants (doc 37, T35); set only through POST /items/:id/variants. */
+export const VariantAttribute = z.object({
+  name: z.string().trim().min(1, "Name the attribute, e.g. Size.").max(20),
+  values: z.array(z.string().trim().min(1).max(20)).min(1).max(20),
+});
+export const VariantValue = z.object({
+  name: z.string().max(20),
+  value: z.string().max(20),
+});
+export const MakeVariantsInput = z.object({
+  attributes: z.array(VariantAttribute).min(1).max(3),
+});
+
+export const Item = ItemInput.safeExtend({
+  id: Id,
+  variantAttributes: z.array(VariantAttribute).optional(),
+  parentId: Id.optional(),
+  variantValues: z.array(VariantValue).optional(),
+});
 
 export type ItemKind = z.infer<typeof ItemKind>;
 
@@ -175,4 +193,10 @@ export const UnitParams = z.object({ name: z.string().min(1).max(20) });
 export const UnitUpdate = z.object({ enabled: z.boolean() });
 
 export type ItemRow = z.infer<typeof ItemRow>;
+export const MadeVariants = z.object({
+  parent: ItemRow,
+  created: z.array(ItemRow),
+});
+export type MakeVariantsInput = z.infer<typeof MakeVariantsInput>;
+export type MadeVariants = z.infer<typeof MadeVariants>;
 export type UnitRow = z.infer<typeof UnitRow>;

@@ -1,4 +1,6 @@
 import {
+  canApprove,
+  isApprovalType,
   canSeeCosts,
   canVoucher,
   draftSaleMargin,
@@ -25,6 +27,8 @@ import {
   createReceipt,
   createSale,
   createSales,
+  createRetailSale,
+  WALK_IN_PARTY_NAME,
   editBlocker,
   financialYear,
   formatVoucherNumber,
@@ -39,6 +43,9 @@ import {
   postingTotals,
   returnAmountBasis,
   roleFlag,
+  isOwnRecord,
+  salespersonIdsOf,
+  type Salesperson,
   seriesPrefix,
   setCleared,
   settledAmounts,
@@ -62,12 +69,14 @@ import type {
   NewMoneyInput,
   NewNoteInput,
   NewOrderInput,
+  NewRetailSaleInput,
   OrderRow,
   ReturnableBill,
   Voucher,
   VoucherDetail,
 } from "@repo/contracts";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
 import {
@@ -101,6 +110,7 @@ import {
 import { enforceSaleCredit } from "../settlements/credit.service";
 import { billAllocations } from "@repo/core/src/accounting/settlements";
 import { printVoucher } from "@repo/backend/modules/vouchers/print";
+import { loadApprovalControls } from "@repo/backend/modules/recurring/recurring.repo";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type ChangeDb = Db | Tx;
@@ -111,10 +121,14 @@ export interface Ctx extends Actor {
   role: Role;
   /** Set on creates that carried an Idempotency-Key. */
   idem?: Idem;
+  /** Posting an entry that was approved, or saved by someone who may post it (doc 37, T06). */
+  approved?: boolean;
+  /** Note on the new entry's "created" edit-log row (approval, recurring schedule). */
+  auditNote?: string;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-type Series = "bos" | "nongst";
+type Series = "bos" | "nongst" | "retail" | "nongst-retail";
 
 /** Which right a voucher type needs (the same split as the app's roles). */
 export const NEEDS: Record<VoucherType, Permission> = {
@@ -239,8 +253,35 @@ export async function change(
           ? "cancel"
           : "edit";
       requireRight(member.role as Role, v.type, action);
-      if (was) requireOwnRecord(member.role as Role, ctx, was);
+      if (was)
+        requireOwnRecord(
+          member.role as Role,
+          ctx,
+          was,
+          snap.books.salespersons,
+        );
     }
+    // Approvals (doc 37, T06): a new receipt, payment, contra, expense or
+    // journal of a type that needs approval is sent for approval instead.
+    // Entries made with a sale or purchase (money paid now) never wait.
+    const created = [result].flat().filter((v) => !snap.before.has(v.id));
+    if (
+      !ctx.approved &&
+      created.length &&
+      created.every((v) => isApprovalType(v.type)) &&
+      !canApprove(member.role)
+    ) {
+      const { types } = await loadApprovalControls(tx, ctx.firmId);
+      if (created.some((v) => types.includes(v.type)))
+        throw new AppError(
+          "APPROVAL_REQUIRED",
+          "This kind of entry needs approval in this firm. Send it for approval.",
+          409,
+        );
+    }
+    if (ctx.auditNote)
+      for (const entry of snap.books.auditLog)
+        if (entry.action === "created") entry.note ??= ctx.auditNote;
     const saved = await saveChanges(tx, ctx.firmId, ctx, snap);
     await syncAssociateVouchers(tx, ctx, snap, saved);
     for (const v of [result].flat()) {
@@ -448,6 +489,35 @@ export const vouchersService = {
   },
   async sale(db: Db, ctx: Ctx, input: NewInvoiceInput) {
     return invoice(db, ctx, "sale", input);
+  },
+
+  /**
+   * Retail (walk-in) bill (doc 37, T02): a sale in the retail series, received in
+   * full into `paidBy`. Without a party it goes to the firm's "Cash customer",
+   * made on first use. Credit control runs as for any sale (nothing stays due).
+   */
+  async retailSale(db: Db, ctx: Ctx, input: NewRetailSaleInput) {
+    requireRight(ctx.role, "sale");
+    const partyId = input.partyId ?? (await walkInPartyId(db, ctx.firmId));
+    const sale = { ...input, partyId };
+    return change(
+      db,
+      ctx,
+      { parties: [partyId], items: lineItems(input.lines), vouchers: [] },
+      (snap) => {
+        findParty(snap, partyId, "customer");
+        checkItems(snap, input.lines);
+        checkLedger(snap, input.paidBy.ledgerId, "paidBy");
+        return core(() => createRetailSale(snap.books, sale));
+      },
+      (tx, saved) =>
+        enforceSaleCredit(
+          tx,
+          ctx,
+          { ...sale, charges: [], paidNow: undefined },
+          saved,
+        ),
+    );
   },
 
   /**
@@ -875,6 +945,7 @@ export const vouchersService = {
     const numbering = {
       prefixes: settings.prefixes as Record<VoucherType, string>,
       billOfSupplyPrefix: settings.billOfSupplyPrefix,
+      retailPrefix: settings.retailPrefix,
       numbering: settings.numbering as InvoiceSettingsCore["numbering"],
     };
     const prefix = seriesPrefix(numbering, type, series);
@@ -933,6 +1004,51 @@ export const vouchersService = {
 
 type OrderKind =
   "estimate" | "proforma" | "sales-order" | "delivery-note" | "purchase-order";
+
+/**
+ * The firm's live "Cash customer" (doc 37, T02), made the first time a retail
+ * bill needs it: same state as the firm, no credit. The firm lock keeps two
+ * first bills from making two.
+ */
+async function walkInPartyId(db: Db, firmId: string): Promise<string> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${firmId}, 0))`,
+    );
+    const [found] = await tx
+      .select({ id: schema.parties.id, type: schema.parties.type })
+      .from(schema.parties)
+      .where(
+        sql`${schema.parties.firmId} = ${firmId}::uuid
+          and ${schema.parties.deletedAt} is null
+          and lower(${schema.parties.name}) = ${WALK_IN_PARTY_NAME.toLowerCase()}`,
+      );
+    if (found) {
+      if (found.type !== "customer")
+        throw new AppError(
+          "INVALID_VOUCHER",
+          `A supplier is called "${WALK_IN_PARTY_NAME}". Rename it to make retail bills.`,
+          400,
+        );
+      return found.id;
+    }
+    const [firm] = await tx
+      .select({ stateCode: schema.firmProfile.stateCode })
+      .from(schema.firmProfile)
+      .where(eq(schema.firmProfile.firmId, firmId));
+    if (!firm) throw notFound("firm");
+    const id = uuidv7();
+    await tx.insert(schema.parties).values({
+      id,
+      firmId,
+      name: WALK_IN_PARTY_NAME,
+      type: "customer",
+      stateCode: firm.stateCode,
+      openingDate: today(),
+    });
+    return id;
+  });
+}
 
 async function invoice(
   db: Db,
@@ -1009,9 +1125,14 @@ function requireOwner(role: Role) {
 export function requireOwnRecord(
   role: Role,
   ctx: { id: string },
-  v: { createdBy?: string },
+  v: { createdBy?: string; salespersonId?: string },
+  /** A member is also the owner of entries where they are the salesperson (T10). */
+  salespersons?: Salesperson[],
 ) {
-  if (roleFlag(role, "ownRecordsOnly") && v.createdBy !== ctx.id)
+  if (
+    roleFlag(role, "ownRecordsOnly") &&
+    !isOwnRecord(v, ctx.id, salespersonIdsOf(salespersons, ctx.id))
+  )
     throw new AppError(
       "FORBIDDEN",
       "Your role can only change entries you made yourself.",
@@ -1023,7 +1144,7 @@ function existing(snap: Snapshot, ctx: Ctx, id: string, version: number) {
   const v = snap.books.vouchers.find((x) => x.id === id);
   if (!v) throw notFound("entry");
   requireRight(ctx.role, v.type, "view");
-  requireOwnRecord(ctx.role, ctx, v);
+  requireOwnRecord(ctx.role, ctx, v, snap.books.salespersons);
   if (snap.versions.get(id) !== version) throw editedElsewhere("entry");
   return v;
 }

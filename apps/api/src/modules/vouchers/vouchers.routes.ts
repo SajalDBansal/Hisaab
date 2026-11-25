@@ -14,6 +14,7 @@ import {
   NewMoneyInput,
   NewNoteInput,
   NewOrderInput,
+  NewRetailSaleInput,
   NextNumber,
   NextNumberQuery,
   OrderListQuery,
@@ -41,6 +42,7 @@ import {
 } from "@repo/backend/modules/server-pdf/server-pdf.service";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
 import {
+  ownRecordsFilter,
   readableVoucherTypes,
   requireVoucherRead,
   requireVoucherTypeRead,
@@ -110,6 +112,20 @@ export async function voucherRoutes(
         .send(await vouchersService.sales(db, createCtx(req), req.body)),
   );
 
+  // Retail (walk-in) bill, paid in full now (doc 37, T02). Online only: the
+  // app never queues it offline; a retry with the same Idempotency-Key is safe.
+  typed.post(
+    "/sales/retail",
+    {
+      preHandler: app.inFirm("sales"),
+      schema: { body: NewRetailSaleInput, response: { 201: z.array(Voucher) } },
+    },
+    async (req, reply) =>
+      reply
+        .code(201)
+        .send(await vouchersService.retailSale(db, createCtx(req), req.body)),
+  );
+
   // Profit margin while making a sale (doc 37, T12): only with the "see profit
   // margin" right, which sales staff never have (doc 33 R1). Saves nothing.
   typed.post(
@@ -164,9 +180,12 @@ export async function voucherRoutes(
       const rows = await vouchersService.list(db, req.firm.id, {
         ...req.query,
         types,
-        createdBy: roleFlag(req.firm.role, "ownRecordsOnly")
-          ? req.user.id
-          : undefined,
+        own: await ownRecordsFilter(
+          db,
+          req.firm.id,
+          req.firm.role,
+          req.user.id,
+        ),
         cursor: dateIdCursor(req.query.cursor),
       });
       return pageByDateId(rows, req.query.limit);

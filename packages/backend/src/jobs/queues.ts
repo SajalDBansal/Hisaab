@@ -22,7 +22,9 @@ export type MessageJob =
 
 export type ReminderJob =
   | { kind: "scan-all-firms" }
-  | { kind: "scan-firm"; firmId: string; asOf?: string };
+  | { kind: "scan-firm"; firmId: string; asOf?: string }
+  // Recurring entries (doc 37, T03): make the drafts that are due.
+  | { kind: "recurring-entries" };
 
 export type PdfJob = {
   kind: "render-voucher";

@@ -222,6 +222,7 @@ export const MyCustomRole = z.object({
       ownRecordsOnly: z.boolean(),
       viewAudit: z.boolean(),
       restoreCancelled: z.boolean(),
+      approveEntries: z.boolean().optional(),
     }),
   }),
 });

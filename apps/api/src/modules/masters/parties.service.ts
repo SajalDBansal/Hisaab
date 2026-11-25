@@ -1,8 +1,9 @@
-import { partyMsme } from "@repo/backend/lib/business-profile";
+import { partyMsme, partyPricing } from "@repo/backend/lib/business-profile";
 import type { PartyInput, PartyRow } from "@repo/contracts";
 import {
   checkParty,
   cleanParty,
+  priceListSideOf,
   storedCustomValues,
   today,
   type CustomFieldValues,
@@ -10,7 +11,8 @@ import {
 } from "@repo/core";
 import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
 import { v7 as uuidv7 } from "uuid";
-import type { Db } from "@repo/backend/db/client";
+import { schema, type Db } from "@repo/backend/db/client";
+import { and, eq } from "drizzle-orm";
 import { AppError } from "@repo/backend/lib/app-error";
 import { withFirmWrite } from "@repo/backend/lib/firm-write";
 import { partiesRepo, type PartyRecord } from "./parties.repo";
@@ -38,6 +40,7 @@ export const toPartyRow = (r: PartyRecord): PartyRow => ({
   openingBills: r.openingBills,
   ...(r.customFields ? { customFields: r.customFields } : {}),
   ...partyMsme(r),
+  ...partyPricing(r),
   version: r.version,
   balance: Number(r.balance),
 });
@@ -60,6 +63,7 @@ async function validated(
       customFields: o.customFields ?? undefined,
       msmeType: o.msmeType ?? undefined,
       udyamNumber: o.udyamNumber ?? undefined,
+      priceListId: o.priceListId ?? undefined,
     })),
     exceptId,
   );
@@ -77,6 +81,20 @@ async function validated(
     } catch (e) {
       problems.customFields = (e as Error).message;
     }
+  // Price list (doc 37, T36): one of this firm's lists for the party's side.
+  if (party.priceListId) {
+    const [list] = await db
+      .select({ side: schema.priceLists.side })
+      .from(schema.priceLists)
+      .where(
+        and(
+          eq(schema.priceLists.firmId, firmId),
+          eq(schema.priceLists.id, party.priceListId),
+        ),
+      );
+    if (!list || list.side !== priceListSideOf(party.type))
+      problems.priceListId = `Pick a ${party.type === "customer" ? "sale" : "purchase"} price list.`;
+  }
   const error = invalidFields(problems);
   if (error) throw error;
   return { ...party, storedCustomFields };
@@ -98,6 +116,7 @@ const columnsOf = (
   ...(p.msmeType === undefined
     ? {}
     : { msmeType: p.msmeType, udyamNumber: p.udyamNumber ?? null }),
+  ...(p.priceListId === undefined ? {} : { priceListId: p.priceListId }),
   // undefined leaves stored values alone on update; null clears them.
   ...(p.storedCustomFields === undefined
     ? {}

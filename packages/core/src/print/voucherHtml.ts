@@ -11,6 +11,7 @@ import {
   calcLine,
   type LineTotals,
 } from "../accounting/invoice";
+import { CHALLAN_TYPE_LABELS } from "../accounting/challans";
 import { udyamLabel } from "../businessProfile";
 import { voucherPostings } from "../accounting/postings";
 import { lineQtyText } from "../accounting/stock";
@@ -40,8 +41,11 @@ import type {
   InvoiceTemplate,
   Item,
   Party,
+  PrintLayout,
   Voucher,
 } from "../types";
+import { WALK_IN_PARTY_NAME } from "../books/base";
+import { qrSvg, upiPayLink, type BillPayment } from "./upi";
 
 export interface PrintInput {
   firm: Firm;
@@ -62,6 +66,10 @@ export interface PrintInput {
   customFields?: CustomFieldDef[];
   /** Firm logo and signatory's signature as data:image URIs (doc 37, T16). */
   branding?: { logo?: string | null; signature?: string | null };
+  /** Layout chosen at print time; "compact-58" is the compact layout on a 58 mm roll. */
+  layout?: PrintLayout;
+  /** Sales: received so far and still due, for the paid rows and the UPI QR (doc 37, T18). */
+  payment?: BillPayment;
 }
 
 /** Only PNG or JPEG data URIs reach the page; anything else is dropped. */
@@ -91,11 +99,24 @@ function printedFields(
  * Width (px) the page is laid out at: A4 is about 794 px wide at 96 dpi; thermal rolls about 300.
  * Phones show the page scaled down to fit, so tables never squeeze.
  */
-export const PAGE_WIDTH: Record<InvoiceTemplate, number> = {
+export const PAGE_WIDTH: Record<PrintLayout, number> = {
   classic: 800,
   modern: 800,
   compact: 340,
+  "compact-58": 220,
 };
+
+/** Thermal roll a layout prints on, for the PDF page size; none for A4. */
+export const ROLL_WIDTH: Partial<Record<PrintLayout, "80mm" | "58mm">> = {
+  compact: "80mm",
+  "compact-58": "58mm",
+};
+
+/** The layout a retail bill opens in (doc 37, T02): the firm's thermal roll. */
+export const retailLayout = (settings: Pick<InvoiceSettings, "retailPaper">) =>
+  settings.retailPaper === "58"
+    ? ("compact-58" as const)
+    : ("compact" as const);
 
 export interface Printable {
   /** e.g. "TAX INVOICE" */
@@ -204,6 +225,15 @@ h1 { font-size: 15px; }
 `,
 };
 
+// 58 mm rolls print about 48 mm wide: smaller type, tighter rows.
+const NARROW_CSS = `
+body { padding: 4px; font-size: 10px; }
+.sheet { max-width: 48mm; }
+h1 { font-size: 13px; }
+.small { font-size: 9.5px; }
+.grand td { font-size: 12px; }
+`;
+
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
@@ -259,6 +289,36 @@ function partyBlock(
 <div class="small">${[gst, party.phone ? `Ph ${esc(party.phone)}` : ""].filter(Boolean).join(" · ")}</div>${extra.map(([k, value]) => `<div class="small">${esc(k)}: ${esc(value)}</div>`).join("")}`;
 }
 
+/** A retail bill (doc 37, T02): the buyer's name and phone when given, else "Cash customer". */
+function retailPartyBlock(v: Voucher, party: Party | undefined, label: string) {
+  const walkIn =
+    !party ||
+    party.name.trim().toLowerCase() === WALK_IN_PARTY_NAME.toLowerCase();
+  const name = v.retail?.name || (walkIn ? WALK_IN_PARTY_NAME : party.name);
+  const phone = v.retail?.phone || (walkIn ? "" : party?.phone);
+  return `
+<div class="small muted">${esc(label)}</div>
+<div style="font-weight:600;font-size:13px">${esc(name)}</div>${phone ? `<div class="small">Ph ${esc(phone)}</div>` : ""}${!walkIn && party?.gstin ? `<div class="small">GSTIN ${esc(party.gstin)}</div>` : ""}`;
+}
+
+/** "Scan to pay" UPI QR for the amount still due (doc 37, T18). */
+function upiBlock(input: PrintInput, sizePx: number) {
+  const v = input.voucher;
+  const upi = input.settings.upiQr;
+  const due = input.payment?.due ?? v.amount;
+  if (!upi || v.type !== "sale" || v.status !== "posted" || due <= 0) return "";
+  const link = upiPayLink(upi, due, v.number);
+  return `<div class="upi" style="text-align:center;margin:6px 0"><div style="display:inline-block">${qrSvg(link, sizePx)}</div><div class="small"><b>Scan to pay ${inr(due)}</b><br/>UPI ${esc(upi.upiId)}</div></div>`;
+}
+
+const MODE_LABEL: Record<string, string> = {
+  cash: "Cash",
+  upi: "UPI",
+  bank: "Bank",
+  cheque: "Cheque",
+  card: "Card",
+};
+
 function metaRows(rows: [string, string | undefined][]) {
   return rows
     .filter(([, value]) => value)
@@ -309,6 +369,7 @@ function billHtml(input: PrintInput, title: string): string {
   const { firm, voucher: v, party, items, settings } = input;
   const template = settings.template;
   const compact = template === "compact";
+  const narrow = input.layout === "compact-58";
   const interState = !!v.interState;
   const totals = calcInvoice({
     lines: v.lines ?? [],
@@ -352,6 +413,13 @@ function billHtml(input: PrintInput, title: string): string {
     ["Delivery phone", v.delivery?.printPhone ? v.delivery.phone : undefined],
     [numberLabel[v.type] ?? "Invoice no.", v.number],
     ["Date", formatDate(v.date)],
+    // CGST Rule 55: the challan says why the goods move (doc 37, T04).
+    [
+      "Purpose",
+      isChallan && v.challanType
+        ? CHALLAN_TYPE_LABELS[v.challanType]
+        : undefined,
+    ],
     ["Supplier invoice", v.supplierInvoiceNo],
     [
       "Against",
@@ -361,7 +429,10 @@ function billHtml(input: PrintInput, title: string): string {
     ],
     ["Reason", v.noteReason],
     ["Valid until", v.validUntil ? formatDate(v.validUntil) : undefined],
-    ["Due date", isSale && v.dueDate ? formatDate(v.dueDate) : undefined],
+    [
+      "Due date",
+      isSale && v.dueDate && !v.retail ? formatDate(v.dueDate) : undefined,
+    ],
     [
       "Place of supply",
       party && mode === "regular"
@@ -425,6 +496,17 @@ ${showGst ? `<td class="num">${inr(lt.taxable)}</td><td class="num">${gst}</td>`
     ? `<table class="items"><tr><th>Item</th><th class="num">Amount</th></tr>${rows}${chargeRows}</table>`
     : `<table class="items"><tr><th class="num">#</th><th>Item</th>${showHsn ? "<th>HSN</th>" : ""}<th class="num">Qty</th><th class="num">Rate</th><th class="num">Disc</th>${showGst ? `<th class="num">Taxable</th><th class="num">GST</th>` : ""}<th class="num">Amount</th></tr>${rows}${chargeRows}</table>`;
 
+  // Paid now and balance (retail bills are paid in full, doc 37, T02)
+  const paid = input.payment;
+  const paidModes = (paid?.modes ?? [])
+    .map((m) => MODE_LABEL[m] ?? m)
+    .join(", ");
+  const paidRows =
+    isSale && paid && paid.received > 0
+      ? `<table class="totals"><tr><td>Received${paidModes ? ` (${esc(paidModes)})` : ""}</td><td class="num">${inr(paid.received)}</td></tr>${paid.due > 0 ? `<tr><td><b>Balance due</b></td><td class="num"><b>${inr(paid.due)}</b></td></tr>` : ""}</table>`
+      : "";
+  const upi = upiBlock(input, narrow ? 110 : compact ? 130 : 104);
+
   // Totals
   const taxRows = interState
     ? `<tr><td>IGST</td><td class="num">${inr(totals.igst)}</td></tr>`
@@ -440,6 +522,7 @@ ${totals.tax ? taxRows : ""}
 ${totals.roundOff ? `<tr><td>Round off</td><td class="num">${inr(totals.roundOff)}</td></tr>` : ""}
 <tr class="grand"><td>Total</td><td class="num">${inr(totals.grandTotal)}</td></tr>
 </table>
+${paidRows}
 <div class="small" style="margin-top:4px"><b>${esc(amountInWords(totals.grandTotal))}</b></div>`;
 
   // Tax breakup by rate (not on compact)
@@ -481,6 +564,9 @@ ${rates
       ? `<div class="small"><b>Terms</b><br/>${esc(settings.terms)}</div>`
       : "";
   const sign = signBlock(firm.name, input.branding?.signature);
+  const partyHtml = v.retail
+    ? retailPartyBlock(v, party, partyLabel)
+    : partyBlock(v, party, partyLabel, showHsn, partyExtra);
   const copyTag =
     isSale || isNote ? `<span class="tag">Original for recipient</span>` : "";
 
@@ -488,9 +574,10 @@ ${rates
     return `<div class="sheet">
 <div class="sec">${firmBlock(firm, true, input.branding?.logo)}</div>
 <div class="sec"><div class="title">${esc(title)}</div>${meta}</div>
-<div class="sec" style="text-align:left">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div>
+<div class="sec" style="text-align:left">${partyHtml}</div>
 <div class="sec">${itemsTable}</div>
 <div class="sec">${totalsTable}${supplyNote}</div>
+${upi ? `<div class="sec">${upi}</div>` : ""}
 ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${terms ? `<br/>${terms}` : ""}</div>` : ""}
 <div class="foot">Thank you · Made with Hisaab</div>
 </div>`;
@@ -500,10 +587,10 @@ ${bankBlock || terms ? `<div class="sec" style="text-align:left">${bankBlock}${t
     return `<div class="sheet">
 <div class="row sec"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right">${copyTag}</div></div>
 <div class="band row"><span class="title">${esc(title)}</span><span>${esc(v.number)}</span></div>
-<div class="row sec"><div class="col card box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col card box">${meta}</div></div>
+<div class="row sec"><div class="col card box">${partyHtml}</div><div class="col card box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="row sec"><div class="col">${taxBreakup}${supplyNote}</div><div class="col">${totalsTable}</div></div>
-<div class="row sec"><div class="col">${bankBlock}</div><div class="col">${terms}</div></div>
+<div class="row sec"><div class="col">${bankBlock}${upi}</div><div class="col">${terms}</div></div>
 ${sign}
 <div class="foot">Made with Hisaab</div>
 </div>`;
@@ -512,10 +599,10 @@ ${sign}
   // classic
   return `<div class="sheet">
 <div class="sec box row"><div class="col">${firmBlock(firm, false, input.branding?.logo)}</div><div style="text-align:right"><div class="title">${esc(title)}</div>${copyTag}</div></div>
-<div class="sec row split"><div class="col box">${partyBlock(v, party, partyLabel, showHsn, partyExtra)}</div><div class="col box">${meta}</div></div>
+<div class="sec row split"><div class="col box">${partyHtml}</div><div class="col box">${meta}</div></div>
 <div class="sec">${itemsTable}</div>
 <div class="sec row split"><div class="col box">${taxBreakup}${supplyNote}</div><div class="col box">${totalsTable}</div></div>
-${bankBlock || terms ? `<div class="sec row split"><div class="col box">${bankBlock}</div><div class="col box">${terms}</div></div>` : ""}
+${bankBlock || terms || upi ? `<div class="sec row split"><div class="col box">${bankBlock}${upi}</div><div class="col box">${terms}</div></div>` : ""}
 <div class="box">${sign}</div>
 </div>
 <div class="foot">Made with Hisaab</div>`;
@@ -583,6 +670,13 @@ ${v.narration ? `<div class="sec box small">${esc(v.narration)}</div>` : ""}
 /** Build the printable HTML for any voucher. */
 export function voucherHtml(input: PrintInput): Printable {
   const v = input.voucher;
+  // "compact-58" prints the compact layout on a 58 mm roll.
+  const layout: PrintLayout = input.layout ?? input.settings.template;
+  const template: InvoiceTemplate =
+    layout === "compact-58" ? "compact" : layout;
+  // The UPI QR (doc 37, T18) follows the current setting, not the snapshot.
+  const upiQr = input.settings.upiQr;
+  input = { ...input, layout, settings: { ...input.settings, template } };
   if (v.snapshot) {
     const { firm, party, items, settings, bankName } = v.snapshot;
     // Layout may change at print time; the issued business details may not.
@@ -596,7 +690,8 @@ export function voucherHtml(input: PrintInput): Printable {
         ...settings,
         // Older snapshots predate numbering rules; printing doesn't use them.
         numbering: settings.numbering ?? {},
-        template: input.settings.template,
+        template,
+        upiQr,
       },
     };
   }
@@ -619,7 +714,8 @@ export function voucherHtml(input: PrintInput): Printable {
     v.status === "cancelled"
       ? `<div style="position:fixed;top:40%;left:0;right:0;text-align:center;font-size:64px;font-weight:800;color:rgba(185,28,28,0.18);transform:rotate(-20deg)">CANCELLED</div>`
       : "";
-  const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=${PAGE_WIDTH[input.settings.template]}"/><title>${esc(title)} ${esc(v.number)}</title><style>${BASE_CSS}${TEMPLATE_CSS[input.settings.template]}</style></head><body>${cancelled}${body}</body></html>`;
+  const roll = ROLL_WIDTH[layout];
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=${PAGE_WIDTH[layout]}"/>${roll ? `<meta name="hisaab-roll" content="${roll}"/>` : ""}<title>${esc(title)} ${esc(v.number)}</title><style>${BASE_CSS}${TEMPLATE_CSS[template]}${layout === "compact-58" ? NARROW_CSS : ""}</style></head><body>${cancelled}${body}</body></html>`;
   const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, "-").trim();
   return {
     title,

@@ -46,6 +46,7 @@ import { useGstMode } from "@/data/gstMode";
 import { space } from "@/theme";
 import { AttachmentPicker } from "@/documents/AttachmentPicker";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
+import { useApprovalSave } from "@/forms/approvalSave";
 
 /** Common expense heads. "Other" lets the user type their own. */
 const HEADS = [
@@ -136,25 +137,28 @@ export default function NewExpenseScreen() {
     { ledger: ledger?.name ?? "Cash" },
   );
 
+  const approval = useApprovalSave("expense");
   const save = async () => {
     setShowErrors(true);
     if (problem || !amount) return;
     try {
+      const input = {
+        bookScope,
+        date,
+        expenseHead,
+        amount,
+        mode,
+        ledgerId,
+        narration: note || undefined,
+        gst:
+          gst && supplierId && entered
+            ? { partyId: supplierId, rate: gstRate, taxable: entered }
+            : undefined,
+      };
+      if (await approval.send(input)) return;
       const saved = await attachments.save(
         "/expenses",
-        {
-          bookScope,
-          date,
-          expenseHead,
-          amount,
-          mode,
-          ledgerId,
-          narration: note || undefined,
-          gst:
-            gst && supplierId && entered
-              ? { partyId: supplierId, rate: gstRate, taxable: entered }
-              : undefined,
-        },
+        input,
         createExpense.mutateAsync,
       );
       router.replace(`/voucher/${saved.id}`);
@@ -181,10 +185,12 @@ export default function NewExpenseScreen() {
             </Txt>
           </View>
           <Button
-            label="Save expense"
+            label={approval.waits ? "Send for approval" : "Save expense"}
             variant="primary"
             onPress={save}
-            loading={createExpense.isPending || attachments.busy}
+            loading={
+              createExpense.isPending || attachments.busy || approval.busy
+            }
             disabled={showErrors && !!problem}
           />
         </FooterBar>

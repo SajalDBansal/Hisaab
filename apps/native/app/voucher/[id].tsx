@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams, type Href } from "expo-router";
+import { useSalespersons } from "@/data/catalogHooks";
 import { useState } from "react";
 import { View } from "react-native";
 import { CancelSheet } from "@/forms/CancelSheet";
@@ -27,6 +28,8 @@ import {
   formatINR,
   type VoucherDetail,
   AUDIT_ACTION_LABEL,
+  CHALLAN_TYPE_LABELS,
+  refundType,
   billsCarryGst,
   COMPOSITION_DECLARATION,
   sideOf,
@@ -61,6 +64,7 @@ import {
 import { useCustomFields, useVoucher } from "@/data/queries";
 import { useData } from "@/data/DataProvider";
 import { canManageVoucher } from "@/data/voucherAccess";
+import { isRecurringType } from "@repo/core";
 import { colors, space } from "@/theme";
 import { formatDateTime } from "@/data/format";
 
@@ -144,6 +148,12 @@ export default function VoucherScreen() {
 
 function VoucherBody({ d }: { d: VoucherDetail }) {
   const v = d.voucher;
+  // Salesperson (doc 37, T10)
+  const salespersons = useSalespersons();
+  const salesperson = v.salespersonId
+    ? (salespersons.data?.rows.find((s) => s.id === v.salespersonId)?.name ??
+      "")
+    : "";
   const { role } = useData();
   const customDefs = useCustomFields().data;
   const canWrite = canManageVoucher(role, v.type);
@@ -195,6 +205,26 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         <Notice
           text={`Cancelled${v.cancelledAt ? ` on ${formatDate(v.cancelledAt.slice(0, 10))}` : ""}${v.cancelReason ? ` · ${v.cancelReason}` : ""}. It no longer counts anywhere.`}
         />
+      ) : null}
+      {d.party && v.type === refundType(d.party) && !v.settlementKind ? (
+        <Card variant="soft">
+          <Txt variant="small">
+            {d.party.type === "customer"
+              ? "Refund to customer: their advance or unused credit paid back."
+              : "Refund from supplier: our advance or unused credit paid back."}
+          </Txt>
+        </Card>
+      ) : null}
+      {v.type === "delivery-note" ? (
+        <Card variant="soft">
+          <Txt variant="small">
+            {v.challanType ? CHALLAN_TYPE_LABELS[v.challanType] : "Challan"}
+            {" · "}
+            {v.challanStock === false
+              ? "Paperwork only: stock moves on the invoice."
+              : "Goods taken out of stock on this challan."}
+          </Txt>
+        </Card>
       ) : null}
       {isNote && d.against ? (
         <Card
@@ -301,6 +331,16 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
               ) : null}
             </>
           ) : null}
+          {isRecurringType(v.type) && !v.settlementKind ? (
+            <Button
+              label="Repeat"
+              size="sm"
+              icon="repeat"
+              onPress={() =>
+                router.push(`/recurring/new?voucherId=${v.id}` as Href)
+              }
+            />
+          ) : null}
           {canCancel ? (
             <Button
               label="Cancel"
@@ -331,6 +371,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
           ) : null}
           {v.docType ? (
             <Badge label={docTypeLabel(v.docType)} tone="ink" />
+          ) : null}
+          {v.retail ? (
+            <Badge
+              label={`Retail${v.retail.name ? ` · ${v.retail.name}` : ""}`}
+            />
           ) : null}
           <Badge
             label={
@@ -371,6 +416,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         {v.supplierInvoiceNo ? (
           <Txt variant="small" tone="body">
             Supplier invoice <Txt variant="mono">{v.supplierInvoiceNo}</Txt>
+          </Txt>
+        ) : null}
+        {salesperson ? (
+          <Txt variant="small" tone="body">
+            Salesperson {salesperson}
           </Txt>
         ) : null}
         <Money

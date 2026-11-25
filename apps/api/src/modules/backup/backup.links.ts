@@ -118,6 +118,14 @@ export function validateExtendedLinks(data: FirmExportData) {
       check(row.inventoryAdjustment.reversesId, "vouchers");
     }
   for (const row of data.orderSourceLines) check(row.line.itemId, "items");
+  // Recurring entries and approvals (doc 37, T03/T06); optional in version 5.
+  for (const row of data.recurringSchedules ?? [])
+    check(row.sourceVoucherId, "vouchers");
+  for (const row of data.pendingEntries ?? []) {
+    check(row.scheduleId, "recurringSchedules");
+    check(row.voucherId, "vouchers");
+    check(row.partyId, "parties");
+  }
   for (const row of data.orderFulfillments) {
     if (row.response.id !== row.id || row.response.sourceId !== row.sourceId)
       throw invalid();

@@ -50,6 +50,9 @@ export function remapIssuedSnapshot(
   for (const item of value.items) {
     for (const lot of item.openingLots ?? []) lot.id = ids.lot(lot.id, item.id);
     item.id = ids.id(item.id);
+    // Variants (doc 37, T35): a parent left out of the export is dropped.
+    if (item.parentId)
+      item.parentId = ids.records.get(item.parentId) ?? undefined;
   }
   if (value.settings.bankLedgerId)
     value.settings.bankLedgerId = ids.id(value.settings.bankLedgerId);

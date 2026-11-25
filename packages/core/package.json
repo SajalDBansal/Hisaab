@@ -10,6 +10,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "qrcode-generator": "1.4.4"
+  },
   "devDependencies": {
     "@repo/eslint-config": "*",
     "@repo/typescript-config": "*",

@@ -12,6 +12,7 @@ import {
   DEFAULT_STOCK_POLICY,
   type StockPolicy,
 } from "../accounting/stockPolicy";
+import { DEFAULT_CHALLAN_STOCK } from "../accounting/challans";
 import {
   DEFAULT_OVERDUE_SALES_POLICY,
   type OverdueSalesPolicy,
@@ -22,6 +23,8 @@ export interface SalesControlsView {
   overdueSales: OverdueSalesPolicy;
   /** Stock control (doc 37, T37). */
   stockPolicy: StockPolicy;
+  /** New delivery challans move stock (doc 37, T04). */
+  challanStock: boolean;
   version: number;
 }
 
@@ -102,13 +105,18 @@ export const settingsService = {
     return clone({
       overdueSales: saved?.overdueSales ?? DEFAULT_OVERDUE_SALES_POLICY,
       stockPolicy: saved?.stockPolicy ?? DEFAULT_STOCK_POLICY,
+      challanStock: saved?.challanStock ?? DEFAULT_CHALLAN_STOCK,
       version: saved?.version ?? 0,
     });
   },
 
   /** Real API: PUT /settings/sales-controls with If-Match. */
   async updateSalesControls(
-    input: { overdueSales: OverdueSalesPolicy; stockPolicy?: StockPolicy },
+    input: {
+      overdueSales: OverdueSalesPolicy;
+      stockPolicy?: StockPolicy;
+      challanStock?: boolean;
+    },
     _version?: number,
   ): Promise<SalesControlsView> {
     void _version;
@@ -120,11 +128,16 @@ export const settingsService = {
         input.stockPolicy ??
         db.salesControls?.stockPolicy ??
         DEFAULT_STOCK_POLICY,
+      challanStock:
+        input.challanStock ??
+        db.salesControls?.challanStock ??
+        DEFAULT_CHALLAN_STOCK,
       version: (db.salesControls?.version ?? 0) + 1,
     };
     return clone({
       ...db.salesControls,
       stockPolicy: db.salesControls.stockPolicy!,
+      challanStock: db.salesControls.challanStock!,
     });
   },
 

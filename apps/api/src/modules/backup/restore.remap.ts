@@ -31,6 +31,12 @@ export function restoreIds(data: FirmExportData) {
     ...data.orderFulfillments.map((r) => r.userId),
     ...data.associateEvents.map((r) => r.userId),
     ...data.vouchers.map((r) => r.createdBy),
+    ...(data.recurringSchedules ?? []).map((r) => r.createdBy),
+    ...(data.pendingEntries ?? []).flatMap((r) => [
+      r.createdBy,
+      r.submittedBy,
+      r.reviewedBy,
+    ]),
   ])
     if (value && !actors.has(value)) actors.set(value, uuidv7());
   const id = (value: string) =>
@@ -98,6 +104,49 @@ export function restoreIds(data: FirmExportData) {
   return { id, optional, actor, account, lot, records, actors, lots };
 }
 
+/**
+ * Recurring templates and pending entries keep a voucher's input as JSON:
+ * every id in it (party, items, ledgers, "party:<id>" accounts) moves to the
+ * new firm's records. Schedules come back paused, like reminders.
+ */
+function remapPendingBooks(
+  data: FirmExportData,
+  ids: ReturnType<typeof restoreIds>,
+) {
+  const deep = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const direct = ids.records.get(value);
+      if (direct) return direct;
+      const match = /^(party|ledger|account):(.+)$/.exec(value);
+      const mapped = match?.[2] ? ids.records.get(match[2]) : undefined;
+      return mapped && match ? `${match[1]}:${mapped}` : value;
+    }
+    if (Array.isArray(value)) return value.map(deep);
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([key, inner]) => [key, deep(inner)]),
+      );
+    return value;
+  };
+  const soft = (value: string | null) =>
+    value ? (ids.records.get(value) ?? null) : null;
+  for (const row of data.recurringSchedules ?? []) {
+    row.template = deep(row.template) as Record<string, unknown>;
+    row.sourceVoucherId = soft(row.sourceVoucherId);
+    row.createdBy = ids.actor(row.createdBy);
+    row.active = false;
+  }
+  for (const row of data.pendingEntries ?? []) {
+    row.input = deep(row.input) as Record<string, unknown>;
+    row.scheduleId = soft(row.scheduleId);
+    row.partyId = soft(row.partyId);
+    row.voucherId = soft(row.voucherId);
+    row.createdBy = ids.actor(row.createdBy);
+    row.submittedBy = ids.actor(row.submittedBy);
+    row.reviewedBy = ids.actor(row.reviewedBy);
+  }
+}
+
 export function remapBooks(source: FirmExportData, name: string) {
   const ids = restoreIds(source);
   const data = structuredClone(source);
@@ -138,7 +187,19 @@ export function remapBooks(source: FirmExportData, name: string) {
   }
   for (const row of data.openingAccounts)
     row.account = ids.account(row.account);
+  // A restored firm has no members yet: salespersons lose their login link.
+  for (const row of data.salespersons ?? []) row.userId = null;
+  // Price lists (doc 37, T36): item rates and the parties' lists.
+  for (const row of data.priceLists ?? [])
+    for (const rate of row.rates) rate.itemId = ids.id(rate.itemId);
+  for (const row of data.parties)
+    if (row.priceListId) row.priceListId = ids.id(row.priceListId);
+  // Variants (doc 37, T35): parents are inserted before their variants.
+  for (const row of data.items)
+    if (row.parentId) row.parentId = ids.id(row.parentId);
+  data.items.sort((a, b) => Number(!!a.parentId) - Number(!!b.parentId));
   for (const row of data.vouchers) {
+    if (row.salespersonId) row.salespersonId = ids.id(row.salespersonId);
     for (const key of [
       "partyId",
       "ledgerId",
@@ -200,5 +261,6 @@ export function remapBooks(source: FirmExportData, name: string) {
       row.userName = `[Imported] ${row.userName}`;
   }
   remapExtendedBooks(data, source, ids);
+  remapPendingBooks(data, ids);
   return { data, ids, firmId };
 }

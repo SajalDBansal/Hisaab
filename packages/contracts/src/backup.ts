@@ -20,8 +20,14 @@ import {
   ChargeHead,
   InvoiceSettings,
   InvoiceTemplate,
+  UpiQr,
 } from "./settings";
-import { ReturnAmounts, VoucherSnapshot, VoucherType } from "./vouchers";
+import {
+  RetailDetails,
+  ReturnAmounts,
+  VoucherSnapshot,
+  VoucherType,
+} from "./vouchers";
 import { LoanDirection, LoanStatus, LoanTerms } from "./loans";
 import { ImportApplyResult, ImportKind } from "./imports";
 import { ExtendedBackupData, ExtendedBackupRows } from "./backupExtensions";
@@ -99,6 +105,10 @@ export const BackupRows = {
     billOfSupplyPrefix: Text,
     numbering: InvoiceSettings.shape.numbering,
     chargeHeads: z.array(ChargeHead).max(30).default([]),
+    // Retail bills and the UPI QR (doc 37, T02, T18); older version 5 files have none.
+    retailPrefix: Text.optional(),
+    retailPaper: z.enum(["58", "80"]).optional(),
+    upiQr: UpiQr.strict().nullable().optional(),
   }),
   firmBranding: z.strictObject({
     ...firm,
@@ -114,6 +124,8 @@ export const BackupRows = {
     overdueSales: z.enum(["off", "warn", "block"]),
     // Stock control (doc 37, T37); files made before it have none.
     stockPolicy: z.enum(["warn", "block"]).default("warn"),
+    // Challan stock (doc 37, T04); files made before it have none.
+    challanStock: z.boolean().default(true),
   }),
   // Firm security (doc 37, T58)
   firmSecurity: z.strictObject({
@@ -149,6 +161,8 @@ export const BackupRows = {
     // MSME suppliers (doc 37, T30); optional in version 5 files made before it.
     msmeType: MsmeType.nullable().optional(),
     udyamNumber: Text.nullable().optional(),
+    // Price list (doc 37, T36); older version 5 files have none.
+    priceListId: Id.nullable().optional(),
   }),
   items: z.strictObject({
     ...row,
@@ -179,6 +193,18 @@ export const BackupRows = {
     notForSale: z.boolean().default(false),
     tags: z.array(Text).max(10).default([]),
     maxStock: Quantity.nullable().default(null),
+    // Item variants (doc 37, T35); older version 5 files have none.
+    parentId: Id.nullable().optional(),
+    variantAttributes: z
+      .array(z.strictObject({ name: Text, values: z.array(Text).max(20) }))
+      .max(3)
+      .nullable()
+      .optional(),
+    variantValues: z
+      .array(z.strictObject({ name: Text, value: Text }))
+      .max(3)
+      .nullable()
+      .optional(),
   }),
   units: z.strictObject({
     ...firm,
@@ -264,6 +290,16 @@ export const BackupRows = {
     // Subtotal discount (doc 37, T09); older version 5 files have none.
     billDiscountPercent: Percentage.nullable().default(null),
     billDiscountAmount: Paise.default(0),
+    // Retail bills' buyer details (doc 37, T02); older version 5 files have none.
+    retail: RetailDetails.strict().nullable().optional(),
+    // Delivery challans (doc 37, T04); older files have none.
+    challanType: z
+      .enum(["supply", "approval", "job-work", "branch-transfer", "other"])
+      .nullable()
+      .default(null),
+    challanStock: z.boolean().nullable().default(null),
+    // Salesperson (doc 37, T10); older version 5 files have none.
+    salespersonId: Id.nullable().optional(),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -375,12 +411,91 @@ export const BackupRows = {
     ipAddress: Text.nullable(),
     device: Text.nullable(),
   }),
+  // Recurring entries and approvals (doc 37, T03/T06); files made before them have none.
+  approvalControls: z.strictObject({
+    ...firm,
+    ...stamps,
+    types: z.array(VoucherType).max(20),
+  }),
+  recurringSchedules: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    voucherType: VoucherType,
+    template: z.record(z.string(), z.unknown()),
+    frequency: z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]),
+    interval: Count,
+    startDate: IsoDate,
+    endDate: IsoDate.nullable(),
+    maxCount: Count.nullable(),
+    generatedCount: Count,
+    nextDate: IsoDate.nullable(),
+    active: z.boolean(),
+    lastSkippedOn: IsoDate.nullable(),
+    sourceVoucherId: Id.nullable(),
+    createdBy: Id,
+    createdByName: Text,
+  }),
+  pendingEntries: z.strictObject({
+    ...row,
+    ...stamps,
+    voucherType: VoucherType,
+    status: z.enum(["draft", "submitted", "rejected", "posted", "discarded"]),
+    source: z.enum(["recurring", "approval"]),
+    scheduleId: Id.nullable(),
+    dueDate: IsoDate.nullable(),
+    date: IsoDate,
+    partyId: Id.nullable(),
+    amount: Paise,
+    input: z.record(z.string(), z.unknown()),
+    note: Text.nullable(),
+    createdBy: Id.nullable(),
+    createdByName: Text,
+    submittedBy: Id.nullable(),
+    submittedByName: Text.nullable(),
+    submittedAt: IsoDateTime.nullable(),
+    reviewedBy: Id.nullable(),
+    reviewedByName: Text.nullable(),
+    reviewedAt: IsoDateTime.nullable(),
+    rejectReason: Text.nullable(),
+    voucherId: Id.nullable(),
+    history: z.array(z.record(z.string(), z.unknown())).max(200),
+  }),
   customRoles: z.strictObject({
     ...row,
     ...stamps,
     name: Text,
     description: Text,
     rights: RoleRights,
+  }),
+  // Salespersons (doc 37, T10). The linked login is not carried into a restored firm.
+  salespersons: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    userId: Id.nullable(),
+    phone: Text,
+    active: z.boolean(),
+  }),
+  // Price lists (doc 37, T36).
+  priceLists: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    side: z.enum(["sale", "purchase"]),
+    mode: z.enum(["percent", "rates"]),
+    percent: z.number().min(-100).max(1000).nullable(),
+    rates: z
+      .array(
+        z.strictObject({
+          itemId: Id,
+          rate: Paise,
+          unit: Text.optional(),
+        }),
+      )
+      .max(5000),
+    isDefault: z.boolean(),
+    active: z.boolean(),
   }),
   customFields: z.strictObject({
     ...row,
@@ -501,6 +616,14 @@ export const FirmExportData = z.strictObject({
   masterImportBatches: rows(BackupRows.masterImportBatches),
   customFields: rows(BackupRows.customFields),
   customRoles: rows(BackupRows.customRoles),
+  // Optional: version 5 files made before recurring entries and approvals have none.
+  approvalControls: BackupRows.approvalControls.nullable().optional(),
+  recurringSchedules: rows(BackupRows.recurringSchedules).optional(),
+  pendingEntries: rows(BackupRows.pendingEntries).optional(),
+  // Optional: version 5 files made before salespersons have none.
+  salespersons: rows(BackupRows.salespersons).optional(),
+  // Optional: version 5 files made before price lists have none.
+  priceLists: rows(BackupRows.priceLists).optional(),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 
@@ -574,6 +697,9 @@ const LegacyDataV4 = FirmExportData.extend({
   customRoles: true,
   salesControls: true,
   firmSecurity: true,
+  approvalControls: true,
+  recurringSchedules: true,
+  pendingEntries: true,
 });
 export const LegacyFirmExportFileV4 = FirmExportFile.extend({
   payload: FirmExportPayload.extend({

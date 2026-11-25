@@ -21,6 +21,7 @@ import {
   PickerSheet,
   QueryView,
   Screen,
+  Segmented,
   SelectField,
   TextField,
   Txt,
@@ -105,6 +106,20 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
     ifsc: initial.bankAccount?.ifsc ?? "",
     upiId: initial.bankAccount?.upiId ?? "",
   });
+  // Retail bills (doc 37, T02) and the UPI QR on bills (T18)
+  const [retailPrefix, setRetailPrefix] = useState(
+    initial.retailPrefix ?? "RI",
+  );
+  const [retailPaper, setRetailPaper] = useState<"58" | "80">(
+    initial.retailPaper ?? "80",
+  );
+  const [upiOn, setUpiOn] = useState(!!initial.upiQr);
+  const [upiId, setUpiId] = useState(
+    initial.upiQr?.upiId ?? initial.bankAccount?.upiId ?? "",
+  );
+  const [payeeName, setPayeeName] = useState(
+    initial.upiQr?.payeeName ?? initial.bankAccount?.accountName ?? "",
+  );
   const setAcc = (k: keyof typeof account) => (t: string) =>
     setAccount({
       ...account,
@@ -135,9 +150,15 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
   const badRule = TYPES.find((t) => !ruleOf(t));
   const problem = badPrefix
     ? `${voucherTypeLabel[badPrefix]} prefix: 1–5 capital letters or digits.`
-    : badRule
-      ? `${voucherTypeLabel[badRule]}: start from 1 or more, with 1 to 8 digits.`
-      : null;
+    : !/^[A-Z0-9-]{1,4}$/.test(retailPrefix)
+      ? "Retail bill prefix: 1–4 capital letters or digits."
+      : upiOn && !/^[\w.-]{2,256}@[A-Za-z0-9]{2,64}$/.test(upiId.trim())
+        ? "UPI id should look like name@bank."
+        : upiOn && !payeeName.trim()
+          ? "Enter the payee name for the UPI QR."
+          : badRule
+            ? `${voucherTypeLabel[badRule]}: start from 1 or more, with 1 to 8 digits.`
+            : null;
   const setRule = (
     t: VoucherType,
     patch: Partial<{ start: string; digits: string; showYear: boolean }>,
@@ -160,6 +181,11 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
             }
           : undefined,
         prefixes,
+        retailPrefix,
+        retailPaper,
+        upiQr: upiOn
+          ? { upiId: upiId.trim(), payeeName: payeeName.trim() }
+          : null,
         numbering: Object.fromEntries(
           TYPES.map((t) => [t, ruleOf(t) ?? DEFAULT_NUMBERING]),
         ),
@@ -294,6 +320,89 @@ function Form({ initial }: { initial: InvoiceSettingsView }) {
                 value={account.upiId}
                 onChangeText={setAcc("upiId")}
                 placeholder="e.g. shop@okhdfcbank"
+              />
+            </View>
+          </>
+        ) : null}
+      </Card>
+
+      <Card style={{ gap: space.md }}>
+        <View style={{ gap: 2 }}>
+          <Txt variant="bodyStrong">Retail bills</Txt>
+          <Txt variant="caption" tone="body">
+            Quick walk-in bills, paid in full, with their own numbers (
+            {formatVoucherNumber(retailPrefix || "RI", fy, 1, {
+              ...DEFAULT_NUMBERING,
+              ...initial.numbering?.sale,
+            })}
+            )
+          </Txt>
+        </View>
+        <View style={{ flexDirection: "row" }}>
+          <TextField
+            label="Retail bill prefix"
+            value={retailPrefix}
+            onChangeText={(t) =>
+              setRetailPrefix(
+                t
+                  .toUpperCase()
+                  .replace(/[^A-Z0-9-]/g, "")
+                  .slice(0, 4),
+              )
+            }
+            mono
+          />
+        </View>
+        <Txt variant="label" tone="body">
+          Thermal printer roll
+        </Txt>
+        <Segmented
+          value={retailPaper}
+          onChange={setRetailPaper}
+          options={[
+            { value: "80", label: "80 mm" },
+            { value: "58", label: "58 mm" },
+          ]}
+        />
+      </Card>
+
+      <Card style={{ gap: space.md }}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", gap: space.md }}
+        >
+          <View style={{ flex: 1 }}>
+            <Txt variant="bodyStrong">UPI QR on bills</Txt>
+            <Txt variant="caption" tone="body">
+              Sale bills with an amount due print a QR for that amount and the
+              bill number
+            </Txt>
+          </View>
+          <Switch
+            value={upiOn}
+            onValueChange={setUpiOn}
+            accessibilityLabel="UPI QR on bills"
+            trackColor={{ true: colors.ink, false: colors.hairlineStrong }}
+            thumbColor={colors.canvas}
+            {...({ activeThumbColor: colors.canvas } as object)}
+          />
+        </View>
+        {upiOn ? (
+          <>
+            <View style={{ flexDirection: "row" }}>
+              <TextField
+                label="UPI id"
+                value={upiId}
+                onChangeText={setUpiId}
+                placeholder="e.g. shop@okhdfcbank"
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={{ flexDirection: "row" }}>
+              <TextField
+                label="Payee name"
+                value={payeeName}
+                onChangeText={setPayeeName}
+                maxLength={60}
               />
             </View>
           </>

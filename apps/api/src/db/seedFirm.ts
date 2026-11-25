@@ -3,6 +3,8 @@ import { v7 as uuidv7 } from "uuid";
 import {
   captureVoucherSnapshot,
   itemStockMovements,
+  parseCounterKey,
+  seriesPrefix,
   voucherPostings,
   type MockDb,
   type Voucher,
@@ -77,6 +79,9 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
       bankAccount: s.bankAccount ?? null,
       prefixes: s.prefixes,
       billOfSupplyPrefix: s.billOfSupplyPrefix,
+      retailPrefix: s.retailPrefix,
+      retailPaper: s.retailPaper,
+      upiQr: s.upiQr ?? null,
     });
     await tx
       .insert(schema.reminderSettings)
@@ -145,6 +150,10 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
           batchNumber: i.batch?.number ?? null,
           batchExpiry: i.batch?.expiry ?? null,
           ...itemExtraColumns(i),
+          // Item variants (doc 37, T35): parents come before their variants.
+          variantAttributes: i.variantAttributes ?? null,
+          parentId: ids.optional(i.parentId),
+          variantValues: i.variantValues ?? null,
         })),
       );
 
@@ -154,6 +163,18 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
           firmId,
           account: ids.accountKey(o.account),
           amount: o.amount,
+        })),
+      );
+
+    // Salespersons (doc 37, T10); demo logins don't exist here, so none is linked.
+    if (source.salespersons?.length)
+      await tx.insert(schema.salespersons).values(
+        source.salespersons.map((s) => ({
+          id: ids.newId(s.id),
+          firmId,
+          name: s.name,
+          phone: s.phone ?? "",
+          active: s.active,
         })),
       );
 
@@ -239,6 +260,7 @@ async function insertVouchers(
     tdsSection: v.tds?.section ?? null,
     tdsRate: v.tds?.rate ?? null,
     tdsAmount: v.tds?.amount ?? 0,
+    salespersonId: ids.optional(v.salespersonId),
     createdBy: ownerId,
     createdAt: at(v.createdAt) ?? new Date(),
   }));
@@ -379,14 +401,8 @@ async function insertVouchers(
 
   // Next bill numbers: "sale:26-27" uses the sale prefix, "sale-bos:26-27" the bill-of-supply one
   const counters = Object.entries(source.counters).map(([key, lastNumber]) => {
-    const [typeAndSeries = "", financialYear = ""] = key.split(":");
-    const isBos = typeAndSeries.endsWith("-bos");
-    const type = (
-      isBos ? typeAndSeries.slice(0, -4) : typeAndSeries
-    ) as Voucher["type"];
-    const series = isBos
-      ? source.invoiceSettings.billOfSupplyPrefix
-      : source.invoiceSettings.prefixes[type];
+    const { type, series: kind, year: financialYear } = parseCounterKey(key);
+    const series = seriesPrefix(source.invoiceSettings, type, kind);
     return { firmId, type, series, financialYear, lastNumber };
   });
   if (counters.length) await tx.insert(schema.voucherCounters).values(counters);

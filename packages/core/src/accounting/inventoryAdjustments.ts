@@ -5,6 +5,7 @@ import type {
   NewJournalInput,
   Voucher,
 } from "../types";
+import { challanMovesStock } from "./challans";
 import type { Books } from "./generalLedger";
 import { acc, describeAccount, groupInfo } from "./accounts";
 import { stockLots } from "./stockLots";
@@ -25,9 +26,8 @@ export interface StockAdjustmentInput {
 const quantity = (value: number) => Math.round(value * 1000) / 1000;
 const movesStock = (voucher: Voucher) =>
   !!voucher.inventoryAdjustment ||
-  ["sale", "purchase", "credit-note", "debit-note", "delivery-note"].includes(
-    voucher.type,
-  );
+  ["sale", "purchase", "credit-note", "debit-note"].includes(voucher.type) ||
+  challanMovesStock(voucher);
 
 /** A later stock count/cost must not silently rewrite already frozen sale costs. */
 function assertLatest(books: Books, item: Item, date: string) {

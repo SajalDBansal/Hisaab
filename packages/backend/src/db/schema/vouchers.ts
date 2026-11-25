@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { CustomFieldValues } from "@repo/core";
+import type { ChallanType, CustomFieldValues } from "@repo/core";
 import type {
   CommissionSnapshot,
   DeliverySnapshot,
@@ -28,6 +28,7 @@ import { organization } from "./auth";
 import { moment, paise, percent, primaryId, quantity, stamps } from "./columns";
 import { ledgers, parties, items, taxType, bookScope } from "./masters";
 import { openingBills } from "./importOpening";
+import { salespersons } from "./catalog";
 
 export const voucherType = pgEnum("voucher_type", [
   "sale",
@@ -137,6 +138,9 @@ export const vouchers = pgTable(
 
     // Estimates and orders
     validUntil: date("valid_until", { mode: "string" }),
+    // Delivery challans (doc 37, T04): purpose, and false when it moved no stock
+    challanType: text("challan_type").$type<ChallanType>(),
+    challanStock: boolean("challan_stock"),
     sourceId: uuid("source_id").references((): AnyPgColumn => vouchers.id, {
       onDelete: "restrict",
     }),
@@ -167,6 +171,12 @@ export const vouchers = pgTable(
     // each line holds its share in voucher_lines.bill_discount.
     billDiscountPercent: percent("bill_discount_percent"),
     billDiscountAmount: paise("bill_discount_amount"),
+    // Retail bills only (doc 37, T02): { name?, phone? } of the walk-in buyer.
+    retail: jsonb("retail").$type<{ name?: string; phone?: string }>(),
+    // Sales and customer-side orders (doc 37, T10).
+    salespersonId: uuid("salesperson_id").references(() => salespersons.id, {
+      onDelete: "restrict",
+    }),
 
     createdBy: uuid("created_by"),
     ...stamps,

@@ -26,6 +26,9 @@ export const Bill = z.object({
 // Keep the flat master fields for existing API clients, and add the screen's read model.
 export const PartyDetail = PartyListRow.extend({
   unallocated: Paise,
+  // Unused credit from returns, and what can be refunded per book (doc 37, T05).
+  unappliedCredit: Paise.optional(),
+  refundable: z.object({ gst: Paise, nongst: Paise }).optional(),
   party: PartyRow,
   bills: z.array(Bill),
   openBills: z.array(Bill),

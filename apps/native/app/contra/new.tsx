@@ -34,6 +34,7 @@ import { colors, radius, space } from "@/theme";
 import { AttachmentPicker } from "@/documents/AttachmentPicker";
 import { useFinancialAttachments } from "@/documents/useFinancialAttachments";
 import { useData } from "@/data/DataProvider";
+import { useApprovalSave } from "@/forms/approvalSave";
 
 /** Contra: move money between cash and bank, or between two banks. */
 export default function NewContraScreen() {
@@ -103,21 +104,24 @@ function Form({ ledgers }: { ledgers: LedgerWithBalance[] }) {
     setToId(fromId);
   };
 
+  const approval = useApprovalSave("contra");
   const save = async () => {
     setShowErrors(true);
     if (problem) return;
     try {
+      const input = {
+        bookScope,
+        date,
+        fromLedgerId: fromId,
+        toLedgerId: toId,
+        amount,
+        reference: reference.trim() || undefined,
+        narration: note.trim() || undefined,
+      };
+      if (await approval.send(input)) return;
       const saved = await attachments.save(
         "/contras",
-        {
-          bookScope,
-          date,
-          fromLedgerId: fromId,
-          toLedgerId: toId,
-          amount,
-          reference: reference.trim() || undefined,
-          narration: note.trim() || undefined,
-        },
+        input,
         create.mutateAsync,
       );
       router.replace(`/voucher/${saved.id}`);
@@ -201,10 +205,10 @@ function Form({ ledgers }: { ledgers: LedgerWithBalance[] }) {
             </Txt>
           </View>
           <Button
-            label="Save contra"
+            label={approval.waits ? "Send for approval" : "Save contra"}
             variant="primary"
             onPress={save}
-            loading={create.isPending || attachments.busy}
+            loading={create.isPending || attachments.busy || approval.busy}
           />
         </FooterBar>
       }

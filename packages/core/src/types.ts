@@ -1,3 +1,4 @@
+import type { ChallanType } from "./accounting/challans";
 import type { CustomFieldValues } from "./customFields";
 /**
  * Shared data types for Hisaab.
@@ -166,6 +167,8 @@ export interface Party {
   msmeType?: MsmeType;
   /** The supplier's Udyam registration number, when known. */
   udyamNumber?: string;
+  /** Price list for this party's bills (doc 37, T36); missing = the firm default. */
+  priceListId?: ID;
 }
 
 /** What the party form sends when adding or editing a party. */
@@ -178,7 +181,10 @@ export type PartyInput = Omit<
   | "openingBills"
   | "msmeType"
   | "udyamNumber"
+  | "priceListId"
 > & {
+  /** Left out = keep the stored one (older apps); null = none. */
+  priceListId?: ID | null;
   /** Left out = keep what is stored (older apps); null = not an MSME. */
   msmeType?: MsmeType | null;
   udyamNumber?: string | null;
@@ -219,8 +225,24 @@ export interface AltUnit {
 /** Goods carry stock; services (SAC code in `hsn`) never do (doc 37, T39). */
 export type ItemKind = "goods" | "service";
 
+/** A variant attribute on a parent item (doc 37, T35), e.g. Size: S, M, L. */
+export interface VariantAttribute {
+  name: string;
+  values: string[];
+}
+/** One attribute value of a variant item, e.g. { name: "Size", value: "M" }. */
+export interface VariantValue {
+  name: string;
+  value: string;
+}
+
 export interface Item {
   version?: number;
+  /** Variant parents (doc 37, T35): the attributes its variants are made from. */
+  variantAttributes?: VariantAttribute[];
+  /** Variant items: the parent they were made from, and their attribute values. */
+  parentId?: ID;
+  variantValues?: VariantValue[];
   /** Missing on older items = goods. */
   kind?: ItemKind;
   /** Hidden from the sale item picker; can still be bought (doc 37, T39). */
@@ -450,7 +472,20 @@ export interface Allocation {
   amount: Paise;
 }
 
+/**
+ * A retail (walk-in) sale (doc 37, T02): paid in full when made and numbered in
+ * its own series. The buyer's name and phone are optional and only printed.
+ */
+export interface RetailDetails {
+  name?: string;
+  phone?: string;
+}
+
 export interface Voucher {
+  /** Sales, estimates, proformas, sales orders and challans (doc 37, T10). */
+  salespersonId?: ID;
+  /** Retail sales only (doc 37, T02); missing on every other voucher. */
+  retail?: RetailDetails;
   /** The user who made it (for roles limited to their own records, doc 37). */
   createdBy?: string;
   /** Header custom field values by field key (doc 37, T07). */
@@ -509,6 +544,10 @@ export interface Voucher {
   bankClearings?: Record<string, ISODate>;
   /** Estimates: quote valid until this date. */
   validUntil?: ISODate;
+  /** Delivery challans (doc 37, T04): the purpose printed on it. */
+  challanType?: ChallanType;
+  /** Delivery challans: false = paperwork only; missing or true = it moved stock when issued. */
+  challanStock?: boolean;
   /** The estimate / order this voucher was made from. */
   sourceId?: ID;
   /** Estimates / orders: the voucher it was turned into (it then stops being "open"). */
@@ -576,6 +615,8 @@ export interface TdsDeduction {
 
 /** A new sale or purchase invoice. */
 export interface NewInvoiceInput {
+  /** Sales only (doc 37, T10). On an edit, undefined keeps it and null clears it. */
+  salespersonId?: ID | null;
   customFields?: CustomFieldValues;
   creditOverrideId?: ID;
   delivery?: { associateId: ID; reference: string } | null;
@@ -594,6 +635,24 @@ export interface NewInvoiceInput {
   narration?: string;
   /** The estimate / order this bill is made from; it is marked as converted. */
   sourceId?: ID;
+  /** A retail sale (doc 37, T02): paid in full now and numbered in the retail series. */
+  retail?: RetailDetails;
+}
+
+/**
+ * A walk-in sale (doc 37, T02). Without a party it goes to the firm's cash
+ * customer; the whole bill is received now into the chosen cash or UPI account.
+ */
+export interface NewRetailSaleInput {
+  customFields?: CustomFieldValues;
+  partyId?: ID;
+  /** Printed on the bill; the cash customer stays the party. */
+  buyer?: RetailDetails;
+  date: ISODate;
+  lines: InvoiceLine[];
+  billDiscount?: BillDiscountInput;
+  paidBy: { mode: PaymentMode; ledgerId: ID };
+  narration?: string;
 }
 
 /** A new receipt (money in from a customer) or payment (money out to a supplier). */
@@ -643,6 +702,16 @@ export interface NewJournalInput {
 // ---------------------------------------------------------------------------
 
 export type InvoiceTemplate = "classic" | "modern" | "compact";
+/** How a bill is printed: a firm template, or the compact layout on a 58 mm roll ("compact" is 80 mm). */
+export type PrintLayout = InvoiceTemplate | "compact-58";
+
+/** UPI QR printed on sale bills with an amount due (doc 37, T18). */
+export interface UpiQrSettings {
+  /** e.g. "shreekrishna@hdfcbank" */
+  upiId: string;
+  /** Name the customer's UPI app shows, e.g. the firm's name. */
+  payeeName: string;
+}
 
 export interface InvoiceSettings {
   template: InvoiceTemplate;
@@ -661,6 +730,12 @@ export interface InvoiceSettings {
   numbering: Partial<Record<VoucherType, NumberingRule>>;
   /** Charge heads picked on bills (doc 37, T09); missing = none set up. */
   chargeHeads?: ChargeHead[];
+  /** Retail bills' own series (doc 37, T02), e.g. "RI" gives "RI/26-27/0001"; missing = "RI". */
+  retailPrefix?: string;
+  /** Thermal roll retail bills print on; missing = "80". */
+  retailPaper?: "58" | "80";
+  /** UPI QR on sale bills (doc 37, T18); null or missing = off. */
+  upiQr?: UpiQrSettings | null;
 }
 
 /**
@@ -681,6 +756,8 @@ export type Role = "owner" | "accountant" | "sales" | "viewer" | `r_${string}`;
 
 export interface TeamMember {
   id: ID;
+  /** The member's login; in the demo the member id is the login id. */
+  userId?: ID;
   name: string;
   phone: string;
   email?: string;
@@ -777,6 +854,8 @@ export interface NewContraInput {
 
 /** Estimate, sales order, delivery note or purchase order. */
 export interface NewOrderInput {
+  /** Customer-side orders only (doc 37, T10). */
+  salespersonId?: ID | null;
   customFields?: CustomFieldValues;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;
@@ -788,6 +867,8 @@ export interface NewOrderInput {
   billDiscount?: BillDiscountInput;
   /** Estimates only. Defaults to 15 days after the date. */
   validUntil?: ISODate;
+  /** Delivery challans only: the purpose (default supply). */
+  challanType?: ChallanType;
   /** Made from another document, e.g. a sales order from an estimate. */
   sourceId?: ID;
   narration?: string;

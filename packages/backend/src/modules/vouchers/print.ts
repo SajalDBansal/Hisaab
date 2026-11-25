@@ -1,4 +1,10 @@
-import { voucherHtml, voucherShareText } from "@repo/core";
+import {
+  billPayment,
+  retailLayout,
+  voucherHtml,
+  voucherShareText,
+  type PrintLayout,
+} from "@repo/core";
 import { loadCustomFieldDefs } from "../customFields/customFields.repo";
 import { loadBranding } from "../branding/branding.repo";
 import { billAllocations } from "@repo/core/src/accounting/settlements";
@@ -12,16 +18,16 @@ export async function printVoucher(
   db: Db,
   firmId: string,
   id: string,
-  template?: "classic" | "modern" | "compact",
+  template?: PrintLayout,
 ): Promise<PrintableVoucher> {
   const books = await loadReportSnapshot(db, firmId);
   const voucher = books.vouchers.find((v) => v.id === id);
   if (!voucher) throw notFound("entry");
   const party = books.parties.find((p) => p.id === voucher.partyId);
-  const settings = {
-    ...books.invoiceSettings,
-    ...(template ? { template } : {}),
-  };
+  const settings = books.invoiceSettings;
+  // Retail bills (doc 37, T02) open on the firm's thermal roll.
+  const layout =
+    template ?? (voucher.retail ? retailLayout(settings) : undefined);
   const itemIds = new Set((voucher.lines ?? []).map((line) => line.itemId));
   const against = books.vouchers.find((v) => v.id === voucher.againstId);
   const printable = voucherHtml({
@@ -32,6 +38,12 @@ export async function printVoucher(
     branding: await loadBranding(db, firmId),
     items: books.items.filter((item) => itemIds.has(item.id)),
     settings,
+    layout,
+    // Paid rows and the UPI QR for the amount still due (doc 37, T18).
+    payment:
+      voucher.type === "sale"
+        ? billPayment(books.vouchers, voucher)
+        : undefined,
     bankName: books.ledgers.find((l) => l.id === settings.bankLedgerId)?.name,
     ledgerName: books.ledgers.find((l) => l.id === voucher.ledgerId)?.name,
     against: against

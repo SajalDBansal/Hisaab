@@ -9,6 +9,7 @@ import {
   type Ageing,
   type Bill,
 } from "../accounting/bills";
+import { refundableByBook, unappliedNoteCredit } from "../accounting/refunds";
 import { newestFirst } from "../accounting/reports";
 import {
   tradeRateHistory,
@@ -37,6 +38,10 @@ export interface PartyListRow {
 
 export interface PartyDetail extends PartyListRow {
   unallocated: Paise;
+  /** Unused credit from credit/debit notes (doc 37, T05). */
+  unappliedCredit?: Paise;
+  /** What can be refunded today in each book (doc 37, T05). */
+  refundable?: { gst: Paise; nongst: Paise };
   bills: Bill[];
   openBills: Bill[];
   ageing: Ageing;
@@ -95,7 +100,8 @@ export const partyService = {
   /** Real API: http.get<PartyDetail>(`/parties/${id}`) */
   async get(id: string): Promise<PartyDetail> {
     await delay();
-    const { parties, vouchers } = getDb();
+    const db = getDb();
+    const { parties, vouchers } = db;
     const party = parties.find((p) => p.id === id);
     if (!party) throw new Error("Party not found");
     const row = listRow(party, vouchers);
@@ -116,6 +122,8 @@ export const partyService = {
     return clone({
       ...row,
       unallocated: unallocatedMoney(party, vouchers),
+      unappliedCredit: unappliedNoteCredit(party, vouchers, today()),
+      refundable: refundableByBook(party, db, today(), today()),
       bills,
       openBills: openBills(bills),
       ageing: ageing(bills),

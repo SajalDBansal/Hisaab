@@ -18,6 +18,8 @@ import {
   today,
   collectionBills,
   unallocatedMoney,
+  unappliedNoteCredit,
+  refundableByBook,
   type Role,
 } from "@repo/core";
 import type { Db } from "@repo/backend/db/client";
@@ -80,7 +82,8 @@ export async function readParty(
   if (!row) throw notFound("party");
   if (!canReadParty(role, row.type)) throw forbiddenRead();
   const party = toPartyRow(row);
-  const { vouchers } = await loadReportBooks(db, firmId);
+  const books = await loadReportBooks(db, firmId);
+  const { vouchers } = books;
   // The party screen's open bills feed payment TDS, which needs their GST-free value.
   const bills = partyBills(party, vouchers, today(), { taxable: true });
   const balance = partyBalance(party, vouchers);
@@ -90,6 +93,8 @@ export async function readParty(
     balance,
     ...overdueSummary(collectionBills(party, vouchers, today())),
     unallocated: unallocatedMoney(party, vouchers),
+    unappliedCredit: unappliedNoteCredit(party, vouchers, today()),
+    refundable: refundableByBook(party, books, today(), today()),
     bills,
     openBills: openBills(bills),
     ageing: ageing(bills),

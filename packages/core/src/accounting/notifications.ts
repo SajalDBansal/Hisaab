@@ -17,7 +17,8 @@ export type NoticeKind =
   | "low-stock"
   | "estimate"
   | "gst"
-  | "backup";
+  | "backup"
+  | "entries";
 
 /** Where tapping a notice goes. */
 export interface NoticeLink {
@@ -28,7 +29,8 @@ export interface NoticeLink {
     | "reminders"
     | "gst"
     | "backup"
-    | "outstanding";
+    | "outstanding"
+    | "entries";
   id?: string;
 }
 

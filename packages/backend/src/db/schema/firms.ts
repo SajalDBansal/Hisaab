@@ -101,6 +101,14 @@ export const invoiceSettings = pgTable("invoice_settings", {
   numbering: jsonb("numbering").notNull().default({}),
   // Charge heads picked on bills (doc 37, T09): [{ id, name, taxType, gstRate, ... }]
   chargeHeads: jsonb("charge_heads").notNull().default([]),
+  // Retail bills (doc 37, T02): own number series and thermal roll width.
+  retailPrefix: text("retail_prefix").notNull().default("RI"),
+  retailPaper: text("retail_paper")
+    .$type<"58" | "80">()
+    .notNull()
+    .default("80"),
+  // UPI QR on sale bills (doc 37, T18): { upiId, payeeName }; null = off.
+  upiQr: jsonb("upi_qr").$type<{ upiId: string; payeeName: string }>(),
   ...stamps,
 });
 
@@ -137,6 +145,8 @@ export const salesControls = pgTable("sales_controls", {
   firmId: firmKey(),
   overdueSales: overdueSalesPolicy("overdue_sales").notNull().default("warn"),
   stockPolicy: stockPolicy("stock_policy").notNull().default("warn"),
+  // Delivery challans move stock (doc 37, T04); each challan stores what it did.
+  challanStock: boolean("challan_stock").notNull().default(true),
   ...stamps,
 });
 

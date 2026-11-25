@@ -12,6 +12,8 @@ export const RoleFlags = z.strictObject({
   ownRecordsOnly: z.boolean(),
   viewAudit: z.boolean(),
   restoreCancelled: z.boolean(),
+  // Approvals (doc 37, T06); roles saved before it have none (= no).
+  approveEntries: z.boolean().optional(),
 });
 
 export const RoleRights = z.strictObject({

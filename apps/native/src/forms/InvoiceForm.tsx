@@ -21,6 +21,10 @@ import {
   type OrderType,
   allowedDates,
   isOrderType,
+  CHALLAN_TYPES,
+  CHALLAN_TYPE_LABELS,
+  challanMovesStock,
+  type ChallanType,
   formatQty,
   lineQtyText,
   checkInvoice,
@@ -53,6 +57,10 @@ import {
   exclusiveRate,
   inclusiveRate,
   type BillDiscountInput,
+  carriesSalesperson,
+  priceListFor,
+  priceListRate,
+  isVariantParent,
 } from "@repo/core";
 import {
   AmountField,
@@ -118,6 +126,7 @@ import {
   type LineDraft,
 } from "./invoiceDraft";
 import { InvoiceExtras } from "./InvoiceExtras";
+import { usePriceLists, useSalespersons } from "@/data/catalogHooks";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -205,6 +214,7 @@ const TEXT = {
 type Paid = "none" | "partial" | "full";
 /** Picker choice that clears a line's lot so stock is taken oldest first. */
 const AUTO_LOT = "__auto__";
+const NO_SALESPERSON = "__none__";
 
 export function InvoiceForm({
   kind,
@@ -240,6 +250,15 @@ export function InvoiceForm({
   const approveCredit = useApproveSaleCredit();
   const salesControls = useSalesControls();
   const overduePolicy = salesControls.data?.overdueSales ?? "warn";
+  // Delivery challans (doc 37, T04): a saved challan keeps what it did when issued.
+  const challanStock =
+    kind === "delivery-note" &&
+    (editing
+      ? editing.challanStock !== false
+      : (salesControls.data?.challanStock ?? true));
+  const [challanType, setChallanType] = useState<ChallanType>(
+    editing?.challanType ?? "supply",
+  );
   const stockPolicy =
     kind === "sale" && !editing
       ? (salesControls.data?.stockPolicy ?? "warn")
@@ -295,7 +314,11 @@ export function InvoiceForm({
     : allowedDates();
   const stock = useStockLots(date);
   // An edit may reuse the stock this bill already took.
-  const lotPool = lotsWithoutBill(stock.data ?? [], editing);
+  // A sale made from a stock-moving challan takes over the stock the challan holds.
+  const lotPool = lotsWithoutBill(
+    lotsWithoutBill(stock.data ?? [], editing),
+    kind === "sale" && source && challanMovesStock(source) ? source : undefined,
+  );
   const lotsFor = (itemId: string) =>
     lotPool.filter((lot) => lot.itemId === itemId);
   /** Books (GST / non-GST) that still hold this item on the bill date. */
@@ -354,10 +377,42 @@ export function InvoiceForm({
   const [paidText, setPaidText] = useState("");
   const [mode, setMode] = useState<PaymentMode>("cash");
   const [bankId, setBankId] = useState("");
-  const [picker, setPicker] = useState<"party" | "item" | "bank" | null>(null);
+  const [picker, setPicker] = useState<
+    "party" | "item" | "bank" | "challanType" | "salesperson" | null
+  >(null);
+  // Salesperson (doc 37, T10): the saved one, else the one made from, else
+  // the logged-in member's own salesperson on a new entry.
+  const withSalesperson = carriesSalesperson(kind);
+  const salespersons = useSalespersons();
+  const [salespersonId, setSalespersonId] = useState<string | undefined>(
+    prefill?.salespersonId,
+  );
+  const [salespersonTouched, setSalespersonTouched] = useState(false);
+  const mySalesperson = salespersons.data?.mine ?? undefined;
+  useEffect(() => {
+    if (
+      withSalesperson &&
+      !editing &&
+      !salespersonTouched &&
+      !source?.salespersonId &&
+      mySalesperson
+    )
+      setSalespersonId(mySalesperson);
+  }, [withSalesperson, editing, salespersonTouched, source, mySalesperson]);
+  const salespersonOptions = (salespersons.data?.rows ?? []).filter(
+    (s) => s.active || s.id === salespersonId,
+  );
+  const salespersonName = salespersons.data?.rows.find(
+    (s) => s.id === salespersonId,
+  )?.name;
+  const salespersonInput = withSalesperson
+    ? { salespersonId: salespersonId ?? (editing ? null : undefined) }
+    : {};
   const [showErrors, setShowErrors] = useState(false);
 
   const party = parties.data?.find((r) => r.party.id === partyId);
+  const priceLists = usePriceLists();
+  const priceList = priceListFor(priceLists.data, party?.party, side);
   const partyDetail = useParty(partyId ?? "");
   const itemById = (id: string) =>
     items.data?.find((r) => r.item.id === id)?.item;
@@ -373,7 +428,7 @@ export function InvoiceForm({
     issuedParty.stateCode !== issuedFirm.stateCode;
 
   // ---- Maths (pure functions from @repo/core) -----------------------------------
-  const usesStock = kind === "sale" || kind === "delivery-note";
+  const usesStock = kind === "sale" || challanStock;
   // Rows without a chosen lot take stock oldest first; an item in both books needs the user's choice.
   const needsBook =
     usesStock &&
@@ -582,7 +637,12 @@ export function InvoiceForm({
     }`;
 
   // ---- Actions ------------------------------------------------------------------
-  const addItem = (item: Item) =>
+  // A new line starts at the party's price list rate (doc 37, T36), else the
+  // item's own price; the last-rate hint on each line stays as it was.
+  const addItem = (item: Item) => {
+    const listed = priceListRate(priceList, item);
+    const inAlt = !!listed?.unit && listed.unit === item.altUnit?.name;
+    const base = listed?.rate ?? item[text.priceKey];
     setLines((prev) => [
       ...prev,
       {
@@ -591,13 +651,14 @@ export function InvoiceForm({
         qty: "1",
         rate: (
           (ratesWithGst && carriesGst && item.gstRate
-            ? inclusiveRate(item[text.priceKey], item.gstRate)
-            : item[text.priceKey]) / 100
+            ? inclusiveRate(base, item.gstRate)
+            : base) / 100
         ).toFixed(2),
         discountPercent: "",
-        inAlt: false,
+        inAlt,
       },
     ]);
+  };
 
   // Coming back from "Add new customer / item": select what was just created.
   const [newItemId, setNewItemId] = useState<string | undefined>();
@@ -670,6 +731,7 @@ export function InvoiceForm({
     }
     const base = {
       ...(side === "sale" ? associates : {}),
+      ...salespersonInput,
       partyId,
       date,
       bookScope:
@@ -722,7 +784,9 @@ export function InvoiceForm({
             charges,
             billDiscount,
             sourceId: source?.id,
+            ...(kind === "delivery-note" ? { challanType } : {}),
             ...associates,
+            ...salespersonInput,
             customFields: customValues,
           },
           createOrder.mutateAsync,
@@ -816,7 +880,9 @@ export function InvoiceForm({
           subtitle={`${source ? `From ${source.number} · ` : ""}${
             isOrder
               ? kind === "delivery-note"
-                ? "Not a bill · stock goes out until it is billed"
+                ? challanStock
+                  ? "Not a bill · stock goes out on the challan"
+                  : "Not a bill · stock moves on the invoice"
                 : "Not a bill · no stock, tax or balance change"
               : kind === "purchase"
                 ? "Purchase bill"
@@ -881,6 +947,14 @@ export function InvoiceForm({
         onChange={setCustomValues}
       />
       <AttachmentPicker {...attachments} />
+      {withSalesperson && salespersonOptions.length > 0 ? (
+        <SelectField
+          label="Salesperson"
+          value={salespersonName}
+          placeholder="No salesperson"
+          onPress={() => setPicker("salesperson")}
+        />
+      ) : null}
       {side === "sale" ? (
         <InvoiceAssociates
           value={associates}
@@ -894,6 +968,20 @@ export function InvoiceForm({
           checked={withoutGst}
           onChange={editing ? () => {} : setWithoutGst}
         />
+      ) : null}
+      {kind === "delivery-note" ? (
+        <View style={{ gap: space.sm }}>
+          <SelectField
+            label="Challan type"
+            value={CHALLAN_TYPE_LABELS[challanType]}
+            onPress={editing ? () => {} : () => setPicker("challanType")}
+          />
+          <Txt variant="small" tone="body">
+            {challanStock
+              ? "This challan takes the goods out of stock; the invoice made from it will not take them again."
+              : "Paperwork only: stock moves on the invoice made from this challan."}
+          </Txt>
+        </View>
       ) : null}
       {/* Party */}
       <View style={{ gap: space.sm }}>
@@ -911,6 +999,7 @@ export function InvoiceForm({
             {gst.on ? `${party.party.gstin || "Unregistered"} · ` : ""}
             Balance {formatINR(Math.abs(party.balance))} ·{" "}
             {count(party.party.creditDays, "day")} credit
+            {priceList ? ` · Price list ${priceList.name}` : ""}
           </Txt>
         ) : null}
         {showCreditWarning && detail ? (
@@ -1053,8 +1142,7 @@ export function InvoiceForm({
                   onChange={(on) => toggleAlt(l, item, on)}
                 />
               ) : null}
-              {(kind === "sale" || kind === "delivery-note") &&
-              item?.kind !== "service" ? (
+              {(kind === "sale" || challanStock) && item?.kind !== "service" ? (
                 <SelectField
                   label="Stock lot"
                   value={(() => {
@@ -1479,6 +1567,19 @@ export function InvoiceForm({
         ]}
       />
       <PickerSheet
+        visible={picker === "challanType"}
+        title="Challan type"
+        onClose={() => setPicker(null)}
+        onSelect={(id) => {
+          setChallanType(id as ChallanType);
+          setPicker(null);
+        }}
+        options={CHALLAN_TYPES.map((id) => ({
+          id,
+          title: CHALLAN_TYPE_LABELS[id],
+        }))}
+      />
+      <PickerSheet
         visible={picker === "party"}
         title={`Pick ${text.partyWord}`}
         searchPlaceholder={`Search ${text.partyWord}s`}
@@ -1525,6 +1626,8 @@ export function InvoiceForm({
         options={(items.data ?? [])
           // Not-for-sale items are bought, never sold (doc 37, T39).
           .filter((r) => side === "purchase" || !r.item.notForSale)
+          // Variant parents are never billed; their variants are (doc 37, T35).
+          .filter((r) => !isVariantParent(r.item))
           .map((r) => ({
             id: r.item.id,
             title: r.item.name,
@@ -1537,6 +1640,29 @@ export function InvoiceForm({
             }`,
             right: <Money value={r.item[text.priceKey]} variant="small" />,
           }))}
+      />
+      <PickerSheet
+        visible={picker === "salesperson"}
+        title="Salesperson"
+        onClose={() => setPicker(null)}
+        onSelect={(id) => {
+          setSalespersonTouched(true);
+          setSalespersonId(id === NO_SALESPERSON ? undefined : id);
+          setPicker(null);
+        }}
+        options={[
+          { id: NO_SALESPERSON, title: "No salesperson" },
+          ...salespersonOptions.map((s) => ({
+            id: s.id,
+            title: s.name,
+            subtitle: [
+              s.id === mySalesperson ? "You" : "",
+              s.active ? "" : "Switched off",
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          })),
+        ]}
       />
       <PickerSheet
         visible={picker === "bank"}

@@ -36,6 +36,7 @@ import {
   Icon,
   KeyValue,
   Money,
+  Notice,
   PickerSheet,
   PostingTable,
   Screen,
@@ -59,6 +60,7 @@ import {
   useParty,
 } from "@/data/queries";
 import { colors, radius, space } from "@/theme";
+import { useApprovalSave } from "@/forms/approvalSave";
 
 export type MoneyKind = "receipt" | "payment";
 
@@ -87,22 +89,50 @@ const TEXT = {
   },
 } as const;
 
+/** Refunds (doc 37, T05): a payment to a customer, or a receipt from a supplier. */
+const REFUND_TEXT = {
+  payment: {
+    ...TEXT.payment,
+    title: "Refund to customer",
+    subtitle: "Paying back their advance or unused credit",
+    numberLabel: "Payment no.",
+    partyLabel: "Refund to",
+    partyWord: "customer",
+    amountLabel: "Amount refunded ₹",
+    saveLabel: "Save refund",
+  },
+  receipt: {
+    ...TEXT.receipt,
+    title: "Refund from supplier",
+    subtitle: "Our advance or unused credit paid back",
+    numberLabel: "Receipt no.",
+    partyLabel: "Refund from",
+    partyWord: "supplier",
+    amountLabel: "Amount received back ₹",
+    saveLabel: "Save refund",
+  },
+} as const;
+
 const MODES: PaymentMode[] = ["cash", "upi", "bank", "cheque", "card"];
 
 export function MoneyForm({
   kind,
   initialPartyId,
+  refund = false,
 }: {
   kind: MoneyKind;
   initialPartyId?: string;
+  refund?: boolean;
 }) {
-  const text = TEXT[kind];
+  const text = refund ? REFUND_TEXT[kind] : TEXT[kind];
   const { role } = useData();
   const attachments = useFinancialAttachments();
   const [bookScope, setBookScope] = useBookScope();
 
   // ---- Data -------------------------------------------------------------------
-  const parties = useParties(kind === "receipt" ? "customer" : "supplier");
+  const parties = useParties(
+    (kind === "receipt") !== refund ? "customer" : "supplier",
+  );
   const ledgers = useLedgers();
   const [date, setDate] = useState(today());
   const nextNumber = useNextNumber(kind, undefined, date);
@@ -127,7 +157,9 @@ export function MoneyForm({
   const [showErrors, setShowErrors] = useState(false);
 
   const party = useParty(partyId ?? "");
-  const bills: Bill[] = party.data?.openBills ?? [];
+  // A refund settles no bills.
+  const bills: Bill[] = refund ? [] : (party.data?.openBills ?? []);
+  const refundable = party.data?.refundable?.[bookScope];
   const ledgerId =
     mode === "cash"
       ? (ledgers.data?.find((row) => row.ledger.kind === "cash")?.ledger.id ??
@@ -158,13 +190,17 @@ export function MoneyForm({
   const tdsRate = Number(tdsRateText) || 0;
   // GST shown on the bills is left out of the TDS base.
   const tds =
-    kind === "payment" && withTds && amount
+    kind === "payment" && !refund && withTds && amount
       ? calcTds(tdsBase(amount, allocations), tdsRate)
       : 0;
   /** Money that actually leaves or enters the cash/bank account. */
   const net = (amount ?? 0) - tds;
   const leftover = Math.max((amount ?? 0) - allocatedTotal, 0);
-  const problem = checkMoney({ kind, partyId, amount, allocations });
+  const problem =
+    checkMoney({ kind, partyId, amount, allocations }) ??
+    (refund && refundable !== undefined && (amount ?? 0) > refundable
+      ? `Only ${formatINR(refundable)} of unused credit can be refunded in this book.`
+      : null);
 
   // Preview of the Dr/Cr lines this voucher will post.
   const postings = voucherPostings(
@@ -220,6 +256,7 @@ export function MoneyForm({
     });
   };
 
+  const approval = useApprovalSave(kind);
   const save = async () => {
     setShowErrors(true);
     if (problem || !partyId || !amount) return;
@@ -249,6 +286,7 @@ export function MoneyForm({
         : undefined,
     };
     try {
+      if (await approval.send(input)) return;
       const saved = await attachments.save(
         kind === "receipt" ? "/receipts" : "/payments",
         input,
@@ -264,11 +302,13 @@ export function MoneyForm({
 
   const footerNote = () => {
     if (showErrors && problem) return problem;
+    if (!amount && refund) return "Enter the amount refunded";
     if (!amount)
       return kind === "receipt"
         ? "Enter the amount received"
         : "Enter the amount to pay";
     if (tds) return `TDS ${formatINR(tds)} kept back`;
+    if (refund) return "Refund of unused credit";
     return leftover > 0
       ? `${formatINR(leftover)} on account`
       : "Fully allocated";
@@ -290,10 +330,10 @@ export function MoneyForm({
             </Txt>
           </View>
           <Button
-            label={text.saveLabel}
+            label={approval.waits ? "Send for approval" : text.saveLabel}
             variant="primary"
             onPress={save}
-            loading={saving || attachments.busy}
+            loading={saving || attachments.busy || approval.busy}
             disabled={showErrors && !!problem}
           />
         </FooterBar>
@@ -327,7 +367,7 @@ export function MoneyForm({
             showErrors && !partyId ? `Pick a ${text.partyWord}.` : undefined
           }
         />
-        {party.data ? (
+        {party.data && !refund ? (
           <Txt variant="small" tone="body" num>
             Outstanding {formatINR(Math.abs(party.data.balance))} ·{" "}
             {party.data.openBills.length} open bills
@@ -349,7 +389,12 @@ export function MoneyForm({
         </Txt>
       </Card>
 
-      {kind === "payment" ? (
+      {refund && party.data ? (
+        <Notice
+          text={`Up to ${formatINR(refundable ?? 0)} of unused credit can be refunded in the ${bookScope === "gst" ? "GST" : "non-GST"} book.`}
+        />
+      ) : null}
+      {kind === "payment" && !refund ? (
         <View style={{ gap: space.md }}>
           <Txt variant="heading">TDS</Txt>
           <Segmented
@@ -458,7 +503,7 @@ export function MoneyForm({
       </View>
 
       {/* Bill-wise allocation */}
-      <View style={{ gap: space.md }}>
+      <View style={{ gap: space.md, display: refund ? "none" : "flex" }}>
         <View
           style={{
             flexDirection: "row",

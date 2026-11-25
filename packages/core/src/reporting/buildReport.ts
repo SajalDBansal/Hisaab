@@ -26,6 +26,11 @@ import {
 } from "./insights";
 import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
 import { expiringItemsSection, stockLevelsSection } from "./stockLevels";
+import { refundsSection } from "./refunds";
+import {
+  salesBySalespersonSection,
+  salesOrdersBySalespersonSection,
+} from "./catalogReports";
 import {
   REPORTS,
   ReportInputError,
@@ -33,6 +38,7 @@ import {
   type ReportDocument,
   type ReportRequest,
   type ReportSection,
+  PARENT_GROUP_REPORTS,
 } from "./types";
 
 /** Reports that take a yearly interest rate. */
@@ -77,6 +83,10 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
     )
       throw new ReportInputError("Use 0 to 365 days ahead.");
   }
+  if (request.groupByParent && !PARENT_GROUP_REPORTS.includes(request.report))
+    throw new ReportInputError(
+      "Only the stock summary and the by-item reports group variants.",
+    );
   if (request.accountKey && !definition.accounts)
     throw new ReportInputError("This report cannot be filtered by account.");
   if (
@@ -167,6 +177,12 @@ function buildSections(
       return [stockLevelsSection(books, request)];
     case "expiring-items":
       return [expiringItemsSection(books, request)];
+    case "refunds":
+      return [refundsSection(books, request)];
+    case "sales-by-salesperson":
+      return [salesBySalespersonSection(books, request)];
+    case "sales-orders-by-salesperson":
+      return [salesOrdersBySalespersonSection(books, request)];
   }
 }
 
@@ -202,6 +218,14 @@ export function buildReport(
     notes.push(
       `Input GST on a supplier bill must be reversed if the bill is not paid within ${ITC_REVERSE_DAYS} days of its date (CGST Act s.16(2)); it can be claimed again once paid. ITC at risk is the bill's GST in proportion to what is still unpaid, as of the report date. Bills from ${ITC_WARN_DAYS} days are shown so they can be paid in time.`,
     );
+  if (request.report === "sales-by-salesperson")
+    notes.push(
+      "Posted sales bills by the salesperson on each bill. Returns count against the salesperson of the bill they return and are taken off.",
+    );
+  if (request.report === "sales-orders-by-salesperson")
+    notes.push(
+      "Sales orders dated in the period (cancelled ones left out). Open counts orders not yet fully billed on the report's end date, at their full order value.",
+    );
   if (request.report === "stock-levels")
     notes.push(
       "Minimum is the item's reorder level. To order fills up to the maximum when one is set, otherwise back to the minimum. Services are not listed.",
@@ -209,6 +233,10 @@ export function buildReport(
   if (request.report === "expiring-items")
     notes.push(
       "Stock lots still in hand with an expiry date from the purchase line (or the item's opening batch), valued at FIFO cost. Sales take the oldest purchase first, not the earliest expiry.",
+    );
+  if (request.report === "refunds")
+    notes.push(
+      "Money paid back to customers from their advances or unused credit notes, and money suppliers paid back from our advances or debit notes. A refund never exceeds the party's unused credit in that book.",
     );
   if (request.report === "interest-calculator")
     notes.push(

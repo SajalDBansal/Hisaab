@@ -2,6 +2,8 @@
 import type { CustomAccount } from "../accounting/accounts";
 import type { OpeningAccount } from "../accounting/generalLedger";
 import type { CustomFieldDef } from "../customFields";
+import type { Salesperson } from "../catalog";
+import type { PriceList } from "../priceLists";
 import type { OverdueSalesPolicy } from "../accounting/creditControl";
 import type { StockPolicy } from "../accounting/stockPolicy";
 import { financialYear } from "../dates";
@@ -27,6 +29,10 @@ import type {
 
 export interface Db {
   accounts?: CustomAccount[];
+  /** The firm's salespersons (doc 37, T10); loaded wherever sales are saved. */
+  salespersons?: Salesperson[];
+  /** Sale and purchase price lists (doc 37, T36). */
+  priceLists?: PriceList[];
   /** The firm's custom field definitions (doc 37, T07); loaded where values are saved. */
   customFieldDefs?: CustomFieldDef[];
   /** Logo and signature printed on documents (doc 37, T16); data:image URIs. */
@@ -36,6 +42,8 @@ export interface Db {
     overdueSales: OverdueSalesPolicy;
     /** Stock control (doc 37, T37); missing = "warn". */
     stockPolicy?: StockPolicy;
+    /** Delivery challans move stock (doc 37, T04); missing = yes. */
+    challanStock?: boolean;
     version: number;
   };
   firm: Firm;
@@ -100,8 +108,25 @@ export function newId(prefix: string): ID {
   return `${prefix}_${Date.now().toString(36)}${idCounter.toString(36)}`;
 }
 
-/** Number series: normal, or "bos" for sales bills of supply (their own series, e.g. BS/26-27/0001). */
-export type Series = "bos" | "nongst";
+/** The firm's walk-in customer for retail bills (doc 37, T02). */
+export const WALK_IN_PARTY_NAME = "Cash customer";
+
+/** Retail bills' default prefix (doc 37, T02): RI/26-27/0001. */
+export const DEFAULT_RETAIL_PREFIX = "RI";
+
+/**
+ * Number series: normal, "bos" for sales bills of supply (their own series,
+ * e.g. BS/26-27/0001), "nongst" for the non-GST book (NSI), and the retail
+ * series (doc 37, T02): "retail" (RI) and "nongst-retail" (NRI).
+ */
+export type Series = "bos" | "nongst" | "retail" | "nongst-retail";
+
+/** Longest first: "-nongst-retail" also ends with "-retail". */
+const SERIES_SUFFIXES: Series[] = ["nongst-retail", "retail", "nongst", "bos"];
+
+export const retailPrefixOf = (
+  settings: Pick<InvoiceSettings, "retailPrefix">,
+) => settings.retailPrefix || DEFAULT_RETAIL_PREFIX;
 
 export const DEFAULT_NUMBERING: NumberingRule = {
   start: 1,
@@ -139,15 +164,63 @@ export function formatVoucherNumber(
 }
 
 export function seriesPrefix(
-  settings: Pick<InvoiceSettings, "prefixes" | "billOfSupplyPrefix">,
+  settings: Pick<
+    InvoiceSettings,
+    "prefixes" | "billOfSupplyPrefix" | "retailPrefix"
+  >,
   type: VoucherType,
   series?: Series,
 ): string {
-  return series === "nongst"
-    ? `N${settings.prefixes[type]}`
-    : series === "bos"
-      ? settings.billOfSupplyPrefix
-      : settings.prefixes[type];
+  switch (series) {
+    case "nongst":
+      return `N${settings.prefixes[type]}`;
+    case "bos":
+      return settings.billOfSupplyPrefix;
+    case "retail":
+      return retailPrefixOf(settings);
+    case "nongst-retail":
+      return `N${retailPrefixOf(settings)}`;
+    default:
+      return settings.prefixes[type];
+  }
+}
+
+/** "sale-bos:26-27" → the voucher type, series and year of a counter key. */
+export function parseCounterKey(key: string): {
+  type: VoucherType;
+  series?: Series;
+  year: string;
+} {
+  const [typeAndSeries = "", year = ""] = key.split(":");
+  const series = SERIES_SUFFIXES.find((s) => typeAndSeries.endsWith(`-${s}`));
+  return {
+    type: (series
+      ? typeAndSeries.slice(0, -series.length - 1)
+      : typeAndSeries) as VoucherType,
+    series,
+    year,
+  };
+}
+
+/**
+ * A stored counter (type, prefix such as "SI" or "RI", year) → the key the core
+ * uses, e.g. "sale-retail:26-27"; null for a prefix no series uses any more.
+ */
+export function counterKeyOf(
+  settings: Pick<
+    InvoiceSettings,
+    "prefixes" | "billOfSupplyPrefix" | "retailPrefix"
+  >,
+  type: VoucherType,
+  prefix: string,
+  year: string,
+): string | null {
+  const series: (Series | undefined)[] =
+    type === "sale" ? [undefined, ...SERIES_SUFFIXES] : [undefined, "nongst"];
+  const match = series.find((s) => seriesPrefix(settings, type, s) === prefix);
+  if (match === undefined && seriesPrefix(settings, type) !== prefix)
+    return null;
+  return `${type}${match ? `-${match}` : ""}:${year}`;
 }
 
 const counterKey = (

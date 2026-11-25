@@ -4,6 +4,25 @@ import { Role } from "./firms";
 
 export const GstMode = z.enum(["regular", "composition", "off"]);
 export const InvoiceTemplate = z.enum(["classic", "modern", "compact"]);
+/** Print-time layout: a template, or "compact-58" for 58 mm thermal rolls ("compact" is 80 mm). */
+export const PrintLayout = z.enum([
+  "classic",
+  "modern",
+  "compact",
+  "compact-58",
+]);
+
+/** UPI QR on sale bills (doc 37, T18): the UPI id and the payee name UPI apps show. */
+export const UpiQr = z.object({
+  upiId: z
+    .string()
+    .trim()
+    .regex(
+      /^[\w.-]{2,256}@[A-Za-z0-9]{2,64}$/,
+      "UPI id should look like name@bank.",
+    ),
+  payeeName: z.string().trim().min(1, "Enter the payee name.").max(60),
+});
 
 export const BankAccount = z.object({
   accountName: z.string().min(1, "Enter the account name."),
@@ -65,6 +84,14 @@ export const InvoiceSettings = z.object({
   // Keyed by voucher type (core rejects unknown types; vouchers.ts imports this file).
   numbering: z.record(z.string(), NumberingRule),
   chargeHeads: z.array(ChargeHead).max(30).optional(),
+  // Retail bills (doc 37, T02): own series and thermal roll.
+  retailPrefix: z
+    .string()
+    .regex(/^[A-Z0-9-]{1,4}$/, "Use 1 to 4 capital letters, digits or hyphens.")
+    .optional(),
+  retailPaper: z.enum(["58", "80"]).optional(),
+  // UPI QR on sale bills (doc 37, T18); null turns it off.
+  upiQr: UpiQr.nullable().optional(),
 });
 
 export const InvoiceSettingsUpdate = InvoiceSettings.partial();
@@ -77,6 +104,8 @@ export const TeamView = z.object({
   members: z.array(
     z.object({
       id: Id,
+      /** The member's login (accepted members only), e.g. to link a salesperson (T10). */
+      userId: Id.optional(),
       name: z.string(),
       phone: z.string(),
       email: z.string().optional(),
@@ -95,6 +124,8 @@ export const ReminderSettings = z.object({
 });
 
 export type InvoiceSettings = z.infer<typeof InvoiceSettings>;
+export type UpiQr = z.infer<typeof UpiQr>;
+export type PrintLayout = z.infer<typeof PrintLayout>;
 export type ReminderSettings = z.infer<typeof ReminderSettings>;
 
 /** A small PNG or JPEG as a data URI, printed on documents (doc 37, T16). */
@@ -120,9 +151,12 @@ export const SalesControls = z.object({
   overdueSales: OverdueSalesPolicy,
   // Optional: older apps send only the overdue policy; the saved one is kept.
   stockPolicy: StockPolicy.optional(),
+  // Delivery challans move stock (doc 37, T04); applies to challans issued after it.
+  challanStock: z.boolean().optional(),
 });
 export const SalesControlsView = SalesControls.extend({
   stockPolicy: StockPolicy,
+  challanStock: z.boolean(),
   version: z.number().int(),
 });
 /**

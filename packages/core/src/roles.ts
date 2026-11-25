@@ -45,6 +45,11 @@ export interface RoleFlags {
   viewAudit: boolean;
   /** Put cancelled entries back. */
   restoreCancelled: boolean;
+  /**
+   * Approve entries that wait for approval (doc 37, T06), and post those
+   * types directly. Missing on roles saved before approvals = no.
+   */
+  approveEntries?: boolean;
 }
 
 export interface RoleRights {
@@ -123,6 +128,7 @@ const NO_FLAGS: RoleFlags = {
   ownRecordsOnly: false,
   viewAudit: false,
   restoreCancelled: false,
+  approveEntries: false,
 };
 
 /** The built-in roles as rights, exactly matching how they worked before custom roles. */
@@ -147,6 +153,7 @@ export function presetRights(role: BuiltInRole): RoleRights {
       viewProfitMargin: role !== "sales" && role !== "viewer",
       viewAudit: role === "owner",
       restoreCancelled: role === "owner",
+      approveEntries: role === "owner",
     },
   };
 }

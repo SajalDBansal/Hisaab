@@ -1,5 +1,14 @@
-import { firmStatutory, partyMsme } from "../../lib/business-profile";
-import type { MockDb, Voucher, VoucherType } from "@repo/core";
+import {
+  firmStatutory,
+  partyMsme,
+  partyPricing,
+} from "../../lib/business-profile";
+import {
+  counterKeyOf,
+  type MockDb,
+  type Voucher,
+  type VoucherType,
+} from "@repo/core";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { schema, type Db } from "../../db/client";
 import { listAccounts } from "../accounts/accountMasters";
@@ -7,6 +16,7 @@ import { hydrateOrderFulfillment } from "../order-fulfillment/orderFulfillment.r
 import { hydrateSettlementVouchers } from "../settlements/settlements.shared";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { loadCustomFieldDefs } from "../customFields/customFields.repo";
+import { loadSalespersons } from "../catalog/catalog.repo";
 import { itemExtras } from "../items/itemExtras";
 import { loadSalesControls } from "../salesControls/salesControls.repo";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
@@ -58,21 +68,6 @@ export interface Snapshot {
 const undef = <T>(value: T | null | undefined): T | undefined =>
   value ?? undefined;
 const iso = (d: Date | null) => (d ? d.toISOString() : undefined);
-
-/** Counter row → the key the core uses: "sale:26-27" or "sale-bos:26-27". */
-function counterKey(
-  type: VoucherType,
-  series: string,
-  financialYear: string,
-  prefixes: Record<string, string>,
-  bosPrefix: string,
-): string | null {
-  if (type === "sale" && series === bosPrefix)
-    return `${type}-bos:${financialYear}`;
-  if (series === `N${prefixes[type]}`) return `${type}-nongst:${financialYear}`;
-  if (series === prefixes[type]) return `${type}:${financialYear}`;
-  return null;
-}
 
 /** Voucher rows with their lines, charges, journal lines and allocations, as core vouchers. */
 /** PostgreSQL accepts at most 65,535 bind parameters; stay well below it. */
@@ -169,6 +164,8 @@ export async function hydrateVouchers(
       cancelledAt: iso(r.cancelledAt),
       editedAt: iso(r.editedAt),
       validUntil: undef(r.validUntil),
+      challanType: undef(r.challanType),
+      challanStock: undef(r.challanStock),
       sourceId: undef(r.sourceId),
       convertedToId: undef(r.convertedToId),
       mode: undef(r.mode),
@@ -185,6 +182,8 @@ export async function hydrateVouchers(
             amount: r.tdsAmount,
           }
         : undefined,
+      retail: undef(r.retail),
+      salespersonId: undef(r.salespersonId),
       billDiscount: r.billDiscountAmount
         ? {
             percent: undef(r.billDiscountPercent),
@@ -333,12 +332,16 @@ export async function loadBooks(
     .where(eq(voucherCounters.firmId, firmId));
   const counters: Record<string, number> = {};
   for (const c of counterRows) {
-    const key = counterKey(
+    // "sale:26-27", "sale-bos:26-27", "sale-retail:26-27" and so on.
+    const key = counterKeyOf(
+      {
+        prefixes: prefixes as Record<VoucherType, string>,
+        billOfSupplyPrefix: settings.billOfSupplyPrefix,
+        retailPrefix: settings.retailPrefix,
+      },
       c.type,
       c.series,
       c.financialYear,
-      prefixes,
-      settings.billOfSupplyPrefix,
     );
     if (key) counters[key] = c.lastNumber;
   }
@@ -381,6 +384,7 @@ export async function loadBooks(
       openingBills: partyOpeningBills.get(r.id),
       customFields: undef(r.customFields),
       ...partyMsme(r),
+      ...partyPricing(r),
     })),
     items: itemRows.map((r) => ({
       id: r.id,
@@ -422,6 +426,7 @@ export async function loadBooks(
     openingAccounts: [],
     counters: { ...counters },
     customFieldDefs: await loadCustomFieldDefs(db, firmId),
+    salespersons: await loadSalespersons(db, firmId),
     // Stock control applies to new sales (doc 37, T37).
     salesControls: await loadSalesControls(db, firmId),
     invoiceSettings: {
@@ -437,6 +442,9 @@ export async function loadBooks(
       numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
       chargeHeads:
         settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
+      retailPrefix: settings.retailPrefix,
+      retailPaper: settings.retailPaper,
+      upiQr: settings.upiQr ?? null,
     },
     team: [
       {

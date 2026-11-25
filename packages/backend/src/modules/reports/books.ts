@@ -1,4 +1,8 @@
-import { firmStatutory, partyMsme } from "../../lib/business-profile";
+import {
+  firmStatutory,
+  partyMsme,
+  partyPricing,
+} from "../../lib/business-profile";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { addDays, type AuditEntry, type MockDb } from "@repo/core";
 import { and, asc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
@@ -6,6 +10,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
 import { itemExtras } from "../items/itemExtras";
+import { loadSalespersons } from "../catalog/catalog.repo";
 import { listAccounts } from "../accounts/accountMasters";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 
@@ -263,6 +268,7 @@ async function readReportBooks(
 
   return {
     accounts: await listAccounts(db, firmId),
+    salespersons: await loadSalespersons(db, firmId),
     firm: {
       id: firmId,
       name: firmRow.name,
@@ -296,6 +302,7 @@ async function readReportBooks(
       openingBills: partyOpeningBills.get(row.id),
       customFields: undef(row.customFields),
       ...partyMsme(row),
+      ...partyPricing(row),
     })),
     items: itemRows.map((row) => ({
       id: row.id,
@@ -353,6 +360,9 @@ async function readReportBooks(
       numbering: settings.numbering as MockDb["invoiceSettings"]["numbering"],
       chargeHeads:
         settings.chargeHeads as MockDb["invoiceSettings"]["chargeHeads"],
+      retailPrefix: settings.retailPrefix,
+      retailPaper: settings.retailPaper,
+      upiQr: settings.upiQr ?? null,
     },
     team: [],
     currentUserId: "",
