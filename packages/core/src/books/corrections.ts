@@ -1,6 +1,7 @@
 /** Corrections: cancelling, editing and moving bills, and returns (credit / debit notes). */
 import { storedCustomValues } from "../customFields";
 import { savedSalesperson } from "../catalog";
+import { assertNoVariantParents } from "../variants";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
@@ -346,6 +347,7 @@ export function updateInvoice(
     checkSupplierInvoice(db.vouchers, { ...input, date }, id);
   const blocker = editBlocker(db, v) ?? dateChangeBlocker(db, v, date);
   if (blocker) throw new Error(blocker);
+  assertNoVariantParents(db.items, input.lines);
   const settled = settlementsOf(db, id).reduce((s, x) => s + x.amount, 0);
   if (input.partyId !== v.partyId && settled > 0)
     throw new Error(

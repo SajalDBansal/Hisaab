@@ -12,6 +12,8 @@ import {
   type PriceListInput,
 } from "../priceLists";
 import { canSeeCosts } from "../permissions";
+import { makeVariants } from "../variants";
+import type { Item, VariantAttribute } from "../types";
 import { clone, delay, getDb } from "./client";
 
 /** The firm's salespersons and which one is the person using the app. */
@@ -79,6 +81,17 @@ export const catalogService = {
     const row: PriceList = { id: newId("pl"), ...clean, version: 1 };
     lists.push(row);
     return clone(row);
+  },
+
+  /** Real API: POST /items/:id/variants with If-Match (doc 37, T35). */
+  async makeVariants(
+    parentId: string,
+    attributes: VariantAttribute[],
+    _version?: number,
+  ): Promise<{ parent: Item; created: Item[] }> {
+    void _version;
+    await delay();
+    return clone(makeVariants(getDb(), parentId, attributes));
   },
 
   /** Real API: POST /settings/salespersons, or PUT …/:id with If-Match. */

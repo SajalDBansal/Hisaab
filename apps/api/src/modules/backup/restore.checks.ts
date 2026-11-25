@@ -1056,6 +1056,9 @@ function restoreItem(item: FirmExportData["items"][number]): Item {
     openingCost: item.openingCost ?? undefined,
     openingBookScope: item.openingBookScope ?? undefined,
     customFields: item.customFields ?? undefined,
+    variantAttributes: undefined,
+    parentId: undefined,
+    variantValues: undefined,
     ...itemExtras(item),
     maxStock: item.maxStock ?? undefined,
   };

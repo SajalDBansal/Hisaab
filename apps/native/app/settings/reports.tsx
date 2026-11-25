@@ -7,6 +7,7 @@ import {
   DEFAULT_MSME_INTEREST_RATE,
   REPORT_IDS,
   REPORTS,
+  PARENT_GROUP_REPORTS,
   addDays,
   financialYear,
   periodRange,
@@ -187,6 +188,10 @@ function ReportForm({ firm }: { firm: Firm }) {
         // Likewise only the expiring items report takes days ahead.
         expiryDays:
           id === "expiring-items" ? (request.expiryDays ?? 30) : undefined,
+        // Variants on the parent row (doc 37, T35): by-item and stock reports only.
+        groupByParent: PARENT_GROUP_REPORTS.includes(id as ReportId)
+          ? request.groupByParent
+          : undefined,
       });
     if (picker === "report" && RATE_DEFAULTS[id as ReportId] !== undefined)
       setRateText(String(RATE_DEFAULTS[id as ReportId]));
@@ -391,6 +396,14 @@ function ReportForm({ firm }: { firm: Firm }) {
               label="Include narration"
               checked={request.includeNarration}
               onChange={(includeNarration) => update({ includeNarration })}
+            />
+          )}
+          {PARENT_GROUP_REPORTS.includes(request.report) && (
+            <Checkbox
+              label="Variants on their parent's row"
+              note="Sizes, colours and other variants of an item add up to one row."
+              checked={!!request.groupByParent}
+              onChange={(groupByParent) => update({ groupByParent })}
             />
           )}
           {definition.zeroBalances && (

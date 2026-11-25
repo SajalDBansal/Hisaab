@@ -17,6 +17,11 @@ export function catalogServices(client: Client): typeof catalogService {
             headers: matchVersion(version),
           })
         : request("/settings/salespersons", c.Salesperson, { body: input }),
+    makeVariants: (parentId, attributes, version?: number) =>
+      request(`/items/${parentId}/variants`, c.MadeVariants, {
+        body: { attributes },
+        headers: matchVersion(version),
+      }),
     priceLists: () => request("/settings/price-lists", z.array(c.PriceList)),
     savePriceList: (input, id?: string, version?: number) =>
       id

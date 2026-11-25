@@ -56,6 +56,7 @@ import {
   carriesSalesperson,
   priceListFor,
   priceListRate,
+  isVariantParent,
 } from "@repo/core";
 import {
   AmountField,
@@ -1579,6 +1580,8 @@ export function InvoiceForm({
         options={(items.data ?? [])
           // Not-for-sale items are bought, never sold (doc 37, T39).
           .filter((r) => side === "purchase" || !r.item.notForSale)
+          // Variant parents are never billed; their variants are (doc 37, T35).
+          .filter((r) => !isVariantParent(r.item))
           .map((r) => ({
             id: r.item.id,
             title: r.item.name,

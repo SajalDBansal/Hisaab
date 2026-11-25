@@ -432,10 +432,19 @@ export function tradeByItemSection(
     const t = totalsOf(v);
     const sign = signOf(v);
     (v.lines ?? []).forEach((line, i) => {
+      // Variants (doc 37, T35) can share their parent's row.
+      const parent = request.groupByParent
+        ? books.items.find(
+            (x) =>
+              x.id === books.items.find((c) => c.id === line.itemId)?.parentId,
+          )
+        : undefined;
+      const key = parent?.id ?? line.itemId;
       const item =
+        parent ??
         v.snapshot?.items.find((x) => x.id === line.itemId) ??
         books.items.find((x) => x.id === line.itemId);
-      const row = byItem.get(line.itemId) ?? {
+      const row = byItem.get(key) ?? {
         name: item?.name ?? "",
         hsn: item?.hsn ?? "",
         unit: item?.unit ?? "",
@@ -446,7 +455,7 @@ export function tradeByItemSection(
       row.qty = Math.round((row.qty + sign * baseQty(line)) * 1000) / 1000;
       row.taxable += sign * (t.lines[i]?.taxable ?? 0);
       row.tax += sign * (t.lines[i]?.tax ?? 0);
-      byItem.set(line.itemId, row);
+      byItem.set(key, row);
     });
   }
   return appendTotals({

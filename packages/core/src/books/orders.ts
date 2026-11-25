@@ -1,6 +1,7 @@
 /** Estimates and orders. */
 import { storedCustomValues } from "../customFields";
 import { savedSalesperson } from "../catalog";
+import { assertNoVariantParents } from "../variants";
 import { gstModeOf } from "../accounting/gstMode";
 import { allocateBillDiscount, calcInvoice } from "../accounting/invoice";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
@@ -39,6 +40,7 @@ export function createOrder(
   input: NewOrderInput,
   options: CreateOptions = {},
 ): Voucher {
+  assertNoVariantParents(db.items, input.lines);
   const party = findParty(db, input.partyId);
   const wantSupplier = type === "purchase-order";
   if ((party.type === "supplier") !== wantSupplier)

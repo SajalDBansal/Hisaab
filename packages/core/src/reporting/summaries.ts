@@ -3,6 +3,7 @@ import {
   outstanding,
   stockSummary,
 } from "../accounting/analysis";
+import { reportItemOf } from "../variants";
 import { stockVouchersAsOf } from "../accounting/stock";
 import {
   appendTotals,
@@ -96,10 +97,45 @@ export function stockSection(
       textColumn("Unit"),
       moneyColumn("Value"),
     ],
-    rows: summary.groups.flatMap((g) =>
-      g.items
-        .filter((i) => request.includeZeroBalances || i.qty !== 0)
-        .map((i) => reportRow(g.group, i.name, i.qty, i.unit, i.value)),
-    ),
+    rows: request.groupByParent
+      ? parentStockRows(books, summary, request)
+      : summary.groups.flatMap((g) =>
+          g.items
+            .filter((i) => request.includeZeroBalances || i.qty !== 0)
+            .map((i) => reportRow(g.group, i.name, i.qty, i.unit, i.value)),
+        ),
   });
+}
+
+/** Variants (doc 37, T35) added up on their parent's row, in the parent's unit. */
+function parentStockRows(
+  books: ReportBooks,
+  summary: ReturnType<typeof stockSummary>,
+  request: ReportRequest,
+) {
+  const rows = new Map<
+    string,
+    { group: string; name: string; qty: number; unit: string; value: number }
+  >();
+  for (const g of summary.groups)
+    for (const i of g.items) {
+      const item = reportItemOf(books.items, i.itemId);
+      const key = item?.id ?? i.itemId;
+      const row = rows.get(key) ?? {
+        group: item?.group ?? g.group,
+        name: item?.name ?? i.name,
+        qty: 0,
+        unit: item?.unit ?? i.unit,
+        value: 0,
+      };
+      row.qty = Math.round((row.qty + i.qty) * 1000) / 1000;
+      row.value += i.value;
+      rows.set(key, row);
+    }
+  return [...rows.values()]
+    .filter((r) => request.includeZeroBalances || r.qty !== 0)
+    .sort(
+      (a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name),
+    )
+    .map((r) => reportRow(r.group, r.name, r.qty, r.unit, r.value));
 }

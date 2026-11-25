@@ -145,6 +145,10 @@ export function remapBooks(source: FirmExportData, name: string) {
     for (const rate of row.rates) rate.itemId = ids.id(rate.itemId);
   for (const row of data.parties)
     if (row.priceListId) row.priceListId = ids.id(row.priceListId);
+  // Variants (doc 37, T35): parents are inserted before their variants.
+  for (const row of data.items)
+    if (row.parentId) row.parentId = ids.id(row.parentId);
+  data.items.sort((a, b) => Number(!!a.parentId) - Number(!!b.parentId));
   for (const row of data.vouchers) {
     if (row.salespersonId) row.salespersonId = ids.id(row.salespersonId);
     for (const key of [

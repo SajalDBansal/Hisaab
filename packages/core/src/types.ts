@@ -224,8 +224,24 @@ export interface AltUnit {
 /** Goods carry stock; services (SAC code in `hsn`) never do (doc 37, T39). */
 export type ItemKind = "goods" | "service";
 
+/** A variant attribute on a parent item (doc 37, T35), e.g. Size: S, M, L. */
+export interface VariantAttribute {
+  name: string;
+  values: string[];
+}
+/** One attribute value of a variant item, e.g. { name: "Size", value: "M" }. */
+export interface VariantValue {
+  name: string;
+  value: string;
+}
+
 export interface Item {
   version?: number;
+  /** Variant parents (doc 37, T35): the attributes its variants are made from. */
+  variantAttributes?: VariantAttribute[];
+  /** Variant items: the parent they were made from, and their attribute values. */
+  parentId?: ID;
+  variantValues?: VariantValue[];
   /** Missing on older items = goods. */
   kind?: ItemKind;
   /** Hidden from the sale item picker; can still be bought (doc 37, T39). */

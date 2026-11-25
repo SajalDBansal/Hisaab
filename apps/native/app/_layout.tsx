@@ -37,6 +37,7 @@ const CREATE_SCREENS: [string, Permission[] | null][] = [
   ["party/edit/[id]", ["sales", "purchase"]],
   ["item/new", ["sales", "purchase"]],
   ["item/edit/[id]", ["sales", "purchase"]],
+  ["item/variants/[id]", ["sales", "purchase"]],
   ["documents/new", ["sales", "purchase", "payments", "accounts", "settings"]],
   ["settings/firm", ["settings"]],
   ["settings/invoice", ["settings"]],

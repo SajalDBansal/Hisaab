@@ -26,6 +26,14 @@ import {
   type PriceList,
 } from "../src/priceLists";
 import { createParty, updateParty } from "../src/books/masters";
+import {
+  checkVariantAttributes,
+  cleanVariantAttributes,
+  makeVariants,
+  variantCode,
+  variantCombinations,
+  variantName,
+} from "../src/variants";
 
 const TODAY = "2026-10-26";
 const party = (type: Party["type"]): Party => ({
@@ -408,5 +416,143 @@ describe("price lists (T36)", () => {
     expect(
       updateParty(db, party.id, { ...input, priceListId: null }).priceListId,
     ).toBeUndefined();
+  });
+});
+
+describe("item variants (T35)", () => {
+  const sizes = { name: "Size", values: ["S", "M"] };
+  const colours = { name: "Colour", values: ["Red", "Blue"] };
+
+  test("combinations, names and codes", () => {
+    expect(
+      variantCombinations([sizes, colours]).map((c) =>
+        c.map((v) => v.value).join("/"),
+      ),
+    ).toEqual(["S/Red", "S/Blue", "M/Red", "M/Blue"]);
+    expect(
+      variantName("Shirt", [
+        { name: "Size", value: "M" },
+        { name: "Colour", value: "Red" },
+      ]),
+    ).toBe("Shirt – M / Red");
+    expect(variantCode("SH", [{ name: "Size", value: "x l" }])).toBe("SH-XL");
+    expect(variantCode("", [{ name: "Size", value: "M" }])).toBe("");
+  });
+
+  test("attribute checks: names, values, limits; values can only be added", () => {
+    expect(checkVariantAttributes([])).toContain("Add an attribute");
+    expect(
+      checkVariantAttributes([sizes, { name: "size", values: ["X"] }]),
+    ).toContain("twice");
+    expect(checkVariantAttributes([{ name: "Size", values: [] }])).toContain(
+      "values",
+    );
+    expect(
+      checkVariantAttributes([
+        { name: "A", values: Array.from({ length: 11 }, (_, i) => `a${i}`) },
+        { name: "B", values: Array.from({ length: 10 }, (_, i) => `b${i}`) },
+      ]),
+    ).toContain("more than 100");
+    expect(
+      checkVariantAttributes([{ name: "Size", values: ["M"] }], [sizes]),
+    ).toContain("S already has a variant");
+    expect(
+      checkVariantAttributes(
+        [{ name: "Size", values: ["S", "M", "L"] }],
+        [sizes],
+      ),
+    ).toBeNull();
+    expect(checkVariantAttributes([colours], [sizes])).toContain(
+      "can't change",
+    );
+    expect(
+      cleanVariantAttributes([
+        { name: " Size ", values: [" S", "s", "", "M"] },
+      ]),
+    ).toEqual([{ name: "Size", values: ["S", "M"] }]);
+  });
+
+  test("variants are ordinary items; the parent is never billed; reports group them", () => {
+    const db = books();
+    db.items.push({ ...db.items[0]!, id: "shirt", name: "Shirt", code: "SH" });
+    const { created } = makeVariants(db, "shirt", [sizes]);
+    expect(created.map((c) => [c.name, c.code, c.parentId])).toEqual([
+      ["Shirt – S", "SH-S", "shirt"],
+      ["Shirt – M", "SH-M", "shirt"],
+    ]);
+    // Adding a value adds only the new variant.
+    expect(
+      makeVariants(db, "shirt", [
+        { name: "Size", values: ["S", "M", "L"] },
+      ]).created.map((c) => c.name),
+    ).toEqual(["Shirt – L"]);
+    expect(() => makeVariants(db, created[0]!.id, [sizes])).toThrow(
+      "can't have variants",
+    );
+    // An item already used can't become a parent.
+    expect(() => makeVariants(db, "item", [sizes])).toThrow("stock or entries");
+    const [s, m] = created;
+    createPurchase(db, {
+      partyId: "supplier",
+      date: "2026-10-01",
+      lines: [
+        { itemId: s!.id, qty: 5, rate: 10000, gstRate: 18 },
+        { itemId: m!.id, qty: 5, rate: 10000, gstRate: 18 },
+      ],
+      charges: [],
+      supplierInvoiceNo: "S-2",
+    });
+    expect(() =>
+      createSale(db, {
+        partyId: "customer",
+        date: "2026-10-02",
+        lines: [{ ...line, itemId: "shirt" }],
+        charges: [],
+      }),
+    ).toThrow("has variants");
+    createSale(db, {
+      partyId: "customer",
+      date: "2026-10-02",
+      lines: [
+        { ...line, itemId: s!.id, qty: 2 },
+        { ...line, itemId: m!.id, qty: 1 },
+      ],
+      charges: [],
+    });
+    const run = (report: "stock" | "sales-by-item", groupByParent: boolean) =>
+      buildReport(
+        { ...db },
+        {
+          report,
+          from: "2026-10-01",
+          to: TODAY,
+          includeNarration: false,
+          includeZeroBalances: false,
+          groupByParent,
+        },
+      )
+        .sections[0]!.rows.filter((r) => !r.total)
+        .map((r) => r.cells);
+    expect(run("sales-by-item", true)).toEqual([
+      ["Shirt", "1001", "Nos", 3, 30000, 5400, 35400],
+    ]);
+    expect(run("sales-by-item", false).map((c) => c[0])).toEqual([
+      "Shirt – S",
+      "Shirt – M",
+    ]);
+    const stock = run("stock", true).find((c) => c[1] === "Shirt");
+    expect(stock?.slice(2, 4)).toEqual([7, "Nos"]);
+    expect(
+      () =>
+        run("sales-by-item", true) &&
+        buildReport(db, {
+          report: "daybook",
+          from: "2026-10-01",
+          to: TODAY,
+          includeNarration: false,
+          includeZeroBalances: false,
+          groupByParent: true,
+        }),
+    ).toThrow("group variants");
   });
 });

@@ -191,6 +191,18 @@ export const BackupRows = {
     notForSale: z.boolean().default(false),
     tags: z.array(Text).max(10).default([]),
     maxStock: Quantity.nullable().default(null),
+    // Item variants (doc 37, T35); older version 5 files have none.
+    parentId: Id.nullable().optional(),
+    variantAttributes: z
+      .array(z.strictObject({ name: Text, values: z.array(Text).max(20) }))
+      .max(3)
+      .nullable()
+      .optional(),
+    variantValues: z
+      .array(z.strictObject({ name: Text, value: Text }))
+      .max(3)
+      .nullable()
+      .optional(),
   }),
   units: z.strictObject({
     ...firm,

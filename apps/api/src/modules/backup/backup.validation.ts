@@ -324,6 +324,7 @@ export function validateExportLinks(payload: FirmExportPayload) {
   const priceLists = ids(data.priceLists ?? []);
   for (const party of data.parties)
     reference(party.priceListId ?? null, priceLists);
+  for (const item of data.items) reference(item.parentId ?? null, items);
   for (const list of data.priceLists ?? [])
     for (const rate of list.rates) reference(rate.itemId, items);
   validateExtendedLinks(data);

@@ -15,6 +15,7 @@ import {
   text,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { msmeType } from "./firms";
@@ -126,6 +127,14 @@ export const items = pgTable(
       .default(sql`'{}'::text[]`),
     // Maximum stock level (doc 37, T37); null = none.
     maxStock: quantity("max_stock"),
+    // Item variants (doc 37, T35): a parent's attributes, a variant's parent and values.
+    variantAttributes:
+      jsonb("variant_attributes").$type<{ name: string; values: string[] }[]>(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => items.id, {
+      onDelete: "restrict",
+    }),
+    variantValues:
+      jsonb("variant_values").$type<{ name: string; value: string }[]>(),
     ...stamps,
   },
   (t) => [

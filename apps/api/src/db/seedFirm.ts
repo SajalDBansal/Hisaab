@@ -150,6 +150,10 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
           batchNumber: i.batch?.number ?? null,
           batchExpiry: i.batch?.expiry ?? null,
           ...itemExtraColumns(i),
+          // Item variants (doc 37, T35): parents come before their variants.
+          variantAttributes: i.variantAttributes ?? null,
+          parentId: ids.optional(i.parentId),
+          variantValues: i.variantValues ?? null,
         })),
       );
 

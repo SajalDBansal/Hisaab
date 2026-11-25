@@ -37,6 +37,7 @@ import {
   type ReportDocument,
   type ReportRequest,
   type ReportSection,
+  PARENT_GROUP_REPORTS,
 } from "./types";
 
 /** Reports that take a yearly interest rate. */
@@ -81,6 +82,10 @@ function validateRequest(books: ReportBooks, request: ReportRequest) {
     )
       throw new ReportInputError("Use 0 to 365 days ahead.");
   }
+  if (request.groupByParent && !PARENT_GROUP_REPORTS.includes(request.report))
+    throw new ReportInputError(
+      "Only the stock summary and the by-item reports group variants.",
+    );
   if (request.accountKey && !definition.accounts)
     throw new ReportInputError("This report cannot be filtered by account.");
   if (

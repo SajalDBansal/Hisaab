@@ -1,5 +1,9 @@
 /** Hooks for the catalogue settings (doc 37, Phase 2): salespersons, price lists. */
-import type { PriceListInput, SalespersonInput } from "@repo/core";
+import type {
+  PriceListInput,
+  SalespersonInput,
+  VariantAttribute,
+} from "@repo/core";
 import {
   useServiceQuery as useQuery,
   useServiceMutation as useMutation,
@@ -45,6 +49,27 @@ export function useSavePriceList() {
       args: { input: PriceListInput; id?: string; version?: number },
     ) =>
       services.catalogService.savePriceList(args.input, args.id, args.version),
+    onSuccess: refreshAll,
+  });
+}
+
+/** Make variant items of a parent (doc 37, T35). */
+export function useMakeVariants() {
+  const refreshAll = useRefreshAll();
+  return useMutation({
+    mutationFn: (
+      services,
+      args: {
+        parentId: string;
+        attributes: VariantAttribute[];
+        version?: number;
+      },
+    ) =>
+      services.catalogService.makeVariants(
+        args.parentId,
+        args.attributes,
+        args.version,
+      ),
     onSuccess: refreshAll,
   });
 }

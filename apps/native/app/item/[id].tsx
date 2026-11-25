@@ -25,7 +25,10 @@ import {
   Txt,
   CustomFieldValuesView,
 } from "@/components";
+import { Button } from "@/components";
+import { isVariantParent } from "@repo/core";
 import {
+  useItems,
   useCustomFields,
   useItem,
   useItemParties,
@@ -166,6 +169,7 @@ function ItemBody({
         </View>
       )}
 
+      <VariantsSection d={d} />
       <ItemPartiesSection itemId={item.id} unit={item.unit} />
 
       {item.kind === "service" ? null : (
@@ -331,5 +335,69 @@ function ItemPartiesSection({
         }}
       </QueryView>
     </View>
+  );
+}
+
+/** Item variants (doc 37, T35): a parent lists its variants; a variant names its parent. */
+function VariantsSection({ d }: { d: ItemDetail }) {
+  const items = useItems();
+  const { item } = d;
+  const all = (items.data ?? []).map((r) => r);
+  if (item.parentId) {
+    const parent = all.find((r) => r.item.id === item.parentId)?.item;
+    return (
+      <Card style={{ gap: space.xs }}>
+        <Txt variant="small" tone="body">
+          Variant of
+        </Txt>
+        <ListRow
+          title={parent?.name ?? "Its parent item"}
+          subtitle={(item.variantValues ?? [])
+            .map((v) => `${v.name} ${v.value}`)
+            .join(" · ")}
+          chevron
+          last
+          onPress={() => router.push(`/item/${item.parentId}`)}
+        />
+      </Card>
+    );
+  }
+  const children = all.filter((r) => r.item.parentId === item.id);
+  if (!isVariantParent(item))
+    return d.qty === 0 && item.kind !== "service" ? (
+      <Button
+        label="Make sizes, colours… (variants)"
+        icon="layers"
+        size="sm"
+        onPress={() => router.push(`/item/variants/${item.id}`)}
+      />
+    ) : null;
+  return (
+    <Card style={{ gap: space.sm }}>
+      <Txt variant="bodyStrong">Variants · {children.length}</Txt>
+      <Txt variant="caption" tone="body">
+        {(item.variantAttributes ?? [])
+          .map((a) => `${a.name}: ${a.values.join(", ")}`)
+          .join(" · ")}
+        . Bills use the variants; this item holds no stock.
+      </Txt>
+      {children.map((r, i) => (
+        <ListRow
+          key={r.item.id}
+          title={r.item.name}
+          subtitle={`${r.item.code ? `${r.item.code} · ` : ""}${formatQty(r.item, r.qty)} in stock`}
+          right={<Txt num>{formatINR(r.item.salePrice)}</Txt>}
+          chevron
+          last={i === children.length - 1}
+          onPress={() => router.push(`/item/${r.item.id}`)}
+        />
+      ))}
+      <Button
+        label="Add values"
+        icon="plus"
+        size="sm"
+        onPress={() => router.push(`/item/variants/${item.id}`)}
+      />
+    </Card>
   );
 }

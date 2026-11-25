@@ -292,7 +292,16 @@ export interface ReportRequest {
   interestRate?: number;
   /** Expiring items: days ahead to include (default 30). */
   expiryDays?: number;
+  /** Stock summary and sales/purchases by item: variants on their parent's row (doc 37, T35). */
+  groupByParent?: boolean;
 }
+
+/** Reports that can put item variants on their parent's row (doc 37, T35). */
+export const PARENT_GROUP_REPORTS: ReportId[] = [
+  "stock",
+  "sales-by-item",
+  "purchases-by-item",
+];
 
 export interface ReportColumn {
   label: string;

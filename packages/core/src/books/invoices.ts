@@ -1,6 +1,7 @@
 /** Sale and purchase invoices, including split GST / non-GST sales and order conversion. */
 import { storedCustomValues } from "../customFields";
 import { savedSalesperson } from "../catalog";
+import { assertNoVariantParents } from "../variants";
 import {
   applyGstMode,
   gstModeOf,
@@ -358,6 +359,7 @@ function createInvoice(
   options: CreateOptions,
 ): Voucher {
   if (type === "purchase") checkSupplierInvoice(db.vouchers, input);
+  assertNoVariantParents(db.items, input.lines);
   const party = findParty(db, input.partyId);
   if (party.type !== (type === "purchase" ? "supplier" : "customer"))
     throw new Error(
