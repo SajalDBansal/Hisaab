@@ -140,6 +140,11 @@ export function remapBooks(source: FirmExportData, name: string) {
     row.account = ids.account(row.account);
   // A restored firm has no members yet: salespersons lose their login link.
   for (const row of data.salespersons ?? []) row.userId = null;
+  // Price lists (doc 37, T36): item rates and the parties' lists.
+  for (const row of data.priceLists ?? [])
+    for (const rate of row.rates) rate.itemId = ids.id(rate.itemId);
+  for (const row of data.parties)
+    if (row.priceListId) row.priceListId = ids.id(row.priceListId);
   for (const row of data.vouchers) {
     if (row.salespersonId) row.salespersonId = ids.id(row.salespersonId);
     for (const key of [

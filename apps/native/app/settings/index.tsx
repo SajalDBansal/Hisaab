@@ -174,6 +174,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "settings",
       },
       {
+        title: "Price lists",
+        note: "Sale and purchase rates by customer or supplier",
+        icon: "tag",
+        href: "/settings/price-lists",
+        needs: "settings",
+      },
+      {
         title: "Credit control",
         note: "What overdue bills do to a new sale",
         icon: "alert-octagon",

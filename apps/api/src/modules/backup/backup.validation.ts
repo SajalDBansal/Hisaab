@@ -321,6 +321,11 @@ export function validateExportLinks(payload: FirmExportPayload) {
     vouchers = ids(data.vouchers);
   const loans = ids(data.loans);
   const salespersons = ids(data.salespersons ?? []);
+  const priceLists = ids(data.priceLists ?? []);
+  for (const party of data.parties)
+    reference(party.priceListId ?? null, priceLists);
+  for (const list of data.priceLists ?? [])
+    for (const rate of list.rates) reference(rate.itemId, items);
   validateExtendedLinks(data);
   const openingLots = new Set(
     data.items.flatMap((item) => (item.openingLots ?? []).map((lot) => lot.id)),

@@ -1267,6 +1267,20 @@ export function buildSeed(asOf: string = today()): Db {
     },
     { id: "sp2", name: "Anil Sharma", active: true, version: 1 },
   ];
+  // Price lists (doc 37, T36): wholesale customers 5% below the sale price.
+  db.priceLists = [
+    {
+      id: "pl1",
+      name: "Wholesale",
+      side: "sale",
+      mode: "percent",
+      percent: -5,
+      rates: [],
+      isDefault: false,
+      active: true,
+      version: 1,
+    },
+  ];
   db.vouchers
     .filter((v) => v.type === "sale" || v.type === "sales-order")
     .forEach((v, i) => {

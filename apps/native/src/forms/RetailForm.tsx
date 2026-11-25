@@ -9,6 +9,8 @@
  * does not save. The bill goes to "Cash customer"; the buyer's name and phone
  * are optional and only printed.
  */
+import { usePriceLists } from "@/data/catalogHooks";
+import { priceListFor, priceListRate } from "@repo/core";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -107,6 +109,12 @@ export function RetailForm() {
   const gstOf = (item: Item | undefined) =>
     carriesGst && item && itemTaxType(item) === "taxable" ? item.gstRate : 0;
   const sellable = (items.data ?? []).filter((r) => !r.item.notForSale);
+  // The firm's default sale price list (doc 37, T36) prices walk-in bills too.
+  const priceList = priceListFor(usePriceLists().data, undefined, "sale");
+  const retailRate = (item: Item) => {
+    const listed = priceListRate(priceList, item);
+    return listed && !listed.unit ? listed.rate : item.salePrice;
+  };
 
   const addItem = (item: Item) =>
     setLines((prev) => {
@@ -121,7 +129,7 @@ export function RetailForm() {
           key: Date.now() + prev.length,
           itemId: item.id,
           qty: "1",
-          rate: (inclusiveRate(item.salePrice, gstOf(item)) / 100).toFixed(2),
+          rate: (inclusiveRate(retailRate(item), gstOf(item)) / 100).toFixed(2),
         },
       ];
     });
@@ -485,7 +493,7 @@ export function RetailForm() {
               : `${formatQty(r.item, r.qty)} in stock`,
           right: (
             <Money
-              value={inclusiveRate(r.item.salePrice, gstOf(r.item))}
+              value={inclusiveRate(retailRate(r.item), gstOf(r.item))}
               variant="small"
             />
           ),

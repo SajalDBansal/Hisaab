@@ -17,6 +17,15 @@ import {
   type Salesperson,
 } from "../src/catalog";
 import { buildReport } from "../src/reporting";
+import {
+  checkPriceList,
+  cleanPriceList,
+  parsePriceListCsv,
+  priceListFor,
+  priceListRate,
+  type PriceList,
+} from "../src/priceLists";
+import { createParty, updateParty } from "../src/books/masters";
 
 const TODAY = "2026-10-26";
 const party = (type: Party["type"]): Party => ({
@@ -212,5 +221,192 @@ describe("salespersons (T10)", () => {
       order.amount,
       order.amount,
     ]);
+  });
+});
+
+describe("price lists (T36)", () => {
+  const items = [
+    {
+      id: "oil",
+      name: "Oil",
+      code: "OIL1",
+      unit: "Nos",
+      salePrice: 20000,
+      purchasePrice: 15000,
+    },
+    {
+      id: "soap",
+      name: "Soap",
+      code: "SOAP",
+      unit: "Nos",
+      altUnit: { name: "Box", factor: 12 },
+      salePrice: 1000,
+      purchasePrice: 800,
+    },
+    {
+      id: "twin1",
+      name: "Twin",
+      code: "",
+      unit: "Nos",
+      salePrice: 1,
+      purchasePrice: 1,
+    },
+    {
+      id: "twin2",
+      name: "Twin",
+      code: "",
+      unit: "Nos",
+      salePrice: 1,
+      purchasePrice: 1,
+    },
+  ];
+  const list = (over: Partial<PriceList>): PriceList => ({
+    id: "l",
+    name: "L",
+    side: "sale",
+    mode: "percent",
+    percent: 0,
+    rates: [],
+    isDefault: false,
+    active: true,
+    ...over,
+  });
+
+  test("a % list moves the item's own price up or down", () => {
+    expect(priceListRate(list({ percent: -5 }), items[0]!)).toEqual({
+      rate: 19000,
+    });
+    expect(
+      priceListRate(list({ side: "purchase", percent: 2.5 }), items[0]!),
+    ).toEqual({ rate: 15375 });
+    expect(priceListRate(list({ percent: -100 }), items[0]!)).toEqual({
+      rate: 0,
+    });
+  });
+
+  test("a rates list gives per-unit rates; unlisted items fall back", () => {
+    const l = list({
+      mode: "rates",
+      rates: [
+        { itemId: "oil", rate: 18000 },
+        { itemId: "soap", rate: 11000, unit: "Box" },
+      ],
+    });
+    expect(priceListRate(l, items[0]!)).toEqual({ rate: 18000 });
+    expect(priceListRate(l, items[1]!)).toEqual({ rate: 11000, unit: "Box" });
+    expect(priceListRate(l, items[2]!)).toBeUndefined();
+    expect(priceListRate(undefined, items[0]!)).toBeUndefined();
+  });
+
+  test("the party's own list wins, else the side's default", () => {
+    const lists = [
+      list({ id: "a", isDefault: true }),
+      list({ id: "b" }),
+      list({ id: "c", active: false }),
+      list({ id: "p", side: "purchase", isDefault: true }),
+    ];
+    expect(priceListFor(lists, { priceListId: "b" }, "sale")?.id).toBe("b");
+    expect(priceListFor(lists, {}, "sale")?.id).toBe("a");
+    // A switched-off or other-side list is skipped.
+    expect(priceListFor(lists, { priceListId: "c" }, "sale")?.id).toBe("a");
+    expect(priceListFor(lists, { priceListId: "b" }, "purchase")?.id).toBe("p");
+  });
+
+  test("checks: name, percentage range, units and repeats", () => {
+    const base = {
+      name: "X",
+      side: "sale" as const,
+      mode: "rates" as const,
+      rates: [],
+      isDefault: false,
+      active: true,
+    };
+    expect(
+      checkPriceList({ ...base, name: "l" }, [list({})], items),
+    ).toHaveProperty("name");
+    expect(
+      checkPriceList({ ...base, mode: "percent", percent: 1001 }, [], items),
+    ).toHaveProperty("percent");
+    expect(
+      checkPriceList(
+        { ...base, rates: [{ itemId: "oil", rate: 1, unit: "Box" }] },
+        [],
+        items,
+      ).rates,
+    ).toContain("not Box");
+    expect(
+      checkPriceList(
+        {
+          ...base,
+          rates: [
+            { itemId: "soap", rate: 1 },
+            { itemId: "soap", rate: 2, unit: "Box" },
+          ],
+        },
+        [],
+        items,
+      ),
+    ).toEqual({});
+    expect(
+      checkPriceList(
+        { ...base, rates: [{ itemId: "gone", rate: 1 }] },
+        [],
+        items,
+      ),
+    ).toHaveProperty("rates");
+    expect(
+      cleanPriceList(
+        { ...base, rates: [{ itemId: "oil", rate: 5, unit: "Nos" }] },
+        items,
+      ).rates,
+    ).toEqual([{ itemId: "oil", rate: 5 }]);
+  });
+
+  test("CSV import: code or name, rupees, unit; every bad line reported", () => {
+    const ok = parsePriceListCsv(
+      'Item,Rate,Unit\nOIL1,"1,250.50"\nsoap, 110, Box\n\nSoap,9',
+      items,
+    );
+    expect(ok.errors).toEqual([]);
+    expect(ok.rates).toEqual([
+      { itemId: "oil", rate: 125050 },
+      { itemId: "soap", rate: 11000, unit: "Box" },
+      { itemId: "soap", rate: 900 },
+    ]);
+    const bad = parsePriceListCsv(
+      "NOPE,1\nOIL1,abc\nOIL1,1,Kg\nTwin,1\nOIL1,1\nOIL1,2",
+      items,
+    );
+    expect(bad.errors).toEqual([
+      'Line 1: no item with code or name "NOPE".',
+      'Line 2: "abc" isn\'t a rate in rupees.',
+      "Line 3: Oil is sold in Nos, not Kg.",
+      'Line 4: more than one item is called "Twin"; use its code.',
+      "Line 6: Oil is already on line 5.",
+    ]);
+  });
+
+  test("a party takes a list of its own side; null clears it", () => {
+    const db = books();
+    db.priceLists = [list({ id: "pl" }), list({ id: "pp", side: "purchase" })];
+    const input = {
+      name: "Shop",
+      type: "customer" as const,
+      phone: "",
+      city: "",
+      stateCode: "09",
+      creditDays: 0,
+      creditLimit: 0,
+      openingBalance: 0,
+    };
+    const party = createParty(db, { ...input, priceListId: "pl" }, TODAY);
+    expect(party.priceListId).toBe("pl");
+    expect(() =>
+      updateParty(db, party.id, { ...input, priceListId: "pp" }),
+    ).toThrow("sale price list");
+    expect(updateParty(db, party.id, input).priceListId).toBe("pl");
+    expect(
+      updateParty(db, party.id, { ...input, priceListId: null }).priceListId,
+    ).toBeUndefined();
   });
 });

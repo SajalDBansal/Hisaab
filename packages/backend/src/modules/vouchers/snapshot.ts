@@ -1,4 +1,8 @@
-import { firmStatutory, partyMsme } from "../../lib/business-profile";
+import {
+  firmStatutory,
+  partyMsme,
+  partyPricing,
+} from "../../lib/business-profile";
 import {
   counterKeyOf,
   type MockDb,
@@ -378,6 +382,7 @@ export async function loadBooks(
       openingBills: partyOpeningBills.get(r.id),
       customFields: undef(r.customFields),
       ...partyMsme(r),
+      ...partyPricing(r),
     })),
     items: itemRows.map((r) => ({
       id: r.id,

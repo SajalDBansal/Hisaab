@@ -35,12 +35,15 @@ export const PartyInput = z.object({
   // Suppliers (doc 37, T30). Left out = keep the stored ones; null = not an MSME.
   msmeType: MsmeType.nullable().optional(),
   udyamNumber: z.string().max(30).nullable().optional(),
+  // Price list (doc 37, T36). Left out = keep the stored one; null = none.
+  priceListId: Id.nullable().optional(),
 });
 
 export const Party = PartyInput.extend({
   id: Id,
   msmeType: MsmeType.optional(),
   udyamNumber: z.string().optional(),
+  priceListId: Id.optional(),
   openingGstBalance: Paise.nullable()
     .transform((value) => value ?? undefined)
     .optional(),

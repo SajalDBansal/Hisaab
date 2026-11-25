@@ -5,6 +5,13 @@ import {
   type SalespersonInput,
 } from "../catalog";
 import { newId } from "../books/base";
+import {
+  checkPriceList,
+  cleanPriceList,
+  type PriceList,
+  type PriceListInput,
+} from "../priceLists";
+import { canSeeCosts } from "../permissions";
 import { clone, delay, getDb } from "./client";
 
 /** The firm's salespersons and which one is the person using the app. */
@@ -30,6 +37,48 @@ export const catalogService = {
       rows,
       mine: salespersonOfUser(rows, db.currentUserId)?.id ?? null,
     });
+  },
+
+  /** Real API: GET /settings/price-lists (purchase lists only for roles that see costs). */
+  async priceLists(): Promise<PriceList[]> {
+    await delay();
+    const db = getDb();
+    const role = db.team.find((m) => m.id === db.currentUserId)?.role;
+    return clone(
+      (db.priceLists ?? []).filter(
+        (l) => l.side === "sale" || !role || canSeeCosts(role),
+      ),
+    );
+  },
+
+  /** Real API: POST /settings/price-lists, or PUT …/:id with If-Match. */
+  async savePriceList(
+    input: PriceListInput,
+    id?: string,
+    _version?: number,
+  ): Promise<PriceList> {
+    void _version;
+    await delay();
+    const db = getDb();
+    const lists = (db.priceLists ??= []);
+    fieldError(checkPriceList(input, lists, db.items, id));
+    const clean = cleanPriceList(input, db.items);
+    // One default list per side.
+    if (clean.isDefault)
+      for (const l of lists)
+        if (l.side === clean.side && l.id !== id) l.isDefault = false;
+    if (id) {
+      const row = lists.find((l) => l.id === id);
+      if (!row) throw new Error("That price list was not found.");
+      if (row.side !== clean.side)
+        throw new Error("A price list's side can't change.");
+      delete row.percent;
+      Object.assign(row, clean, { version: (row.version ?? 1) + 1 });
+      return clone(row);
+    }
+    const row: PriceList = { id: newId("pl"), ...clean, version: 1 };
+    lists.push(row);
+    return clone(row);
   },
 
   /** Real API: POST /settings/salespersons, or PUT …/:id with If-Match. */

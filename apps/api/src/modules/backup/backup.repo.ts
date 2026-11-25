@@ -71,6 +71,7 @@ export const backupTables = {
   customFields: schema.customFields,
   customRoles: schema.customRoles,
   salespersons: schema.salespersons,
+  priceLists: schema.priceLists,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 

@@ -54,6 +54,8 @@ import {
   inclusiveRate,
   type BillDiscountInput,
   carriesSalesperson,
+  priceListFor,
+  priceListRate,
 } from "@repo/core";
 import {
   AmountField,
@@ -119,7 +121,7 @@ import {
   type LineDraft,
 } from "./invoiceDraft";
 import { InvoiceExtras } from "./InvoiceExtras";
-import { useSalespersons } from "@/data/catalogHooks";
+import { usePriceLists, useSalespersons } from "@/data/catalogHooks";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -391,6 +393,8 @@ export function InvoiceForm({
   const [showErrors, setShowErrors] = useState(false);
 
   const party = parties.data?.find((r) => r.party.id === partyId);
+  const priceLists = usePriceLists();
+  const priceList = priceListFor(priceLists.data, party?.party, side);
   const partyDetail = useParty(partyId ?? "");
   const itemById = (id: string) =>
     items.data?.find((r) => r.item.id === id)?.item;
@@ -615,7 +619,12 @@ export function InvoiceForm({
     }`;
 
   // ---- Actions ------------------------------------------------------------------
-  const addItem = (item: Item) =>
+  // A new line starts at the party's price list rate (doc 37, T36), else the
+  // item's own price; the last-rate hint on each line stays as it was.
+  const addItem = (item: Item) => {
+    const listed = priceListRate(priceList, item);
+    const inAlt = !!listed?.unit && listed.unit === item.altUnit?.name;
+    const base = listed?.rate ?? item[text.priceKey];
     setLines((prev) => [
       ...prev,
       {
@@ -624,13 +633,14 @@ export function InvoiceForm({
         qty: "1",
         rate: (
           (ratesWithGst && carriesGst && item.gstRate
-            ? inclusiveRate(item[text.priceKey], item.gstRate)
-            : item[text.priceKey]) / 100
+            ? inclusiveRate(base, item.gstRate)
+            : base) / 100
         ).toFixed(2),
         discountPercent: "",
-        inAlt: false,
+        inAlt,
       },
     ]);
+  };
 
   // Coming back from "Add new customer / item": select what was just created.
   const [newItemId, setNewItemId] = useState<string | undefined>();
@@ -954,6 +964,7 @@ export function InvoiceForm({
             {gst.on ? `${party.party.gstin || "Unregistered"} · ` : ""}
             Balance {formatINR(Math.abs(party.balance))} ·{" "}
             {count(party.party.creditDays, "day")} credit
+            {priceList ? ` · Price list ${priceList.name}` : ""}
           </Txt>
         ) : null}
         {showCreditWarning && detail ? (

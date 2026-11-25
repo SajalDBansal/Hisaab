@@ -18,6 +18,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { organization } from "./auth";
 import { msmeType } from "./firms";
+import { priceLists } from "./catalog";
 import { moment, paise, primaryId, quantity, stamps } from "./columns";
 
 export const partyType = pgEnum("party_type", ["customer", "supplier"]);
@@ -61,6 +62,10 @@ export const parties = pgTable(
     // Suppliers' MSME class and Udyam number (doc 37, T30); null = not an MSME.
     msmeType: msmeType("msme_type"),
     udyamNumber: text("udyam_number"),
+    // Price list for this party's bills (doc 37, T36); null = the firm default.
+    priceListId: uuid("price_list_id").references(() => priceLists.id, {
+      onDelete: "restrict",
+    }),
     ...stamps,
   },
   (t) => [

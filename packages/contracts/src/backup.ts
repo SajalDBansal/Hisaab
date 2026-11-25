@@ -159,6 +159,8 @@ export const BackupRows = {
     // MSME suppliers (doc 37, T30); optional in version 5 files made before it.
     msmeType: MsmeType.nullable().optional(),
     udyamNumber: Text.nullable().optional(),
+    // Price list (doc 37, T36); older version 5 files have none.
+    priceListId: Id.nullable().optional(),
   }),
   items: z.strictObject({
     ...row,
@@ -405,6 +407,26 @@ export const BackupRows = {
     phone: Text,
     active: z.boolean(),
   }),
+  // Price lists (doc 37, T36).
+  priceLists: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    side: z.enum(["sale", "purchase"]),
+    mode: z.enum(["percent", "rates"]),
+    percent: z.number().min(-100).max(1000).nullable(),
+    rates: z
+      .array(
+        z.strictObject({
+          itemId: Id,
+          rate: Paise,
+          unit: Text.optional(),
+        }),
+      )
+      .max(5000),
+    isDefault: z.boolean(),
+    active: z.boolean(),
+  }),
   customFields: z.strictObject({
     ...row,
     ...stamps,
@@ -526,6 +548,8 @@ export const FirmExportData = z.strictObject({
   customRoles: rows(BackupRows.customRoles),
   // Optional: version 5 files made before salespersons have none.
   salespersons: rows(BackupRows.salespersons).optional(),
+  // Optional: version 5 files made before price lists have none.
+  priceLists: rows(BackupRows.priceLists).optional(),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 

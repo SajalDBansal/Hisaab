@@ -166,6 +166,8 @@ export interface Party {
   msmeType?: MsmeType;
   /** The supplier's Udyam registration number, when known. */
   udyamNumber?: string;
+  /** Price list for this party's bills (doc 37, T36); missing = the firm default. */
+  priceListId?: ID;
 }
 
 /** What the party form sends when adding or editing a party. */
@@ -178,7 +180,10 @@ export type PartyInput = Omit<
   | "openingBills"
   | "msmeType"
   | "udyamNumber"
+  | "priceListId"
 > & {
+  /** Left out = keep the stored one (older apps); null = none. */
+  priceListId?: ID | null;
   /** Left out = keep what is stored (older apps); null = not an MSME. */
   msmeType?: MsmeType | null;
   udyamNumber?: string | null;

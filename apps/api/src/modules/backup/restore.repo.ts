@@ -50,6 +50,7 @@ const first: TableName[] = [
   "customFields",
   "customRoles",
   "salespersons",
+  "priceLists",
   "parties",
   "items",
   "units",

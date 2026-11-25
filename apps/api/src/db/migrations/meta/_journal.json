@@ -316,6 +316,13 @@
       "when": 1795532746102,
       "tag": "0044_salespersons",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795601397926,
+      "tag": "0045_price_lists",
+      "breakpoints": true
     }
   ]
 }

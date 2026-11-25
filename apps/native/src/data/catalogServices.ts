@@ -1,4 +1,5 @@
 import * as c from "@repo/contracts";
+import { z } from "zod";
 import type { catalogService } from "@repo/core";
 import type { Client } from "./client";
 import { matchVersion } from "./masterServices";
@@ -16,5 +17,14 @@ export function catalogServices(client: Client): typeof catalogService {
             headers: matchVersion(version),
           })
         : request("/settings/salespersons", c.Salesperson, { body: input }),
+    priceLists: () => request("/settings/price-lists", z.array(c.PriceList)),
+    savePriceList: (input, id?: string, version?: number) =>
+      id
+        ? request(`/settings/price-lists/${id}`, c.PriceList, {
+            method: "PUT",
+            body: input,
+            headers: matchVersion(version),
+          })
+        : request("/settings/price-lists", c.PriceList, { body: input }),
   };
 }
