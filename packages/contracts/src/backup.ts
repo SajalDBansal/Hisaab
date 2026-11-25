@@ -276,6 +276,8 @@ export const BackupRows = {
     billDiscountAmount: Paise.default(0),
     // Retail bills' buyer details (doc 37, T02); older version 5 files have none.
     retail: RetailDetails.strict().nullable().optional(),
+    // Salesperson (doc 37, T10); older version 5 files have none.
+    salespersonId: Id.nullable().optional(),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -393,6 +395,15 @@ export const BackupRows = {
     name: Text,
     description: Text,
     rights: RoleRights,
+  }),
+  // Salespersons (doc 37, T10). The linked login is not carried into a restored firm.
+  salespersons: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    userId: Id.nullable(),
+    phone: Text,
+    active: z.boolean(),
   }),
   customFields: z.strictObject({
     ...row,
@@ -513,6 +524,8 @@ export const FirmExportData = z.strictObject({
   masterImportBatches: rows(BackupRows.masterImportBatches),
   customFields: rows(BackupRows.customFields),
   customRoles: rows(BackupRows.customRoles),
+  // Optional: version 5 files made before salespersons have none.
+  salespersons: rows(BackupRows.salespersons).optional(),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 

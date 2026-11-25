@@ -49,6 +49,7 @@ const first: TableName[] = [
   "firmProfile",
   "customFields",
   "customRoles",
+  "salespersons",
   "parties",
   "items",
   "units",

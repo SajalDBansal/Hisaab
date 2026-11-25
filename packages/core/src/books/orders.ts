@@ -1,5 +1,6 @@
 /** Estimates and orders. */
 import { storedCustomValues } from "../customFields";
+import { savedSalesperson } from "../catalog";
 import { gstModeOf } from "../accounting/gstMode";
 import { allocateBillDiscount, calcInvoice } from "../accounting/invoice";
 import { CONVERTS_TO, isOrderType } from "../accounting/orders";
@@ -73,6 +74,7 @@ export function createOrder(
   const voucher: Voucher = {
     id: newId("v"),
     customFields,
+    salespersonId: savedSalesperson(db.salespersons, type, input.salespersonId),
     type,
     number: takeNumber(db, type, input.date),
     date: input.date,

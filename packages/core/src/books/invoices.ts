@@ -1,5 +1,6 @@
 /** Sale and purchase invoices, including split GST / non-GST sales and order conversion. */
 import { storedCustomValues } from "../customFields";
+import { savedSalesperson } from "../catalog";
 import {
   applyGstMode,
   gstModeOf,
@@ -429,9 +430,15 @@ function createInvoice(
   );
   const retail =
     type === "sale" && input.retail ? retailDetails(input.retail) : undefined;
+  const salespersonId = savedSalesperson(
+    db.salespersons,
+    type,
+    input.salespersonId,
+  );
   const invoice: Voucher = {
     id: newId("v"),
     customFields,
+    salespersonId,
     type,
     number: takeNumber(
       db,

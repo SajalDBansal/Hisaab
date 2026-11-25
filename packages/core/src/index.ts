@@ -21,6 +21,7 @@ export * from "./states";
 export * from "./units";
 export * from "./customFields";
 export * from "./businessProfile";
+export * from "./catalog";
 
 // Data services — the only way apps should read or write data.
 export { API_BASE_URL, resetDb, setReplicaBooks } from "./services/client";
@@ -89,6 +90,10 @@ export {
   type BackupSummary,
 } from "./services/backupService";
 export { auditService } from "./services/auditService";
+export {
+  catalogService,
+  type SalespersonList,
+} from "./services/catalogService";
 export * from "./text";
 
 // For the API: the demo books, used to fill a local database (db/seed.ts)

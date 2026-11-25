@@ -320,6 +320,7 @@ export function validateExportLinks(payload: FirmExportPayload) {
   const accounts = ids(data.accounts),
     vouchers = ids(data.vouchers);
   const loans = ids(data.loans);
+  const salespersons = ids(data.salespersons ?? []);
   validateExtendedLinks(data);
   const openingLots = new Set(
     data.items.flatMap((item) => (item.openingLots ?? []).map((lot) => lot.id)),
@@ -367,6 +368,7 @@ export function validateExportLinks(payload: FirmExportPayload) {
   reference(data.invoiceSettings.bankLedgerId, ledgers);
   for (const voucher of data.vouchers) {
     reference(voucher.partyId, parties);
+    reference(voucher.salespersonId ?? null, salespersons);
     reference(voucher.ledgerId, ledgers);
     reference(voucher.toLedgerId, ledgers);
     for (const id of [

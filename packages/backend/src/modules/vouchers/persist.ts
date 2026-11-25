@@ -96,6 +96,7 @@ function headerColumns(v: Voucher, ids: ReturnType<typeof idMapper>) {
     billDiscountPercent: v.billDiscount?.percent ?? null,
     billDiscountAmount: v.billDiscount?.amount ?? 0,
     retail: v.retail ?? null,
+    salespersonId: ids.optional(v.salespersonId),
     againstId: ids.optional(v.againstId),
     sourceId: ids.optional(v.sourceId),
     convertedToId: ids.optional(v.convertedToId),

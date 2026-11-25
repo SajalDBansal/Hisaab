@@ -27,6 +27,10 @@ import {
 import { MSME_MAX_DAYS, MSME_NO_AGREEMENT_DAYS } from "../accounting/msme";
 import { expiringItemsSection, stockLevelsSection } from "./stockLevels";
 import {
+  salesBySalespersonSection,
+  salesOrdersBySalespersonSection,
+} from "./catalogReports";
+import {
   REPORTS,
   ReportInputError,
   type ReportBooks,
@@ -167,6 +171,10 @@ function buildSections(
       return [stockLevelsSection(books, request)];
     case "expiring-items":
       return [expiringItemsSection(books, request)];
+    case "sales-by-salesperson":
+      return [salesBySalespersonSection(books, request)];
+    case "sales-orders-by-salesperson":
+      return [salesOrdersBySalespersonSection(books, request)];
   }
 }
 
@@ -201,6 +209,14 @@ export function buildReport(
   if (request.report === "itc-at-risk")
     notes.push(
       `Input GST on a supplier bill must be reversed if the bill is not paid within ${ITC_REVERSE_DAYS} days of its date (CGST Act s.16(2)); it can be claimed again once paid. ITC at risk is the bill's GST in proportion to what is still unpaid, as of the report date. Bills from ${ITC_WARN_DAYS} days are shown so they can be paid in time.`,
+    );
+  if (request.report === "sales-by-salesperson")
+    notes.push(
+      "Posted sales bills by the salesperson on each bill. Returns count against the salesperson of the bill they return and are taken off.",
+    );
+  if (request.report === "sales-orders-by-salesperson")
+    notes.push(
+      "Sales orders dated in the period (cancelled ones left out). Open counts orders not yet fully billed on the report's end date, at their full order value.",
     );
   if (request.report === "stock-levels")
     notes.push(

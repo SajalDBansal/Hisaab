@@ -42,6 +42,7 @@ import {
 } from "@repo/backend/modules/server-pdf/server-pdf.service";
 import type { PdfStorage } from "@repo/backend/modules/server-pdf/storage";
 import {
+  ownRecordsFilter,
   readableVoucherTypes,
   requireVoucherRead,
   requireVoucherTypeRead,
@@ -179,9 +180,12 @@ export async function voucherRoutes(
       const rows = await vouchersService.list(db, req.firm.id, {
         ...req.query,
         types,
-        createdBy: roleFlag(req.firm.role, "ownRecordsOnly")
-          ? req.user.id
-          : undefined,
+        own: await ownRecordsFilter(
+          db,
+          req.firm.id,
+          req.firm.role,
+          req.user.id,
+        ),
         cursor: dateIdCursor(req.query.cursor),
       });
       return pageByDateId(rows, req.query.limit);

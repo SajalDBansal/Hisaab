@@ -53,6 +53,8 @@ const CUSTOMER_REPORTS: ReportId[] = [
   "proformas-register",
   "sales-orders-register",
   "delivery-notes-register",
+  "sales-by-salesperson",
+  "sales-orders-by-salesperson",
 ];
 const SUPPLIER_REPORTS: ReportId[] = [
   "payables",

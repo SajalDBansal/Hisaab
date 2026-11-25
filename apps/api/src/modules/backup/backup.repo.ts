@@ -70,6 +70,7 @@ export const backupTables = {
   openingBills: schema.openingBills,
   customFields: schema.customFields,
   customRoles: schema.customRoles,
+  salespersons: schema.salespersons,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 

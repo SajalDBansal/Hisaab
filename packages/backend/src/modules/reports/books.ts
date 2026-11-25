@@ -6,6 +6,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { schema, type Db } from "../../db/client";
 import { hydrateVouchers } from "../vouchers/snapshot";
 import { itemExtras } from "../items/itemExtras";
+import { loadSalespersons } from "../catalog/catalog.repo";
 import { listAccounts } from "../accounts/accountMasters";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 
@@ -263,6 +264,7 @@ async function readReportBooks(
 
   return {
     accounts: await listAccounts(db, firmId),
+    salespersons: await loadSalespersons(db, firmId),
     firm: {
       id: firmId,
       name: firmRow.name,

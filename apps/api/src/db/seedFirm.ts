@@ -162,6 +162,18 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
         })),
       );
 
+    // Salespersons (doc 37, T10); demo logins don't exist here, so none is linked.
+    if (source.salespersons?.length)
+      await tx.insert(schema.salespersons).values(
+        source.salespersons.map((s) => ({
+          id: ids.newId(s.id),
+          firmId,
+          name: s.name,
+          phone: s.phone ?? "",
+          active: s.active,
+        })),
+      );
+
     await insertVouchers(tx, source, firmId, ownerId, ids);
     await insertSmallTables(tx, source, firmId, ownerId, ids);
   });
@@ -244,6 +256,7 @@ async function insertVouchers(
     tdsSection: v.tds?.section ?? null,
     tdsRate: v.tds?.rate ?? null,
     tdsAmount: v.tds?.amount ?? 0,
+    salespersonId: ids.optional(v.salespersonId),
     createdBy: ownerId,
     createdAt: at(v.createdAt) ?? new Date(),
   }));

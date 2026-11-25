@@ -28,6 +28,7 @@ import { organization } from "./auth";
 import { moment, paise, percent, primaryId, quantity, stamps } from "./columns";
 import { ledgers, parties, items, taxType, bookScope } from "./masters";
 import { openingBills } from "./importOpening";
+import { salespersons } from "./catalog";
 
 export const voucherType = pgEnum("voucher_type", [
   "sale",
@@ -169,6 +170,10 @@ export const vouchers = pgTable(
     billDiscountAmount: paise("bill_discount_amount"),
     // Retail bills only (doc 37, T02): { name?, phone? } of the walk-in buyer.
     retail: jsonb("retail").$type<{ name?: string; phone?: string }>(),
+    // Sales and customer-side orders (doc 37, T10).
+    salespersonId: uuid("salesperson_id").references(() => salespersons.id, {
+      onDelete: "restrict",
+    }),
 
     createdBy: uuid("created_by"),
     ...stamps,

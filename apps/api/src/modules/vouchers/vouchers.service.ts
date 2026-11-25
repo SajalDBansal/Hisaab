@@ -41,6 +41,9 @@ import {
   postingTotals,
   returnAmountBasis,
   roleFlag,
+  isOwnRecord,
+  salespersonIdsOf,
+  type Salesperson,
   seriesPrefix,
   setCleared,
   settledAmounts,
@@ -243,7 +246,13 @@ export async function change(
           ? "cancel"
           : "edit";
       requireRight(member.role as Role, v.type, action);
-      if (was) requireOwnRecord(member.role as Role, ctx, was);
+      if (was)
+        requireOwnRecord(
+          member.role as Role,
+          ctx,
+          was,
+          snap.books.salespersons,
+        );
     }
     const saved = await saveChanges(tx, ctx.firmId, ctx, snap);
     await syncAssociateVouchers(tx, ctx, snap, saved);
@@ -1088,9 +1097,14 @@ function requireOwner(role: Role) {
 export function requireOwnRecord(
   role: Role,
   ctx: { id: string },
-  v: { createdBy?: string },
+  v: { createdBy?: string; salespersonId?: string },
+  /** A member is also the owner of entries where they are the salesperson (T10). */
+  salespersons?: Salesperson[],
 ) {
-  if (roleFlag(role, "ownRecordsOnly") && v.createdBy !== ctx.id)
+  if (
+    roleFlag(role, "ownRecordsOnly") &&
+    !isOwnRecord(v, ctx.id, salespersonIdsOf(salespersons, ctx.id))
+  )
     throw new AppError(
       "FORBIDDEN",
       "Your role can only change entries you made yourself.",
@@ -1102,7 +1116,7 @@ function existing(snap: Snapshot, ctx: Ctx, id: string, version: number) {
   const v = snap.books.vouchers.find((x) => x.id === id);
   if (!v) throw notFound("entry");
   requireRight(ctx.role, v.type, "view");
-  requireOwnRecord(ctx.role, ctx, v);
+  requireOwnRecord(ctx.role, ctx, v, snap.books.salespersons);
   if (snap.versions.get(id) !== version) throw editedElsewhere("entry");
   return v;
 }

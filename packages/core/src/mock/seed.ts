@@ -1254,6 +1254,25 @@ export function buildSeed(asOf: string = today()): Db {
   });
   db.remindedOn = { c1: daysAgo(2) };
 
+  // Salespersons (doc 37, T10): Ravi (the sales login) and a field salesman
+  // without a login, on some of the sales and sales orders.
+  db.salespersons = [
+    {
+      id: "sp1",
+      name: "Ravi Kumar",
+      userId: "u3",
+      phone: "9719088234",
+      active: true,
+      version: 1,
+    },
+    { id: "sp2", name: "Anil Sharma", active: true, version: 1 },
+  ];
+  db.vouchers
+    .filter((v) => v.type === "sale" || v.type === "sales-order")
+    .forEach((v, i) => {
+      if (i % 3 < 2) v.salespersonId = i % 3 === 0 ? "sp1" : "sp2";
+    });
+
   return db;
 }
 

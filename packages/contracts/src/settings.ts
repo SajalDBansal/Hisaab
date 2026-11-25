@@ -104,6 +104,8 @@ export const TeamView = z.object({
   members: z.array(
     z.object({
       id: Id,
+      /** The member's login (accepted members only), e.g. to link a salesperson (T10). */
+      userId: Id.optional(),
       name: z.string(),
       phone: z.string(),
       email: z.string().optional(),

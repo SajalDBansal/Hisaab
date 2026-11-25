@@ -6,6 +6,7 @@ import type {
   TaxScope,
 } from "../types";
 import type { Books } from "../accounting/generalLedger";
+import type { Salesperson } from "../catalog";
 
 export const REPORT_IDS = [
   "trial-balance",
@@ -54,6 +55,9 @@ export const REPORT_IDS = [
   // Stock levels and expiry (doc 37, T37/T38)
   "stock-levels",
   "expiring-items",
+  // Salespersons (doc 37, T10)
+  "sales-by-salesperson",
+  "sales-orders-by-salesperson",
 ] as const;
 
 export type ReportId = (typeof REPORT_IDS)[number];
@@ -263,6 +267,16 @@ export const REPORTS: Record<ReportId, ReportDefinition> = {
     category: "Inventory",
     asOf: true,
   },
+  "sales-by-salesperson": {
+    title: "Sales by salesperson",
+    category: "Trading",
+    parties: true,
+  },
+  "sales-orders-by-salesperson": {
+    title: "Sales orders by salesperson",
+    category: "Orders",
+    parties: true,
+  },
 };
 
 export interface ReportRequest {
@@ -306,6 +320,8 @@ export interface ReportDocument {
 }
 export type ReportBooks = Books & {
   firm: Firm;
+  /** Salespersons for the salesperson reports (doc 37, T10). */
+  salespersons?: Salesperson[];
   /** Edit log for the audit trail report; the API loads it only for that report. */
   auditLog?: AuditEntry[];
   /** The reader may see each change's IP address and device. */

@@ -53,6 +53,7 @@ import {
   exclusiveRate,
   inclusiveRate,
   type BillDiscountInput,
+  carriesSalesperson,
 } from "@repo/core";
 import {
   AmountField,
@@ -118,6 +119,7 @@ import {
   type LineDraft,
 } from "./invoiceDraft";
 import { InvoiceExtras } from "./InvoiceExtras";
+import { useSalespersons } from "@/data/catalogHooks";
 
 /** Bills, plus estimates and orders (same form, no payment and no posting). */
 export type InvoiceKind = "sale" | "purchase" | OrderType;
@@ -205,6 +207,7 @@ const TEXT = {
 type Paid = "none" | "partial" | "full";
 /** Picker choice that clears a line's lot so stock is taken oldest first. */
 const AUTO_LOT = "__auto__";
+const NO_SALESPERSON = "__none__";
 
 export function InvoiceForm({
   kind,
@@ -354,7 +357,37 @@ export function InvoiceForm({
   const [paidText, setPaidText] = useState("");
   const [mode, setMode] = useState<PaymentMode>("cash");
   const [bankId, setBankId] = useState("");
-  const [picker, setPicker] = useState<"party" | "item" | "bank" | null>(null);
+  const [picker, setPicker] = useState<
+    "party" | "item" | "bank" | "salesperson" | null
+  >(null);
+  // Salesperson (doc 37, T10): the saved one, else the one made from, else
+  // the logged-in member's own salesperson on a new entry.
+  const withSalesperson = carriesSalesperson(kind);
+  const salespersons = useSalespersons();
+  const [salespersonId, setSalespersonId] = useState<string | undefined>(
+    prefill?.salespersonId,
+  );
+  const [salespersonTouched, setSalespersonTouched] = useState(false);
+  const mySalesperson = salespersons.data?.mine ?? undefined;
+  useEffect(() => {
+    if (
+      withSalesperson &&
+      !editing &&
+      !salespersonTouched &&
+      !source?.salespersonId &&
+      mySalesperson
+    )
+      setSalespersonId(mySalesperson);
+  }, [withSalesperson, editing, salespersonTouched, source, mySalesperson]);
+  const salespersonOptions = (salespersons.data?.rows ?? []).filter(
+    (s) => s.active || s.id === salespersonId,
+  );
+  const salespersonName = salespersons.data?.rows.find(
+    (s) => s.id === salespersonId,
+  )?.name;
+  const salespersonInput = withSalesperson
+    ? { salespersonId: salespersonId ?? (editing ? null : undefined) }
+    : {};
   const [showErrors, setShowErrors] = useState(false);
 
   const party = parties.data?.find((r) => r.party.id === partyId);
@@ -670,6 +703,7 @@ export function InvoiceForm({
     }
     const base = {
       ...(side === "sale" ? associates : {}),
+      ...salespersonInput,
       partyId,
       date,
       bookScope:
@@ -723,6 +757,7 @@ export function InvoiceForm({
             billDiscount,
             sourceId: source?.id,
             ...associates,
+            ...salespersonInput,
             customFields: customValues,
           },
           createOrder.mutateAsync,
@@ -881,6 +916,14 @@ export function InvoiceForm({
         onChange={setCustomValues}
       />
       <AttachmentPicker {...attachments} />
+      {withSalesperson && salespersonOptions.length > 0 ? (
+        <SelectField
+          label="Salesperson"
+          value={salespersonName}
+          placeholder="No salesperson"
+          onPress={() => setPicker("salesperson")}
+        />
+      ) : null}
       {side === "sale" ? (
         <InvoiceAssociates
           value={associates}
@@ -1537,6 +1580,29 @@ export function InvoiceForm({
             }`,
             right: <Money value={r.item[text.priceKey]} variant="small" />,
           }))}
+      />
+      <PickerSheet
+        visible={picker === "salesperson"}
+        title="Salesperson"
+        onClose={() => setPicker(null)}
+        onSelect={(id) => {
+          setSalespersonTouched(true);
+          setSalespersonId(id === NO_SALESPERSON ? undefined : id);
+          setPicker(null);
+        }}
+        options={[
+          { id: NO_SALESPERSON, title: "No salesperson" },
+          ...salespersonOptions.map((s) => ({
+            id: s.id,
+            title: s.name,
+            subtitle: [
+              s.id === mySalesperson ? "You" : "",
+              s.active ? "" : "Switched off",
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          })),
+        ]}
       />
       <PickerSheet
         visible={picker === "bank"}

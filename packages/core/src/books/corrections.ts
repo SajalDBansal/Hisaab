@@ -1,5 +1,6 @@
 /** Corrections: cancelling, editing and moving bills, and returns (credit / debit notes). */
 import { storedCustomValues } from "../customFields";
+import { savedSalesperson } from "../catalog";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
@@ -443,6 +444,12 @@ export function updateInvoice(
       `${formatINR(settled)} is already settled against this bill; the new total can't be less.`,
     );
   const before = structuredClone(v);
+  const salespersonId = savedSalesperson(
+    db.salespersons,
+    v.type,
+    input.salespersonId,
+    v.salespersonId,
+  );
   assertLotsAvailable(
     db.items,
     [...stockForInvoice(db, input, v.id), { ...v, date, lines }],
@@ -461,6 +468,7 @@ export function updateInvoice(
       v.type === "purchase" ? input.supplierInvoiceNo : undefined,
     amount,
     narration: input.narration,
+    salespersonId,
     // A form that doesn't send custom values leaves them as they were.
     customFields:
       input.customFields === undefined

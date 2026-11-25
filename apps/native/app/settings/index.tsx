@@ -167,6 +167,13 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
         needs: "team",
       },
       {
+        title: "Salespersons",
+        note: "Who sold it: on bills, orders and reports",
+        icon: "users",
+        href: "/settings/salespersons",
+        needs: "settings",
+      },
+      {
         title: "Credit control",
         note: "What overdue bills do to a new sale",
         icon: "alert-octagon",
