@@ -2,6 +2,8 @@
 import type { CustomAccount } from "../accounting/accounts";
 import type { OpeningAccount } from "../accounting/generalLedger";
 import type { CustomFieldDef } from "../customFields";
+import type { Salesperson } from "../catalog";
+import type { PriceList } from "../priceLists";
 import type { OverdueSalesPolicy } from "../accounting/creditControl";
 import type { StockPolicy } from "../accounting/stockPolicy";
 import { financialYear } from "../dates";
@@ -27,6 +29,10 @@ import type {
 
 export interface Db {
   accounts?: CustomAccount[];
+  /** The firm's salespersons (doc 37, T10); loaded wherever sales are saved. */
+  salespersons?: Salesperson[];
+  /** Sale and purchase price lists (doc 37, T36). */
+  priceLists?: PriceList[];
   /** The firm's custom field definitions (doc 37, T07); loaded where values are saved. */
   customFieldDefs?: CustomFieldDef[];
   /** Logo and signature printed on documents (doc 37, T16); data:image URIs. */

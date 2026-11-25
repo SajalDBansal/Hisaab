@@ -1,6 +1,8 @@
 import {
   IdParams,
   ItemInput,
+  MakeVariantsInput,
+  MadeVariants,
   ItemListParams,
   ItemRow,
   ItemDetail,
@@ -151,6 +153,32 @@ export async function itemRoutes(app: FastifyInstance, options: { db: Db }) {
         req.body,
         req.firm.role,
       ),
+  );
+
+  // Item variants (doc 37, T35)
+  typed.post(
+    "/items/:id/variants",
+    {
+      preHandler: writeItems,
+      schema: {
+        params: IdParams,
+        body: MakeVariantsInput,
+        response: { 201: MadeVariants },
+      },
+    },
+    async (req, reply) =>
+      reply
+        .code(201)
+        .send(
+          await itemsService.makeVariants(
+            db,
+            req.firm.id,
+            req.params.id,
+            expectedVersion(req.headers["if-match"]),
+            req.body.attributes,
+            req.firm.role,
+          ),
+        ),
   );
 
   typed.delete(

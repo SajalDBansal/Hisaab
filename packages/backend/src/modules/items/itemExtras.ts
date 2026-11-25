@@ -1,6 +1,9 @@
 import type { Item } from "@repo/core";
 
 type ExtrasRow = {
+  variantAttributes?: { name: string; values: string[] }[] | null;
+  parentId?: string | null;
+  variantValues?: { name: string; value: string }[] | null;
   kind: "goods" | "service";
   notForSale: boolean;
   tags: string[];
@@ -13,7 +16,23 @@ type ExtrasRow = {
  */
 export const itemExtras = (
   row: ExtrasRow,
-): Pick<Item, "kind" | "notForSale" | "tags" | "maxStock"> => ({
+): Pick<
+  Item,
+  | "kind"
+  | "notForSale"
+  | "tags"
+  | "maxStock"
+  | "variantAttributes"
+  | "parentId"
+  | "variantValues"
+> => ({
+  ...(row.variantAttributes?.length
+    ? { variantAttributes: row.variantAttributes }
+    : {}),
+  ...(row.parentId ? { parentId: row.parentId } : {}),
+  ...(row.parentId && row.variantValues?.length
+    ? { variantValues: row.variantValues }
+    : {}),
   ...(row.kind === "service" ? { kind: "service" as const } : {}),
   ...(row.notForSale ? { notForSale: true } : {}),
   ...(row.tags?.length ? { tags: [...row.tags] } : {}),

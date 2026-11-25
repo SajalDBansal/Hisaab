@@ -27,6 +27,10 @@ export function firmStatutory(p: StatutoryColumns): FirmStatutory {
 }
 
 /** A supplier's MSME class and Udyam number (doc 37, T30), when it has them. */
+/** A party's price list (doc 37, T36), absent when it has none. */
+export const partyPricing = (r: { priceListId: string | null }) =>
+  r.priceListId ? { priceListId: r.priceListId } : {};
+
 export function partyMsme(r: {
   msmeType: MsmeType | null;
   udyamNumber: string | null;

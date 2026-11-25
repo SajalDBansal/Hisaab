@@ -73,6 +73,8 @@ export const backupTables = {
   customRoles: schema.customRoles,
   recurringSchedules: schema.recurringSchedules,
   pendingEntries: schema.pendingEntries,
+  salespersons: schema.salespersons,
+  priceLists: schema.priceLists,
 } satisfies Record<TableName, unknown>;
 const tables = backupTables;
 

@@ -167,6 +167,8 @@ export interface Party {
   msmeType?: MsmeType;
   /** The supplier's Udyam registration number, when known. */
   udyamNumber?: string;
+  /** Price list for this party's bills (doc 37, T36); missing = the firm default. */
+  priceListId?: ID;
 }
 
 /** What the party form sends when adding or editing a party. */
@@ -179,7 +181,10 @@ export type PartyInput = Omit<
   | "openingBills"
   | "msmeType"
   | "udyamNumber"
+  | "priceListId"
 > & {
+  /** Left out = keep the stored one (older apps); null = none. */
+  priceListId?: ID | null;
   /** Left out = keep what is stored (older apps); null = not an MSME. */
   msmeType?: MsmeType | null;
   udyamNumber?: string | null;
@@ -220,8 +225,24 @@ export interface AltUnit {
 /** Goods carry stock; services (SAC code in `hsn`) never do (doc 37, T39). */
 export type ItemKind = "goods" | "service";
 
+/** A variant attribute on a parent item (doc 37, T35), e.g. Size: S, M, L. */
+export interface VariantAttribute {
+  name: string;
+  values: string[];
+}
+/** One attribute value of a variant item, e.g. { name: "Size", value: "M" }. */
+export interface VariantValue {
+  name: string;
+  value: string;
+}
+
 export interface Item {
   version?: number;
+  /** Variant parents (doc 37, T35): the attributes its variants are made from. */
+  variantAttributes?: VariantAttribute[];
+  /** Variant items: the parent they were made from, and their attribute values. */
+  parentId?: ID;
+  variantValues?: VariantValue[];
   /** Missing on older items = goods. */
   kind?: ItemKind;
   /** Hidden from the sale item picker; can still be bought (doc 37, T39). */
@@ -461,6 +482,8 @@ export interface RetailDetails {
 }
 
 export interface Voucher {
+  /** Sales, estimates, proformas, sales orders and challans (doc 37, T10). */
+  salespersonId?: ID;
   /** Retail sales only (doc 37, T02); missing on every other voucher. */
   retail?: RetailDetails;
   /** The user who made it (for roles limited to their own records, doc 37). */
@@ -592,6 +615,8 @@ export interface TdsDeduction {
 
 /** A new sale or purchase invoice. */
 export interface NewInvoiceInput {
+  /** Sales only (doc 37, T10). On an edit, undefined keeps it and null clears it. */
+  salespersonId?: ID | null;
   customFields?: CustomFieldValues;
   creditOverrideId?: ID;
   delivery?: { associateId: ID; reference: string } | null;
@@ -731,6 +756,8 @@ export type Role = "owner" | "accountant" | "sales" | "viewer" | `r_${string}`;
 
 export interface TeamMember {
   id: ID;
+  /** The member's login; in the demo the member id is the login id. */
+  userId?: ID;
   name: string;
   phone: string;
   email?: string;
@@ -827,6 +854,8 @@ export interface NewContraInput {
 
 /** Estimate, sales order, delivery note or purchase order. */
 export interface NewOrderInput {
+  /** Customer-side orders only (doc 37, T10). */
+  salespersonId?: ID | null;
   customFields?: CustomFieldValues;
   delivery?: { associateId: ID; reference: string } | null;
   commission?: { associateId: ID; rate?: number } | null;

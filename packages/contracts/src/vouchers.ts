@@ -190,6 +190,8 @@ export const TdsDeduction = z.object({
 /** New sale or purchase. `paidNow` is saved as a linked receipt / payment. */
 export const NewInvoiceInput = z.object({
   ...InvoiceAssociatesInput.shape,
+  /** Sales only (doc 37, T10); on an edit, left out keeps it and null clears it. */
+  salespersonId: Id.nullable().optional(),
   creditOverrideId: Id.optional(),
   bookScope: BookScope.optional(),
   partyId: PartyId,
@@ -306,6 +308,8 @@ export const NewContraInput = z
 /** Estimate, sales order, delivery note or purchase order (the type is in the URL). */
 export const NewOrderInput = z.object({
   ...InvoiceAssociatesInput.shape,
+  /** Customer-side orders only (doc 37, T10). */
+  salespersonId: Id.nullable().optional(),
   partyId: PartyId,
   date: IsoDate,
   lines: z.array(InputInvoiceLine).min(1, "Add at least one item."),
@@ -384,6 +388,8 @@ export const VoucherSnapshot = z.object({
 });
 
 export const Voucher = z.object({
+  /** Sales and customer-side orders (doc 37, T10). */
+  salespersonId: Id.optional(),
   /** Retail bills only (doc 37, T02). */
   retail: RetailDetails.optional(),
   customFields: CustomFieldValues.optional(),

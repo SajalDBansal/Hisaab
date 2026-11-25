@@ -1,6 +1,8 @@
 /** Corrections: cancelling, editing and moving bills, and returns (credit / debit notes). */
 import { storedCustomValues } from "../customFields";
 import { challanMovesStock } from "../accounting/challans";
+import { savedSalesperson } from "../catalog";
+import { assertNoVariantParents } from "../variants";
 import { voucherChanges } from "../accounting/audit";
 import { bookScopeOf } from "../accounting/bookScope";
 import { modeBlocker, saleDocFor, voucherMode } from "../accounting/gstMode";
@@ -346,6 +348,7 @@ export function updateInvoice(
     checkSupplierInvoice(db.vouchers, { ...input, date }, id);
   const blocker = editBlocker(db, v) ?? dateChangeBlocker(db, v, date);
   if (blocker) throw new Error(blocker);
+  assertNoVariantParents(db.items, input.lines);
   const settled = settlementsOf(db, id).reduce((s, x) => s + x.amount, 0);
   if (input.partyId !== v.partyId && settled > 0)
     throw new Error(
@@ -444,6 +447,12 @@ export function updateInvoice(
       `${formatINR(settled)} is already settled against this bill; the new total can't be less.`,
     );
   const before = structuredClone(v);
+  const salespersonId = savedSalesperson(
+    db.salespersons,
+    v.type,
+    input.salespersonId,
+    v.salespersonId,
+  );
   assertLotsAvailable(
     db.items,
     [...stockForInvoice(db, input, v.id), { ...v, date, lines }],
@@ -462,6 +471,7 @@ export function updateInvoice(
       v.type === "purchase" ? input.supplierInvoiceNo : undefined,
     amount,
     narration: input.narration,
+    salespersonId,
     // A form that doesn't send custom values leaves them as they were.
     customFields:
       input.customFields === undefined

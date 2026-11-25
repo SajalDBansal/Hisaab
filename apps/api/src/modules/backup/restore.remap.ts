@@ -187,7 +187,19 @@ export function remapBooks(source: FirmExportData, name: string) {
   }
   for (const row of data.openingAccounts)
     row.account = ids.account(row.account);
+  // A restored firm has no members yet: salespersons lose their login link.
+  for (const row of data.salespersons ?? []) row.userId = null;
+  // Price lists (doc 37, T36): item rates and the parties' lists.
+  for (const row of data.priceLists ?? [])
+    for (const rate of row.rates) rate.itemId = ids.id(rate.itemId);
+  for (const row of data.parties)
+    if (row.priceListId) row.priceListId = ids.id(row.priceListId);
+  // Variants (doc 37, T35): parents are inserted before their variants.
+  for (const row of data.items)
+    if (row.parentId) row.parentId = ids.id(row.parentId);
+  data.items.sort((a, b) => Number(!!a.parentId) - Number(!!b.parentId));
   for (const row of data.vouchers) {
+    if (row.salespersonId) row.salespersonId = ids.id(row.salespersonId);
     for (const key of [
       "partyId",
       "ledgerId",

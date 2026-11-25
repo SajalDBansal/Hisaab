@@ -51,6 +51,8 @@ import { settingsRoutes } from "./modules/settings/settings.routes";
 import { securityRoutes } from "./modules/settings/security.routes";
 import { auditRoutes } from "./modules/settings/audit.routes";
 import { customFieldRoutes } from "./modules/customFields/customFields.routes";
+import { salespersonRoutes } from "./modules/catalog/salespersons.routes";
+import { priceListRoutes } from "./modules/catalog/priceLists.routes";
 import { roleRoutes } from "./modules/roles/roles.routes";
 import { recurringRoutes } from "./modules/recurring/recurring.routes";
 import { bookControlRoutes } from "./modules/settings/bookControls";
@@ -204,6 +206,8 @@ export async function buildApp({
   await app.register(securityRoutes, { db, prefix: "/v1" });
   await app.register(auditRoutes, { db, prefix: "/v1" });
   await app.register(customFieldRoutes, { db, prefix: "/v1" });
+  await app.register(salespersonRoutes, { db, prefix: "/v1" });
+  await app.register(priceListRoutes, { db, prefix: "/v1" });
   await app.register(roleRoutes, { db, prefix: "/v1" });
   await app.register(recurringRoutes, { db, prefix: "/v1" });
   await app.register(bookControlRoutes, { db, prefix: "/v1" });

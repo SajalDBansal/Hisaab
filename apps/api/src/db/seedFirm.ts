@@ -150,6 +150,10 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
           batchNumber: i.batch?.number ?? null,
           batchExpiry: i.batch?.expiry ?? null,
           ...itemExtraColumns(i),
+          // Item variants (doc 37, T35): parents come before their variants.
+          variantAttributes: i.variantAttributes ?? null,
+          parentId: ids.optional(i.parentId),
+          variantValues: i.variantValues ?? null,
         })),
       );
 
@@ -159,6 +163,18 @@ export async function insertFirm(db: Db, source: MockDb, ownerId: string) {
           firmId,
           account: ids.accountKey(o.account),
           amount: o.amount,
+        })),
+      );
+
+    // Salespersons (doc 37, T10); demo logins don't exist here, so none is linked.
+    if (source.salespersons?.length)
+      await tx.insert(schema.salespersons).values(
+        source.salespersons.map((s) => ({
+          id: ids.newId(s.id),
+          firmId,
+          name: s.name,
+          phone: s.phone ?? "",
+          active: s.active,
         })),
       );
 
@@ -244,6 +260,7 @@ async function insertVouchers(
     tdsSection: v.tds?.section ?? null,
     tdsRate: v.tds?.rate ?? null,
     tdsAmount: v.tds?.amount ?? 0,
+    salespersonId: ids.optional(v.salespersonId),
     createdBy: ownerId,
     createdAt: at(v.createdAt) ?? new Date(),
   }));

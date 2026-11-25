@@ -8,6 +8,7 @@
  * functions the app uses (createSale, createReceipt …), so totals, GST,
  * numbering and bill allocation are always consistent.
  */
+import { makeVariants } from "../variants";
 import { autoAllocate, partyBalance, partyBills } from "../accounting/bills";
 import { acc } from "../accounting/accounts";
 import { calcTds } from "../accounting/tds";
@@ -1253,6 +1254,73 @@ export function buildSeed(asOf: string = today()): Db {
     v.clearedOn = addDays(v.date, 1 + (i % 2));
   });
   db.remindedOn = { c1: daysAgo(2) };
+
+  // Item variants (doc 37, T35): a T-shirt in three sizes and two colours,
+  // ten of each bought three weeks ago.
+  db.items.push({
+    id: "i_tshirt",
+    name: "Cotton T-Shirt",
+    code: "TSHIRT",
+    hsn: "6109",
+    group: "Garments",
+    taxType: "taxable",
+    gstRate: 5,
+    unit: "Nos",
+    purchasePrice: 25000,
+    salePrice: 39900,
+    mrp: 49900,
+    reorderLevel: 0,
+    openingStock: 0,
+  });
+  const shirts = makeVariants(db, "i_tshirt", [
+    { name: "Size", values: ["S", "M", "L"] },
+    { name: "Colour", values: ["White", "Black"] },
+  ]).created;
+  createPurchase(db, {
+    partyId: "s1",
+    date: daysAgo(21),
+    lines: shirts.map((c) => ({
+      itemId: c.id,
+      qty: 10,
+      rate: c.purchasePrice,
+      gstRate: c.gstRate,
+    })),
+    charges: [],
+    supplierInvoiceNo: "JW/TS-118",
+  });
+
+  // Salespersons (doc 37, T10): Ravi (the sales login) and a field salesman
+  // without a login, on some of the sales and sales orders.
+  db.salespersons = [
+    {
+      id: "sp1",
+      name: "Ravi Kumar",
+      userId: "u3",
+      phone: "9719088234",
+      active: true,
+      version: 1,
+    },
+    { id: "sp2", name: "Anil Sharma", active: true, version: 1 },
+  ];
+  // Price lists (doc 37, T36): wholesale customers 5% below the sale price.
+  db.priceLists = [
+    {
+      id: "pl1",
+      name: "Wholesale",
+      side: "sale",
+      mode: "percent",
+      percent: -5,
+      rates: [],
+      isDefault: false,
+      active: true,
+      version: 1,
+    },
+  ];
+  db.vouchers
+    .filter((v) => v.type === "sale" || v.type === "sales-order")
+    .forEach((v, i) => {
+      if (i % 3 < 2) v.salespersonId = i % 3 === 0 ? "sp1" : "sp2";
+    });
 
   return db;
 }

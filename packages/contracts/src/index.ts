@@ -36,3 +36,4 @@ export * from "./live";
 export * from "./tradeRates";
 export * from "./listPages";
 export * from "./replica";
+export * from "./catalog";

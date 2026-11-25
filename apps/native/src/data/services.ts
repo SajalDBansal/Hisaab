@@ -70,6 +70,7 @@ export const demoServices = {
   settingsService: demo.settingsService,
   unitService: demo.unitService,
   customFieldService: demo.customFieldService,
+  catalogService: demo.catalogService,
   printService: demo.printService,
   searchService: demo.searchService,
   notificationService: {

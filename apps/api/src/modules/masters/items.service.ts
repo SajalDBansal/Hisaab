@@ -8,9 +8,14 @@ import {
   type CustomFieldValues,
   type Item,
   type Role,
+  type VariantAttribute,
+  checkVariantAttributes,
+  cleanVariantAttributes,
+  missingVariants,
+  variantItem,
 } from "@repo/core";
 import { loadCustomFieldDefs } from "@repo/backend/modules/customFields/customFields.repo";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
 import { schema, type Db } from "@repo/backend/db/client";
 import { AppError } from "@repo/backend/lib/app-error";
@@ -302,6 +307,107 @@ export const itemsService = {
       const row = await itemsRepo.get(db, firmId, id);
       if (!row) throw notFound("item");
       return toItemRow(row);
+    });
+  },
+
+  /**
+   * Item variants (doc 37, T35): set the parent's attributes and add a variant
+   * item for each new combination. An item becomes a parent only before it has
+   * stock or entries; attributes then stay and values can only be added.
+   */
+  async makeVariants(
+    db: Db,
+    firmId: string,
+    id: string,
+    version: number,
+    attributes: VariantAttribute[],
+    role: Role,
+  ) {
+    return db.transaction(async (db) => {
+      await db.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${firmId}, 0))`,
+      );
+      const current = await itemsRepo.get(db, firmId, id);
+      if (!current) throw notFound("item");
+      if (current.version !== version) throw editedElsewhere("item");
+      if (current.parentId)
+        throw new AppError(
+          "VARIANT_OF_VARIANT",
+          "A variant can't have variants of its own.",
+          409,
+        );
+      const clean = cleanVariantAttributes(attributes);
+      const problem = checkVariantAttributes(
+        clean,
+        current.variantAttributes ?? undefined,
+      );
+      if (problem)
+        throw invalidFields({ attributes: problem }) ?? notFound("item");
+      if (
+        !current.variantAttributes?.length &&
+        (current.openingStock > 0 ||
+          (await itemsRepo.hasEntries(db, firmId, id)))
+      )
+        throw new AppError(
+          "ITEM_IN_USE",
+          "This item already has stock or entries; make a new item for the variants.",
+          409,
+        );
+      const children = await db
+        .select({ variantValues: schema.items.variantValues })
+        .from(schema.items)
+        .where(
+          and(
+            eq(schema.items.firmId, firmId),
+            eq(schema.items.parentId, id),
+            isNull(schema.items.deletedAt),
+          ),
+        );
+      const parent = toItemRow(current);
+      const createdIds: string[] = [];
+      for (const values of missingVariants(
+        clean,
+        children.map((c) => ({ variantValues: c.variantValues ?? undefined })),
+      )) {
+        const {
+          parentId: _p,
+          variantValues: _v,
+          ...fields
+        } = variantItem(parent, values);
+        const item = await validated(db, firmId, costsForRole(role, fields));
+        const childId = uuidv7();
+        try {
+          await itemsRepo.insert(db, {
+            id: childId,
+            firmId,
+            ...columnsOf(item),
+            openingCost: item.purchasePrice,
+            openingBookScope: current.openingBookScope,
+            parentId: id,
+            variantValues: values,
+          });
+        } catch (err) {
+          if (isUniqueViolation(err)) throw duplicate();
+          throw err;
+        }
+        createdIds.push(childId);
+      }
+      if (
+        !(await itemsRepo.update(db, firmId, id, version, {
+          variantAttributes: clean,
+          openingStock: 0,
+        }))
+      )
+        throw editedElsewhere("item");
+      const rows = await Promise.all(
+        [id, ...createdIds].map((rowId) => itemsRepo.get(db, firmId, rowId)),
+      );
+      const [saved, ...made] = rows.map((row) => {
+        if (!row) throw notFound("item");
+        return toItemRow(row);
+      });
+      if (!saved) throw notFound("item");
+      return { parent: saved, created: made };
     });
   },
 

@@ -161,6 +161,8 @@ export const BackupRows = {
     // MSME suppliers (doc 37, T30); optional in version 5 files made before it.
     msmeType: MsmeType.nullable().optional(),
     udyamNumber: Text.nullable().optional(),
+    // Price list (doc 37, T36); older version 5 files have none.
+    priceListId: Id.nullable().optional(),
   }),
   items: z.strictObject({
     ...row,
@@ -191,6 +193,18 @@ export const BackupRows = {
     notForSale: z.boolean().default(false),
     tags: z.array(Text).max(10).default([]),
     maxStock: Quantity.nullable().default(null),
+    // Item variants (doc 37, T35); older version 5 files have none.
+    parentId: Id.nullable().optional(),
+    variantAttributes: z
+      .array(z.strictObject({ name: Text, values: z.array(Text).max(20) }))
+      .max(3)
+      .nullable()
+      .optional(),
+    variantValues: z
+      .array(z.strictObject({ name: Text, value: Text }))
+      .max(3)
+      .nullable()
+      .optional(),
   }),
   units: z.strictObject({
     ...firm,
@@ -284,6 +298,8 @@ export const BackupRows = {
       .nullable()
       .default(null),
     challanStock: z.boolean().nullable().default(null),
+    // Salesperson (doc 37, T10); older version 5 files have none.
+    salespersonId: Id.nullable().optional(),
   }),
   voucherLines: z.strictObject({
     ...entry,
@@ -452,6 +468,35 @@ export const BackupRows = {
     description: Text,
     rights: RoleRights,
   }),
+  // Salespersons (doc 37, T10). The linked login is not carried into a restored firm.
+  salespersons: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    userId: Id.nullable(),
+    phone: Text,
+    active: z.boolean(),
+  }),
+  // Price lists (doc 37, T36).
+  priceLists: z.strictObject({
+    ...row,
+    ...stamps,
+    name: Text,
+    side: z.enum(["sale", "purchase"]),
+    mode: z.enum(["percent", "rates"]),
+    percent: z.number().min(-100).max(1000).nullable(),
+    rates: z
+      .array(
+        z.strictObject({
+          itemId: Id,
+          rate: Paise,
+          unit: Text.optional(),
+        }),
+      )
+      .max(5000),
+    isDefault: z.boolean(),
+    active: z.boolean(),
+  }),
   customFields: z.strictObject({
     ...row,
     ...stamps,
@@ -575,6 +620,10 @@ export const FirmExportData = z.strictObject({
   approvalControls: BackupRows.approvalControls.nullable().optional(),
   recurringSchedules: rows(BackupRows.recurringSchedules).optional(),
   pendingEntries: rows(BackupRows.pendingEntries).optional(),
+  // Optional: version 5 files made before salespersons have none.
+  salespersons: rows(BackupRows.salespersons).optional(),
+  // Optional: version 5 files made before price lists have none.
+  priceLists: rows(BackupRows.priceLists).optional(),
 });
 export type FirmExportData = z.infer<typeof FirmExportData>;
 

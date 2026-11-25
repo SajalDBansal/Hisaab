@@ -2,6 +2,8 @@
  * Add or edit a customer / supplier.
  * GSTIN fills the state; the state decides CGST + SGST or IGST on bills.
  */
+import { usePriceLists } from "@/data/catalogHooks";
+import { priceListSideOf, priceListSummary } from "@repo/core";
 import { router } from "expo-router";
 import { backOrReplace } from "@/navigation";
 import { useState } from "react";
@@ -51,6 +53,8 @@ import { space } from "@/theme";
 import { useGstMode } from "@/data/gstMode";
 
 const CREDIT_DAYS = [0, 7, 15, 30, 45, 60];
+
+const NO_LIST = "__none__";
 
 export function PartyForm({
   party,
@@ -102,6 +106,16 @@ export function PartyForm({
   );
   const [udyam, setUdyam] = useState(party?.udyamNumber ?? "");
   const [pickState, setPickState] = useState(false);
+  // Price list (doc 37, T36): "" = the firm default for this side.
+  const priceLists = usePriceLists();
+  const [priceListId, setPriceListId] = useState(party?.priceListId ?? "");
+  const [pickList, setPickList] = useState(false);
+  const listSide = priceListSideOf(type);
+  const sideLists = (priceLists.data ?? []).filter(
+    (l) => l.side === listSide && (l.active || l.id === priceListId),
+  );
+  const chosenList = sideLists.find((l) => l.id === priceListId);
+  const defaultList = sideLists.find((l) => l.active && l.isDefault);
   const customDefs = useCustomFields().data;
   const [customValues, setCustomValues] = useState<CustomFieldValues>(
     party?.customFields ?? {},
@@ -126,6 +140,9 @@ export function PartyForm({
     creditLimit: parseRupees(limitText) ?? 0,
     openingBalance: openingSide === "get" ? opening : -opening,
     customFields: customValues,
+    ...(priceLists.data
+      ? { priceListId: chosenList ? chosenList.id : null }
+      : {}),
     ...(type === "supplier"
       ? {
           msmeType: msmeType || null,
@@ -307,6 +324,39 @@ export function PartyForm({
           error={err("creditLimit")}
         />
       </Card>
+
+      {sideLists.length > 0 ? (
+        <SelectField
+          label={`${listSide === "sale" ? "Sale" : "Purchase"} price list`}
+          value={chosenList?.name}
+          placeholder={
+            defaultList ? `Firm default (${defaultList.name})` : "Item prices"
+          }
+          onPress={() => setPickList(true)}
+        />
+      ) : null}
+      <PickerSheet
+        visible={pickList}
+        title="Price list"
+        onClose={() => setPickList(false)}
+        onSelect={(id) => {
+          setPriceListId(id === NO_LIST ? "" : id);
+          setPickList(false);
+        }}
+        options={[
+          {
+            id: NO_LIST,
+            title: defaultList
+              ? `Firm default (${defaultList.name})`
+              : "Item prices",
+          },
+          ...sideLists.map((l) => ({
+            id: l.id,
+            title: l.name,
+            subtitle: priceListSummary(l),
+          })),
+        ]}
+      />
 
       {type === "supplier" ? (
         <Card style={{ gap: space.md }}>

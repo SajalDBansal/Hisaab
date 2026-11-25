@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams, type Href } from "expo-router";
+import { useSalespersons } from "@/data/catalogHooks";
 import { useState } from "react";
 import { View } from "react-native";
 import { CancelSheet } from "@/forms/CancelSheet";
@@ -147,6 +148,12 @@ export default function VoucherScreen() {
 
 function VoucherBody({ d }: { d: VoucherDetail }) {
   const v = d.voucher;
+  // Salesperson (doc 37, T10)
+  const salespersons = useSalespersons();
+  const salesperson = v.salespersonId
+    ? (salespersons.data?.rows.find((s) => s.id === v.salespersonId)?.name ??
+      "")
+    : "";
   const { role } = useData();
   const customDefs = useCustomFields().data;
   const canWrite = canManageVoucher(role, v.type);
@@ -409,6 +416,11 @@ function VoucherBody({ d }: { d: VoucherDetail }) {
         {v.supplierInvoiceNo ? (
           <Txt variant="small" tone="body">
             Supplier invoice <Txt variant="mono">{v.supplierInvoiceNo}</Txt>
+          </Txt>
+        ) : null}
+        {salesperson ? (
+          <Txt variant="small" tone="body">
+            Salesperson {salesperson}
           </Txt>
         ) : null}
         <Money

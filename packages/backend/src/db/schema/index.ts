@@ -17,3 +17,4 @@ export * from "../../modules/imports/imports.schema";
 export * from "./backupState";
 export * from "./customFields";
 export * from "./recurring";
+export * from "./catalog";

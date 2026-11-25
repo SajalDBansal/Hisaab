@@ -1,4 +1,8 @@
-import { firmStatutory, partyMsme } from "../../lib/business-profile";
+import {
+  firmStatutory,
+  partyMsme,
+  partyPricing,
+} from "../../lib/business-profile";
 import {
   counterKeyOf,
   type MockDb,
@@ -12,6 +16,7 @@ import { hydrateOrderFulfillment } from "../order-fulfillment/orderFulfillment.r
 import { hydrateSettlementVouchers } from "../settlements/settlements.shared";
 import { loadOpeningBills } from "../imports/imports.opening-bills";
 import { loadCustomFieldDefs } from "../customFields/customFields.repo";
+import { loadSalespersons } from "../catalog/catalog.repo";
 import { itemExtras } from "../items/itemExtras";
 import { loadSalesControls } from "../salesControls/salesControls.repo";
 import { importedOpeningBillId } from "@repo/core/src/accounting/openingImport";
@@ -178,6 +183,7 @@ export async function hydrateVouchers(
           }
         : undefined,
       retail: undef(r.retail),
+      salespersonId: undef(r.salespersonId),
       billDiscount: r.billDiscountAmount
         ? {
             percent: undef(r.billDiscountPercent),
@@ -378,6 +384,7 @@ export async function loadBooks(
       openingBills: partyOpeningBills.get(r.id),
       customFields: undef(r.customFields),
       ...partyMsme(r),
+      ...partyPricing(r),
     })),
     items: itemRows.map((r) => ({
       id: r.id,
@@ -419,6 +426,7 @@ export async function loadBooks(
     openingAccounts: [],
     counters: { ...counters },
     customFieldDefs: await loadCustomFieldDefs(db, firmId),
+    salespersons: await loadSalespersons(db, firmId),
     // Stock control applies to new sales (doc 37, T37).
     salesControls: await loadSalesControls(db, firmId),
     invoiceSettings: {
